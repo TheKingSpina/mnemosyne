@@ -1,0 +1,33 @@
+# Local agent/runtime data
+.ori/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# Node tooling
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Logs and temporary files
+*.log
+tmp/
+.DS_Store
+
+# Local databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+backups/
+data/
+volumes/
+
+# Generated evaluation output
+evals/results/
