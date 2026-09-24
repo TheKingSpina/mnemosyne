@@ -562,6 +562,15 @@ export const retentionRunOutputSchema = z.object({
 });
 export type RetentionRunOutput = z.infer<typeof retentionRunOutputSchema>;
 
+export const sessionConsolidationOutputSchema = z.object({
+  sessionId: z.string().min(1),
+  sourceEventCount: z.number().int().nonnegative(),
+  candidateCount: z.number().int().nonnegative(),
+  conflictCount: z.number().int().nonnegative(),
+  acceptedMemories: z.literal(0),
+});
+export type SessionConsolidationOutput = z.infer<typeof sessionConsolidationOutputSchema>;
+
 export const adminCapabilitiesOutputSchema = z.object({
   extraction: z.object({
     localExtractor: z.boolean(),

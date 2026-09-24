@@ -20,6 +20,10 @@ const workerId = process.env.WORKER_ID ?? `${hostname()}:${process.pid}:${random
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
 const service = new CoreMemoryService(repository, { forgetSecret });
 const extractor = createExtractor();
+const retentionIntervalMs = integerOption(
+  process.env.WORKER_RETENTION_INTERVAL_MS ?? '86400000',
+  60_000,
+);
 const worker = new ExtractionWorker({
   repository,
   service,
@@ -38,9 +42,14 @@ process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGTERM', () => stop('SIGTERM'));
 
 process.stdout.write(`Mnemosyne extraction worker ${workerId} started\n`);
+let nextRetentionRun = Date.now() + retentionIntervalMs;
 while (!stopping) {
   try {
     const result = await worker.runOnce();
+    if (retentionIntervalMs > 0 && Date.now() >= nextRetentionRun) {
+      await service.runRetention();
+      nextRetentionRun = Date.now() + retentionIntervalMs;
+    }
     if (!result) await delay(pollIntervalMs);
   } catch (error) {
     const code = error instanceof Error ? error.message : 'unknown_worker_error';

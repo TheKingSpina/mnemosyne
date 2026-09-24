@@ -23,6 +23,7 @@ The first vertical slice provides:
 - an owner-only canonical corpus export with no-store download semantics;
 - an owner-triggered balanced retention policy with persistent last-run status;
 - a guarded empty-database restore path that re-applies the forget ledger;
+- a conservative session-consolidation job and scheduled balanced retention in the worker;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).

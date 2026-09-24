@@ -38,6 +38,7 @@ import type {
   RetentionStatusOutput,
   Scope,
   SearchMemoriesInput,
+  SessionConsolidationOutput,
 } from '@mnemosyne/contracts';
 
 export interface SessionRecord {
@@ -138,6 +139,7 @@ export interface MemoryService {
   listJobAttempts(jobId: string): Promise<ListJobAttemptsOutput>;
   getRetentionStatus(): Promise<RetentionStatusOutput>;
   runRetention(): Promise<RetentionRunOutput>;
+  consolidateSession(sessionId: string): Promise<SessionConsolidationOutput>;
   listScopesForSession(sessionId: string): Promise<Scope[]>;
   getCorpusRevision(): Promise<string>;
 }

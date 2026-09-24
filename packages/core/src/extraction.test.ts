@@ -56,7 +56,7 @@ describe('ExtractionWorker', () => {
     });
     const job = await service.getJob(events.jobIds[0]);
 
-    expect(result?.candidates).toHaveLength(1);
+    expect(result && 'candidates' in result ? result.candidates : []).toHaveLength(1);
     expect(candidates.items).toHaveLength(1);
     expect(candidates.items[0]?.content).toBe('Il progetto usa pnpm');
     expect(job?.status).toBe('succeeded');
@@ -237,5 +237,63 @@ describe('ExtractionWorker', () => {
 
     expect(renewed.leaseOwner).toBe('owner-worker');
     expect(renewed.leaseExpiresAt).toBe('2026-01-20T10:00:02.000Z');
+  });
+
+  it('consolidates a closed session without accepting candidates', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+    const session = await service.openSession({ projectId: 'worker-project' });
+    await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'worker-consolidation-event',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: false,
+        },
+      ],
+    });
+    const proposal = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'observed',
+        assessment: 'uncontested',
+        confidence: 0.9,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['worker-consolidation-event'],
+      },
+      { actor: 'harness', explicitDirective: false },
+    );
+    const closed = await service.closeSession(session.sessionId);
+    const worker = new ExtractionWorker({
+      repository,
+      service,
+      workerId: 'consolidation-worker',
+      extractor: { extract: async () => ({ candidates: [] }) },
+    });
+
+    await worker.runOnce();
+    const result = await worker.runOnce();
+
+    expect(result).toEqual({
+      sessionId: session.sessionId,
+      sourceEventCount: 1,
+      candidateCount: 1,
+      conflictCount: 0,
+      acceptedMemories: 0,
+    });
+    expect((await service.getJob(closed.jobId))?.status).toBe('succeeded');
+    expect((await service.getMemoryAdminView(proposal.memoryId!))?.memory.lifecycle).toBe(
+      'pending_approval',
+    );
   });
 });

@@ -45,6 +45,7 @@ import {
   type ReviewProposalOutput,
   type RetentionRunOutput,
   type RetentionStatusOutput,
+  type SessionConsolidationOutput,
   type Scope,
   type SearchMemoriesInput,
 } from '@mnemosyne/contracts';
@@ -623,6 +624,30 @@ export class CoreMemoryService implements MemoryService {
       completedAt: completedAt.toISOString(),
       cutoffs,
       deleted,
+    };
+  }
+
+  async consolidateSession(sessionId: string): Promise<SessionConsolidationOutput> {
+    const session = await this.repository.findSession(sessionId);
+    if (!session) throw new Error('session_not_found');
+    if (session.status !== 'closed') throw new Error('session_not_closed');
+    const events = await this.repository.listEvents(sessionId);
+    const eventIds = new Set(events.map((event) => event.id));
+    const candidates = (await this.repository.listMemoryViews()).filter(
+      (memory) =>
+        memory.record.lifecycle === 'pending_approval' &&
+        memory.current.sourceEventIds.some((eventId) => eventIds.has(eventId)),
+    );
+    const candidateIds = new Set(candidates.map((memory) => memory.record.id));
+    const conflicts = (await this.repository.listAllConflicts()).filter((conflict) =>
+      conflict.memoryIds.some((memoryId) => candidateIds.has(memoryId)),
+    );
+    return {
+      sessionId,
+      sourceEventCount: events.length,
+      candidateCount: candidates.length,
+      conflictCount: conflicts.length,
+      acceptedMemories: 0,
     };
   }
 

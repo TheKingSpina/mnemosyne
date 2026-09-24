@@ -3,6 +3,7 @@ import type {
   ExtractionResult,
   ProposeMemoryInput,
   Scope,
+  SessionConsolidationOutput,
 } from '@mnemosyne/contracts';
 import { extractionResultSchema } from '@mnemosyne/contracts';
 import { containsSecret } from './policy.js';
@@ -11,6 +12,8 @@ import type { EventRecord, MemoryRepository, MemoryService, SessionRecord } from
 export interface Extractor {
   extract(input: { session: SessionRecord; events: EventRecord[] }): Promise<unknown>;
 }
+
+export type WorkerRunResult = ExtractionResult | SessionConsolidationOutput;
 
 export interface ExtractionWorkerOptions {
   repository: MemoryRepository;
@@ -56,9 +59,12 @@ export class ExtractionWorker {
       throw new Error('extraction_heartbeat_invalid');
   }
 
-  async runOnce(): Promise<ExtractionResult | null> {
+  async runOnce(): Promise<WorkerRunResult | null> {
     const job = await this.options.repository.claimNextJob(this.options.workerId, this.leaseMs);
     if (!job) return null;
+    if (job.operation === 'session_consolidation') {
+      return this.runConsolidation(job.id, job.sessionId);
+    }
     if (job.operation !== 'memory_extraction') {
       await this.options.repository.updateJob(job.id, 'succeeded', this.options.workerId);
       return { candidates: [] };
@@ -127,6 +133,76 @@ export class ExtractionWorker {
         );
       }
       return { candidates: [] };
+    } finally {
+      clearInterval(heartbeat);
+    }
+  }
+
+  private async runConsolidation(
+    jobId: string,
+    sessionId: string,
+  ): Promise<SessionConsolidationOutput> {
+    const previousAttempts = await this.options.repository.listJobAttempts(jobId);
+    if (previousAttempts.items.length >= this.maxAttempts) {
+      await this.options.repository.updateJob(jobId, 'failed', this.options.workerId);
+      return {
+        sessionId,
+        sourceEventCount: 0,
+        candidateCount: 0,
+        conflictCount: 0,
+        acceptedMemories: 0,
+      };
+    }
+    const attemptNumber = previousAttempts.items.length + 1;
+    const attempt = await this.options.repository.createJobAttempt(
+      { jobId, attempt: attemptNumber, status: 'running' },
+      this.options.workerId,
+    );
+    const heartbeat = setInterval(() => {
+      void this.options.repository
+        .renewJobLease(jobId, this.options.workerId, this.leaseMs)
+        .catch(() => undefined);
+    }, this.heartbeatMs);
+    heartbeat.unref();
+    try {
+      const result = await this.options.service.consolidateSession(sessionId);
+      await this.options.repository.finishJobAttempt(
+        attempt.id,
+        'succeeded',
+        this.options.workerId,
+      );
+      await this.options.repository.updateJob(jobId, 'succeeded', this.options.workerId);
+      return result;
+    } catch (error) {
+      const errorCode = error instanceof Error ? error.message : 'consolidation_failed';
+      const retryable = this.isRetryable(errorCode);
+      await this.options.repository.finishJobAttempt(
+        attempt.id,
+        retryable ? 'failed' : 'quarantined',
+        this.options.workerId,
+        errorCode,
+      );
+      if (retryable && attemptNumber < this.maxAttempts) {
+        const availableAt = Date.now() + this.backoffMs * 2 ** (attemptNumber - 1);
+        await this.options.repository.retryJob(
+          jobId,
+          this.options.workerId,
+          new Date(availableAt).toISOString(),
+        );
+      } else {
+        await this.options.repository.updateJob(
+          jobId,
+          retryable ? 'failed' : 'quarantined',
+          this.options.workerId,
+        );
+      }
+      return {
+        sessionId,
+        sourceEventCount: 0,
+        candidateCount: 0,
+        conflictCount: 0,
+        acceptedMemories: 0,
+      };
     } finally {
       clearInterval(heartbeat);
     }
