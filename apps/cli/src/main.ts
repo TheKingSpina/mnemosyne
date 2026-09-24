@@ -21,6 +21,10 @@ const ownerToken = option('token') ?? process.env.MNEMOSYNE_OWNER_TOKEN;
 if (!ownerToken) throw new Error('MNEMOSYNE_OWNER_TOKEN or --token is required');
 
 const [command, ...args] = process.argv.slice(2);
+if (args.includes('--help') || args.includes('-h')) {
+  printHelp();
+  process.exit(0);
+}
 try {
   await run(command ?? 'help', args);
 } catch (error) {
