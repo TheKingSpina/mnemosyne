@@ -45,9 +45,7 @@ export class OpenRouterExtractor implements Extractor {
 
   async extract(input: { session: SessionRecord; events: EventRecord[] }): Promise<unknown> {
     const eligibleEvents = input.events.filter(
-      (event) =>
-        (event.explicitMemoryRequest || event.role === 'assistant') &&
-        !containsSecret(event.content),
+      (event) => event.explicitMemoryRequest || event.role === 'assistant',
     );
     if (eligibleEvents.length === 0) return extractionResultSchema.parse({ candidates: [] });
     const response = await this.request({ session: input.session, events: eligibleEvents });
@@ -112,7 +110,9 @@ export class OpenRouterExtractor implements Extractor {
                 events: input.events.map((event) => ({
                   id: event.id,
                   role: event.role,
-                  content: event.content,
+                  content: containsSecret(event.content)
+                    ? '[redacted-secret-like-content]'
+                    : event.content,
                   explicitMemoryRequest: event.explicitMemoryRequest,
                 })),
               }),

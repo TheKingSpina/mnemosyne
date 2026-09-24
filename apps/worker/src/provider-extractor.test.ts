@@ -128,8 +128,10 @@ describe('OpenRouterExtractor', () => {
     ).rejects.toThrow();
   });
 
-  it('does not send secret-like events to the provider', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+  it('redacts secret-like events before sending them to the provider', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(providerResponse(JSON.stringify({ candidates: [] })));
     const result = extractionResultSchema.parse(
       await createExtractor(fetchImpl).extract({
         session,
@@ -143,8 +145,12 @@ describe('OpenRouterExtractor', () => {
       }),
     );
 
+    const request = fetchImpl.mock.calls[0];
+    const body = request?.[1]?.body as string;
+
     expect(result.candidates).toEqual([]);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(body).not.toContain('sk-12345678901234567890');
+    expect(body).toContain('[redacted-secret-like-content]');
   });
 
   it('maps provider HTTP failures to retryable and non-retryable error codes', async () => {
