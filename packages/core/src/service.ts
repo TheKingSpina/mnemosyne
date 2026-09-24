@@ -12,6 +12,7 @@ import {
   searchMemoriesInputSchema,
   listAdminJobsInputSchema,
   listAdminSessionsInputSchema,
+  memoryRevisionSchema,
   type ContextInput,
   type ContextOutput,
   type AdminMemoriesOutput,
@@ -49,7 +50,7 @@ import {
   type Scope,
   type SearchMemoriesInput,
 } from '@mnemosyne/contracts';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
@@ -292,12 +293,25 @@ export class CoreMemoryService implements MemoryService {
     const validated = searchMemoriesInputSchema.parse(input);
     const session = await this.repository.findSession(validated.sessionId);
     if (!session) throw new Error('session_not_found');
-    const revision = await this.repository.getCorpusRevision();
-    const cacheKey = this.corpusCacheKey('search', validated.sessionId, validated.query);
-    const cached = await this.cachedCorpusResult(cacheKey, revision);
-    if (cached) return cached as MemoryRevision[];
     const scopes = await this.listScopesForSession(validated.sessionId);
     const memories = await this.repository.listCurrentMemories();
+    const revision = await this.repository.getCorpusRevision();
+    const cacheKey = this.corpusCacheKey('search', {
+      sessionId: validated.sessionId,
+      query: validated.query,
+      scope: validated.scope,
+      offset: validated.offset,
+      limit: validated.limit,
+    });
+    const cached = await this.cachedCorpusResult(cacheKey, revision);
+    if (cached) {
+      const canonical = new Map(memories.map((memory) => [memory.memoryId, memory]));
+      const revalidated = cached
+        .map((memory) => canonical.get(memory.memoryId))
+        .filter((memory): memory is MemoryRevision => memory !== undefined)
+        .map((memory) => memory);
+      if (revalidated.length === cached.length) return revalidated;
+    }
     const terms = validated.query.toLocaleLowerCase().split(/\s+/u).filter(Boolean);
     const eligible = memories
       .filter((memory) => scopes.some((scope) => this.matchesScope(memory.scope, scope)))
@@ -342,7 +356,7 @@ export class CoreMemoryService implements MemoryService {
       );
     const selected: MemoryRevision[] = [];
     let usedTokens = 0;
-    for (const { memory } of candidates) {
+    for (const { memory } of relevantCandidates) {
       const tokens = estimateMemoryTokens(memory);
       if (usedTokens + tokens <= validated.budgetTokens) {
         selected.push(memory);
@@ -745,23 +759,24 @@ export class CoreMemoryService implements MemoryService {
     }
   }
 
-  private corpusCacheKey(kind: string, sessionId: string, query: string): string {
-    const digest = createHmac('sha256', 'corpus-cache')
-      .update(`${sessionId}:${query}`)
-      .digest('base64url');
+  private corpusCacheKey(kind: string, value: unknown): string {
+    const digest = createHash('sha256').update(this.stableCacheValue(value)).digest('base64url');
     return `mnemosyne:${kind}:${digest}`;
   }
 
-  private async cachedCorpusResult(key: string, revision: CorpusRevision): Promise<unknown> {
+  private async cachedCorpusResult(
+    key: string,
+    revision: CorpusRevision,
+  ): Promise<MemoryRevision[] | null> {
     const cache = this.options.corpusCache;
     if (!cache) return null;
     try {
       const value = await cache.get(key);
       if (value === null) return null;
       const parsed = JSON.parse(value) as { revision?: unknown; result?: unknown };
-      return parsed.revision === `${revision.epoch}:${revision.revision}`
-        ? (parsed.result ?? null)
-        : null;
+      if (parsed.revision !== `${revision.epoch}:${revision.revision}`) return null;
+      const result = memoryRevisionSchema.array().safeParse(parsed.result);
+      return result.success ? result.data : null;
     } catch {
       return null;
     }
@@ -783,6 +798,17 @@ export class CoreMemoryService implements MemoryService {
     } catch {
       return;
     }
+  }
+
+  private stableCacheValue(value: unknown): string {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+    if (Array.isArray(value))
+      return `[${value.map((item) => this.stableCacheValue(item)).join(',')}]`;
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${this.stableCacheValue(record[key])}`)
+      .join(',')}}`;
   }
 
   private validateRestoreExport(value: CorpusExport): void {
