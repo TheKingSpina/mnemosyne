@@ -203,16 +203,6 @@ export class InMemoryRepository implements MemoryRepository {
       .filter((revision): revision is MemoryRevision => revision !== undefined);
   }
 
-  async listAllMemoryViews(): Promise<MemoryWithCurrent[]> {
-    return this.listMemoryViews();
-  }
-
-  async listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>> {
-    return [...this.revisions.entries()].flatMap(([memoryId, versions]) =>
-      [...versions.values()].map((revision) => ({ memoryId, revision })),
-    );
-  }
-
   async listAllEvents(): Promise<EventRecord[]> {
     return [...this.events.values()].sort(
       (left, right) =>

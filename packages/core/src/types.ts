@@ -157,8 +157,6 @@ export interface MemoryRepository {
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
-  listAllMemoryViews(): Promise<MemoryWithCurrent[]>;
-  listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>>;
   listAllEvents(): Promise<EventRecord[]>;
   listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>>;
   listPendingMemories(): Promise<MemoryRecord[]>;
