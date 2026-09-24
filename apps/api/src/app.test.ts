@@ -235,7 +235,7 @@ describe('Mnemosyne API authorization', () => {
     expect(await response.json()).toEqual({
       extraction: { localExtractor: true, openRouterConfigured: false },
       projections: { redis: false, neo4j: false, semanticSearch: false },
-      operations: { backupVerified: false, retentionManaged: false, exportAvailable: false },
+      operations: { backupVerified: false, retentionManaged: false, exportAvailable: true },
     });
   });
 

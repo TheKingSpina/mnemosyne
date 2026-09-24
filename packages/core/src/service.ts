@@ -91,7 +91,7 @@ export class CoreMemoryService implements MemoryService {
       operations: {
         backupVerified: false,
         retentionManaged: false,
-        exportAvailable: false,
+        exportAvailable: true,
       },
     };
   }

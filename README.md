@@ -19,6 +19,7 @@ The first vertical slice provides:
 - an MCP server over `stdio` and Streamable HTTP with bearer authentication;
 - a local owner web console for overview, search, review, history, conflicts, and context preview;
 - a recoverable extraction worker with leases, retries, and quarantine;
+- an owner-only canonical corpus export with no-store download semantics;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).

@@ -509,7 +509,7 @@ export const adminCapabilitiesOutputSchema = z.object({
   operations: z.object({
     backupVerified: z.literal(false),
     retentionManaged: z.literal(false),
-    exportAvailable: z.literal(false),
+    exportAvailable: z.literal(true),
   }),
 });
 export type AdminCapabilitiesOutput = z.infer<typeof adminCapabilitiesOutputSchema>;

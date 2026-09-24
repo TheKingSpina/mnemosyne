@@ -306,6 +306,9 @@
         <div class="panel" style="margin-top: 14px">
           <h2>Capacità del servizio</h2>
           <div id="capabilities-state" class="sub">—</div>
+          <div class="row-actions" style="margin-top: 10px">
+            <button class="button" id="export-corpus">Esporta corpus</button>
+          </div>
         </div>
       </section>
       <section id="memories" class="view hidden">
@@ -720,6 +723,27 @@
           });
           showMessage('Conflitto risolto.');
           loadConflicts();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('export-corpus').onclick = async () => {
+        try {
+          const response = await fetch(`${apiOrigin()}/v1/admin/exports/corpus`, {
+            headers: token() ? { authorization: `Bearer ${token()}` } : {},
+          });
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data?.title || data?.message || `HTTP ${response.status}`);
+          }
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = 'mnemosyne-corpus-export.json';
+          anchor.click();
+          URL.revokeObjectURL(url);
+          showMessage('Export del corpus completato.');
         } catch (error) {
           showMessage(error.message, true);
         }
