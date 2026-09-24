@@ -117,6 +117,9 @@
       .cards {
         grid-template-columns: repeat(5, 1fr);
       }
+      .cards.jobs {
+        grid-template-columns: repeat(5, 1fr);
+      }
       .two {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -242,6 +245,9 @@
         border-color: var(--bad);
         color: var(--bad);
       }
+      .job-panel {
+        margin-top: 14px;
+      }
       @media (max-width: 900px) {
         .cards,
         .two,
@@ -266,6 +272,7 @@
         <button data-view="memories">Memorie</button>
         <button data-view="review">Revisione</button>
         <button data-view="conflicts">Conflitti</button>
+        <button data-view="jobs">Job</button>
         <button data-view="context">Contesto</button>
       </nav>
     </header>
@@ -383,6 +390,43 @@
           <div id="conflict-empty" class="empty hidden">Nessun conflitto registrato.</div>
         </div>
       </section>
+      <section id="jobs" class="view hidden">
+        <div class="panel">
+          <div class="toolbar">
+            <select id="job-status">
+              <option value="">Tutti gli stati</option>
+              <option value="queued">Queued</option>
+              <option value="running">Running</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="failed">Failed</option>
+              <option value="quarantined">Quarantined</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <button class="button" id="job-refresh">Aggiorna job</button>
+          </div>
+          <div id="job-empty" class="empty hidden">Nessun job trovato.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Operazione</th>
+                  <th>Stato</th>
+                  <th>Sessione</th>
+                  <th>Lease / retry</th>
+                  <th>Aggiornato</th>
+                </tr>
+              </thead>
+              <tbody id="job-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel job-panel">
+          <h2>Tentativi del job selezionato</h2>
+          <div id="job-attempt-empty" class="empty">Seleziona un job per vedere i tentativi.</div>
+          <div id="job-attempts" class="table-wrap"></div>
+        </div>
+      </section>
       <section id="context" class="view hidden">
         <div class="panel form-grid">
           <h2>Anteprima contesto</h2>
@@ -405,7 +449,13 @@
       </section>
     </main>
     <script>
-      const state = { view: 'overview', overview: null, memories: [], selected: null };
+      const state = {
+        view: 'overview',
+        overview: null,
+        memories: [],
+        selected: null,
+        selectedJob: null,
+      };
       const $ = (id) => document.getElementById(id);
       const apiOrigin = () => $('api-origin').value.trim().replace(/\/$/, '') || '/api/backend';
       const token = () => $('owner-token').value.trim();
@@ -463,11 +513,13 @@
           memories: 'Esplora memorie',
           review: 'Coda di revisione',
           conflicts: 'Conflitti',
+          jobs: 'Job e tentativi',
           context: 'Composizione contesto',
         }[view];
         if (view === 'overview') loadOverview();
         if (view === 'memories') loadMemories();
         if (view === 'conflicts') loadConflicts();
+        if (view === 'jobs') loadJobs();
       };
       const loadOverview = async () => {
         try {
@@ -634,6 +686,83 @@
           showMessage(error.message, true);
         }
       };
+      const loadJobs = async () => {
+        try {
+          const params = new URLSearchParams({ limit: '100' });
+          const status = $('job-status').value;
+          if (status) params.set('status', status);
+          const data = await request(`/v1/admin/jobs?${params}`);
+          $('job-rows').replaceChildren(
+            ...data.items.map((job) => {
+              const row = document.createElement('tr');
+              row.className = 'clickable';
+              row.onclick = () => showJobAttempts(job);
+              const lease = job.leaseOwner
+                ? `${job.leaseOwner} · ${formatDate(job.leaseExpiresAt)}`
+                : job.availableAt
+                  ? `Disponibile ${formatDate(job.availableAt)}`
+                  : '—';
+              row.append(
+                td(job.id),
+                td(job.operation),
+                td(job.status, job.status === 'quarantined' ? 'bad' : lifecycleClass(job.status)),
+                td(job.sessionId),
+                td(lease),
+                td(formatDate(job.updatedAt)),
+              );
+              return row;
+            }),
+          );
+          $('job-empty').classList.toggle('hidden', data.items.length > 0);
+          if (state.selectedJob && !data.items.some((job) => job.id === state.selectedJob)) {
+            state.selectedJob = null;
+            $('job-attempts').replaceChildren();
+            $('job-attempt-empty').textContent = 'Seleziona un job per vedere i tentativi.';
+            $('job-attempt-empty').classList.remove('hidden');
+          }
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const showJobAttempts = async (job) => {
+        try {
+          state.selectedJob = job.id;
+          const data = await request(`/v1/admin/jobs/${encodeURIComponent(job.id)}/attempts`);
+          $('job-attempt-empty').classList.toggle('hidden', data.items.length > 0);
+          $('job-attempts').replaceChildren();
+          if (data.items.length === 0) {
+            $('job-attempt-empty').textContent = 'Nessun tentativo registrato.';
+            return;
+          }
+          const table = document.createElement('table');
+          const header = document.createElement('thead');
+          const headerRow = document.createElement('tr');
+          for (const label of ['Tentativo', 'Worker', 'Stato', 'Errore', 'Aggiornato']) {
+            const cell = document.createElement('th');
+            cell.textContent = label;
+            headerRow.append(cell);
+          }
+          header.append(headerRow);
+          const body = document.createElement('tbody');
+          for (const attempt of data.items) {
+            const row = document.createElement('tr');
+            row.append(
+              td(attempt.attempt),
+              td(attempt.workerId),
+              td(attempt.status, lifecycleClass(attempt.status)),
+              td(attempt.errorCode || '—'),
+              td(formatDate(attempt.updatedAt)),
+            );
+            body.append(row);
+          }
+          table.append(header, body);
+          $('job-attempts').append(table);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
       const loadReview = async () => {
         try {
           const sessionId = $('review-session').value.trim();
@@ -684,6 +813,7 @@
       $('owner-token').value = sessionStorage.getItem('mnemosyne-owner-token') || '';
       $('api-origin').value = sessionStorage.getItem('mnemosyne-api-origin') || '/api/backend';
       $('memory-search').onclick = loadMemories;
+      $('job-refresh').onclick = loadJobs;
       $('review-load').onclick = loadReview;
       $('context-resolve').onclick = async () => {
         try {
