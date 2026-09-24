@@ -25,6 +25,10 @@ if (args.includes('--help') || args.includes('-h')) {
   printHelp();
   process.exit(0);
 }
+if (command === undefined || command === 'help') {
+  printHelp();
+  process.exit(0);
+}
 try {
   await run(command ?? 'help', args);
 } catch (error) {
@@ -127,10 +131,6 @@ async function run(name: string, args: string[]): Promise<void> {
     await writeFile(destination, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
     await chmod(destination, 0o600);
     process.stdout.write(`Export scritto in ${destination}\n`);
-    return;
-  }
-  if (name === 'help') {
-    printHelp();
     return;
   }
   throw new Error(`unknown_command:${name}`);
