@@ -216,7 +216,12 @@ async function runLifecycle() {
     !finalExport.memories.some((memory) => memory.current.memoryId === second.memory.memoryId),
   );
   assert(finalExport.forgetLedger.length === 1);
-  return { export: finalExport, firstId: first.memory.memoryId, secondId: second.memory.memoryId };
+  return {
+    export: finalExport,
+    sourceCorpusRevision: finalExport.corpusRevision,
+    firstId: first.memory.memoryId,
+    secondId: second.memory.memoryId,
+  };
 }
 
 async function restoreAndVerify(lifecycle) {
@@ -227,6 +232,8 @@ async function restoreAndVerify(lifecycle) {
     body: lifecycle.export,
   });
   assert(restored.restored.forgetLedger === 1);
+  assert(restored.corpusRevision !== lifecycle.sourceCorpusRevision);
+  assert(restored.corpusRevision.endsWith(':1'));
   const first = await api(`/v1/memories/${encodeURIComponent(lifecycle.firstId)}`, {
     token: harnessToken,
   });
@@ -236,6 +243,13 @@ async function restoreAndVerify(lifecycle) {
     status: 404,
   });
   assert(second.code === 'memory_not_found');
+  const feedback = await api(
+    `/v1/memories/feedback?${new URLSearchParams({ memoryId: lifecycle.firstId })}`,
+    { token: ownerToken },
+  );
+  const retention = await api('/v1/admin/retention', { token: ownerToken });
+  assert(feedback.items.length === 0);
+  assert(retention.lastRunAt === undefined);
 }
 
 async function review(pending, key) {

@@ -143,6 +143,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     );
     try {
       await client.query('BEGIN');
+      await client.query('DELETE FROM corpus_outbox');
+      await client.query('DELETE FROM memory_feedback');
       for (const session of input.sessions) {
         await client.query(
           `INSERT INTO sessions (id, project_id, area_ids, task_title, sequence, status, created_at, closed_at)
@@ -237,6 +239,16 @@ export class PostgresMemoryRepository implements MemoryRepository {
           entry.forgottenAt,
         ]);
       }
+      await client.query(
+        `UPDATE corpus_state
+         SET epoch = gen_random_uuid(), revision = 1, updated_at = now()
+         WHERE id = 'default'`,
+      );
+      await client.query(
+        `UPDATE retention_state
+         SET last_run_at = NULL, updated_at = now()
+         WHERE id = 'default'`,
+      );
       await client.query('COMMIT');
       return {
         restored: {

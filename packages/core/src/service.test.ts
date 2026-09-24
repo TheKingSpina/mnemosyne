@@ -823,7 +823,9 @@ describe('CoreMemoryService', () => {
       forgetSecret: 'a-secure-test-secret-that-is-long-enough',
     });
 
+    const beforeRestore = await targetService.getCorpusRevision();
     const result = await targetService.restoreCorpus(protectedExport);
+    const afterRestore = await targetService.getCorpusRevision();
     const restored = await targetService.listAdminMemories({ q: '', limit: 100, offset: 0 });
 
     expect(result.skipped).toEqual({
@@ -835,6 +837,8 @@ describe('CoreMemoryService', () => {
     expect((await targetService.getMemory(retained.memoryId!))?.content).toBe(
       'Memoria da ripristinare',
     );
+    expect(afterRestore).not.toBe(beforeRestore);
+    expect(afterRestore.endsWith(':1')).toBe(true);
   });
 
   it('uses the semantic index when available and removes forgotten entries', async () => {

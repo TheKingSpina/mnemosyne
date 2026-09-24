@@ -214,9 +214,10 @@ current revision and its source identifiers remain in the canonical export.
 
 Restore is deliberately destructive and owner-only. It accepts a canonical
 export only when the target corpus is empty, validates referential relationships,
-restores the forget ledger, and skips any memory, revision, or conflict belonging
-to a forgotten memory. It is a controlled migration/import path, not yet a
-production backup-and-restore guarantee.
+restores the forget ledger, rotates the corpus epoch, resets retention state,
+clears derived feedback/outbox/cache state, and skips any memory, revision, or
+conflict belonging to a forgotten memory. It is a controlled migration/import
+path, not yet a production backup-and-restore guarantee.
 
 ## MCP
 

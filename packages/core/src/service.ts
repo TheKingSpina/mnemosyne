@@ -179,6 +179,11 @@ export class CoreMemoryService implements MemoryService {
       jobAttempts: validated.jobAttempts,
       forgetLedger: [...forgetLedger].map(([memoryId, forgottenAt]) => ({ memoryId, forgottenAt })),
     });
+    try {
+      await this.options.corpusCache?.clear();
+    } catch {
+      // The cache is derived; the rotated corpus epoch makes residual entries unusable.
+    }
     return {
       sourceCorpusRevision: validated.corpusRevision,
       corpusRevision: await this.getCorpusRevision(),

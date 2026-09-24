@@ -45,7 +45,7 @@ export class InMemoryRepository implements MemoryRepository {
   private nextOutboxId = 1;
   private readonly feedback = new Map<string, MemoryFeedbackOutput[]>();
   private corpusRevision: bigint = 1n;
-  private readonly corpusEpoch = randomUUID();
+  private corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
 
   async restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts> {
@@ -92,7 +92,12 @@ export class InMemoryRepository implements MemoryRepository {
     }
     for (const entry of input.forgetLedger)
       this.forgetLedger.set(entry.memoryId, entry.forgottenAt);
+    this.outbox = [];
+    this.nextOutboxId = 1;
+    this.feedback.clear();
     this.corpusRevision = 1n;
+    this.corpusEpoch = randomUUID();
+    this.retentionState = {};
     return {
       restored: {
         sessions: input.sessions.length,
