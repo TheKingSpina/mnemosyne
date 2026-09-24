@@ -100,7 +100,9 @@ The owner web console is available in Compose at `http://127.0.0.1:8080` by defa
 
 Redis is a rebuildable derived cache. If it is unavailable, retrieval continues
 from PostgreSQL and lexical/semantic fallback; cached search results are accepted
-only when their corpus revision still matches the authoritative store.
+only when their corpus revision still matches the authoritative store. A
+confirmed forget also purges the application-scoped `mnemosyne:*` cache
+namespace, while a cache outage never blocks the authoritative tombstone.
 
 Neo4j is also derived. The worker consumes the PostgreSQL outbox, projects
 accepted memories, scopes, conflicts, and forget events, and can rebuild the
