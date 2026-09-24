@@ -214,6 +214,10 @@ async function handleAuthorizedRequest(
     sendJson(response, 200, await service.getAdminOverview());
     return;
   }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/capabilities') {
+    sendJson(response, 200, await service.getAdminCapabilities());
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/sessions') {
     const input = listAdminSessionsInputSchema.parse({
       projectId: url.searchParams.get('projectId') || undefined,

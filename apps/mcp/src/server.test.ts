@@ -52,6 +52,7 @@ describe('Mnemosyne MCP tool profiles', () => {
     expect(tools.map((tool) => tool.name)).toEqual(
       expect.arrayContaining(['memory_list_conflicts', 'memory_resolve_conflict']),
     );
+    expect(tools.map((tool) => tool.name)).toContain('memory_admin_capabilities');
   });
 
   it('resolves a conflict through the owner MCP tool', async () => {

@@ -224,6 +224,21 @@ describe('Mnemosyne API authorization', () => {
     expect(detailBody.revisions.map((revision) => revision.version)).toEqual([2, 1]);
   });
 
+  it('reports missing operations and projections to the owner', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+    const response = await fetch(`${baseUrl}/v1/admin/capabilities`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      extraction: { localExtractor: true, openRouterConfigured: false },
+      projections: { redis: false, neo4j: false, semanticSearch: false },
+      operations: { backupVerified: false, retentionManaged: false, exportAvailable: false },
+    });
+  });
+
   it('filters owner memories by exact scope identifier', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

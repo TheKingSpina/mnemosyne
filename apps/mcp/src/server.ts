@@ -143,6 +143,16 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
     );
 
     server.registerTool(
+      'memory_admin_capabilities',
+      {
+        description: 'Read implemented and missing service capabilities.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(await authorized(profile, 'proposal.review', () => service.getAdminCapabilities())),
+    );
+
+    server.registerTool(
       'memory_admin_memories',
       {
         description: 'List owner memory views with lifecycle, kind, and scope filters.',

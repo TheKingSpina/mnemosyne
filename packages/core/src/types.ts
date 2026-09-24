@@ -8,6 +8,7 @@ import type {
   ListJobAttemptsOutput,
   AdminMemoriesOutput,
   AdminOverviewOutput,
+  AdminCapabilitiesOutput,
   ConflictListOutput,
   ConflictType,
   CorrectMemoryInput,
@@ -105,6 +106,7 @@ export interface ProposalContext {
 }
 
 export interface MemoryService {
+  getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
   openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
   recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;

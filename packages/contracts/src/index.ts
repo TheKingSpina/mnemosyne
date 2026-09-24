@@ -445,4 +445,22 @@ export const contextOutputSchema = z.object({
 });
 export type ContextOutput = z.infer<typeof contextOutputSchema>;
 
+export const adminCapabilitiesOutputSchema = z.object({
+  extraction: z.object({
+    localExtractor: z.boolean(),
+    openRouterConfigured: z.boolean(),
+  }),
+  projections: z.object({
+    redis: z.literal(false),
+    neo4j: z.literal(false),
+    semanticSearch: z.literal(false),
+  }),
+  operations: z.object({
+    backupVerified: z.literal(false),
+    retentionManaged: z.literal(false),
+    exportAvailable: z.literal(false),
+  }),
+});
+export type AdminCapabilitiesOutput = z.infer<typeof adminCapabilitiesOutputSchema>;
+
 export * from './openrouter.js';

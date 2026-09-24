@@ -14,6 +14,7 @@ import {
   type ContextOutput,
   type AdminMemoriesOutput,
   type AdminOverviewOutput,
+  type AdminCapabilitiesOutput,
   type ConflictListOutput,
   type CorrectMemoryInput,
   type CorrectMemoryOutput,
@@ -72,6 +73,25 @@ export class CoreMemoryService implements MemoryService {
       throw new Error('forget_secret_too_short');
     }
     this.now = options.now ?? (() => new Date());
+  }
+
+  async getAdminCapabilities(): Promise<AdminCapabilitiesOutput> {
+    return {
+      extraction: {
+        localExtractor: true,
+        openRouterConfigured: false,
+      },
+      projections: {
+        redis: false,
+        neo4j: false,
+        semanticSearch: false,
+      },
+      operations: {
+        backupVerified: false,
+        retentionManaged: false,
+        exportAvailable: false,
+      },
+    };
   }
 
   async openSession(input: OpenSessionInput): Promise<OpenSessionOutput> {

@@ -303,6 +303,10 @@
           <h2>Stato corpus</h2>
           <div id="corpus-state" class="sub"></div>
         </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Capacità del servizio</h2>
+          <div id="capabilities-state" class="sub">—</div>
+        </div>
       </section>
       <section id="memories" class="view hidden">
         <div class="panel">
@@ -542,6 +546,8 @@
             }),
           );
           $('corpus-state').textContent = `Corpus revision: ${data.corpusRevision}`;
+          const capabilities = await request('/v1/admin/capabilities');
+          $('capabilities-state').textContent = JSON.stringify(capabilities, null, 2);
           clearMessage();
         } catch (error) {
           showMessage(error.message, true);
