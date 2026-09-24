@@ -144,6 +144,43 @@ describe('ExtractionWorker', () => {
     expect(attempts.items.map((attempt) => attempt.status)).toEqual(['failed', 'failed']);
   });
 
+  it('uses the configured retry classification for provider errors', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+    const session = await service.openSession({ projectId: 'worker-project' });
+    const events = await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'worker-event-retry-config',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: false,
+        },
+      ],
+    });
+    const worker = new ExtractionWorker({
+      repository,
+      service,
+      workerId: 'test-worker',
+      maxAttempts: 2,
+      retryableErrorCodes: ['extraction_provider_truncated'],
+      extractor: {
+        extract: async () => {
+          throw new Error('extraction_provider_truncated');
+        },
+      },
+    });
+
+    await worker.runOnce();
+
+    expect((await service.getJob(events.jobIds[0]))?.status).toBe('queued');
+  });
+
   it('recovers a running job after its lease expires', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-20T10:00:00Z'));

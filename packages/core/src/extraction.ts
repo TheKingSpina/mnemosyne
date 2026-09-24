@@ -21,6 +21,7 @@ export interface ExtractionWorkerOptions {
   maxAttempts?: number;
   backoffMs?: number;
   heartbeatMs?: number;
+  retryableErrorCodes?: readonly string[];
 }
 
 export class ExtractionWorker {
@@ -28,12 +29,20 @@ export class ExtractionWorker {
   private readonly maxAttempts: number;
   private readonly backoffMs: number;
   private readonly heartbeatMs: number;
+  private readonly retryableErrorCodes: ReadonlySet<string>;
 
   constructor(private readonly options: ExtractionWorkerOptions) {
     this.leaseMs = options.leaseMs ?? 30_000;
     this.maxAttempts = options.maxAttempts ?? 3;
     this.backoffMs = options.backoffMs ?? 1_000;
     this.heartbeatMs = options.heartbeatMs ?? Math.max(250, Math.floor(this.leaseMs / 3));
+    this.retryableErrorCodes = new Set(
+      options.retryableErrorCodes ?? [
+        'extraction_provider_timeout',
+        'extraction_provider_unavailable',
+        'extraction_temporarily_unavailable',
+      ],
+    );
     if (this.leaseMs < 1_000) throw new Error('extraction_lease_too_short');
     if (!Number.isSafeInteger(this.maxAttempts) || this.maxAttempts < 1)
       throw new Error('extraction_max_attempts_invalid');
@@ -124,11 +133,7 @@ export class ExtractionWorker {
   }
 
   private isRetryable(errorCode: string): boolean {
-    return (
-      errorCode === 'extraction_provider_timeout' ||
-      errorCode === 'extraction_provider_unavailable' ||
-      errorCode === 'extraction_temporarily_unavailable'
-    );
+    return this.retryableErrorCodes.has(errorCode);
   }
 
   private filterCandidates(
