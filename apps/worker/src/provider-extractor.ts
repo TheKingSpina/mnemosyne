@@ -4,7 +4,12 @@ import {
   openRouterExtractionResultSchema,
   openRouterResponseSchema,
 } from '@mnemosyne/contracts';
-import type { EventRecord, Extractor, SessionRecord } from '@mnemosyne/core';
+import {
+  containsSecret,
+  type EventRecord,
+  type Extractor,
+  type SessionRecord,
+} from '@mnemosyne/core';
 
 export interface OpenRouterOptions {
   apiKey: string;
@@ -40,7 +45,9 @@ export class OpenRouterExtractor implements Extractor {
 
   async extract(input: { session: SessionRecord; events: EventRecord[] }): Promise<unknown> {
     const eligibleEvents = input.events.filter(
-      (event) => event.explicitMemoryRequest || event.role === 'assistant',
+      (event) =>
+        (event.explicitMemoryRequest || event.role === 'assistant') &&
+        !containsSecret(event.content),
     );
     if (eligibleEvents.length === 0) return extractionResultSchema.parse({ candidates: [] });
     const response = await this.request({ session: input.session, events: eligibleEvents });

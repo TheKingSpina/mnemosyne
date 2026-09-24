@@ -128,6 +128,25 @@ describe('OpenRouterExtractor', () => {
     ).rejects.toThrow();
   });
 
+  it('does not send secret-like events to the provider', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const result = extractionResultSchema.parse(
+      await createExtractor(fetchImpl).extract({
+        session,
+        events: [
+          {
+            ...event,
+            id: 'evt_secret',
+            content: 'Ricorda che la chiave è sk-12345678901234567890',
+          },
+        ],
+      }),
+    );
+
+    expect(result.candidates).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('maps provider HTTP failures to retryable and non-retryable error codes', async () => {
     const retryable = vi.fn<typeof fetch>().mockResolvedValue(providerResponse('{}', 503));
     const permanent = vi.fn<typeof fetch>().mockResolvedValue(providerResponse('{}', 400));
