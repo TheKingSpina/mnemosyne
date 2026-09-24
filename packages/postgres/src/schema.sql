@@ -127,7 +127,12 @@ CREATE TABLE IF NOT EXISTS forget_ledger (
 
 CREATE TABLE IF NOT EXISTS conflicts (
   id text PRIMARY KEY,
+  type text NOT NULL DEFAULT 'direct_contradiction',
   memory_ids text[] NOT NULL,
-  status text NOT NULL,
+  status text NOT NULL CHECK (status IN ('open', 'resolved')),
   detected_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS type text NOT NULL DEFAULT 'direct_contradiction';
+
+CREATE INDEX IF NOT EXISTS conflicts_memory_ids_idx ON conflicts USING gin (memory_ids);

@@ -267,6 +267,129 @@ describe('CoreMemoryService', () => {
     expect(merged?.revisions[0]?.sourceEventIds).toEqual(['event-1', 'event-2']);
   });
 
+  it('does not create a new revision when duplicate sources are already known', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const first = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'observed',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['event-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const duplicate = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['event-1'],
+    });
+    const merged = await service.getMemoryAdminView(first.memoryId!);
+
+    expect(duplicate.status).toBe('merged');
+    expect(merged?.memory.currentVersion).toBe(1);
+  });
+
+  it('records a contradiction and keeps the new candidate pending', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const accepted = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['event-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const contradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto non usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['event-2'],
+    });
+    const conflicts = await service.listConflicts();
+    const pending = await service.getMemoryAdminView(contradiction.memoryId!);
+
+    expect(contradiction).toMatchObject({
+      status: 'pending_approval',
+      reason: 'direct_contradiction',
+    });
+    expect(typeof contradiction.conflictId).toBe('string');
+    expect(conflicts.items[0]?.memoryIds).toEqual([accepted.memoryId, contradiction.memoryId]);
+    expect(pending?.memory.lifecycle).toBe('pending_approval');
+  });
+
+  it('includes a relevant open conflict in resolved context metadata', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['event-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const contradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto non usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['event-2'],
+    });
+
+    const context = await service.resolveContext({
+      sessionId: session.sessionId,
+      query: 'pnpm',
+      budgetTokens: 1_200,
+    });
+
+    expect(context.conflicts).toHaveLength(1);
+    expect(context.conflicts[0]?.id).toBe(contradiction.conflictId);
+    expect(context.conflicts[0]?.type).toBe('direct_contradiction');
+    expect(context.conflicts[0]?.memoryIds).toContain(contradiction.memoryId);
+  });
+
   it('rejects an owner directive context supplied by a harness', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });

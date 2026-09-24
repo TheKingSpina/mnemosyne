@@ -9,6 +9,7 @@ import type {
   AdminMemoriesOutput,
   AdminOverviewOutput,
   ConflictListOutput,
+  ConflictType,
   CorrectMemoryInput,
   CorrectMemoryOutput,
   ListAdminMemoriesInput,
@@ -71,6 +72,7 @@ export interface MemoryWithCurrent {
 
 export interface ConflictRecord {
   id: string;
+  type: ConflictType;
   memoryIds: string[];
   status: 'open' | 'resolved';
 }
@@ -155,6 +157,7 @@ export interface MemoryRepository {
   listRevisions(id: string): Promise<MemoryRevision[]>;
   findConflicts(memoryId: string): Promise<ConflictRecord[]>;
   listAllConflicts(): Promise<ConflictRecord[]>;
+  createConflict(memoryIds: string[], type?: ConflictRecord['type']): Promise<ConflictRecord>;
   listSessions(): Promise<SessionRecord[]>;
   listEvents(sessionId: string): Promise<EventRecord[]>;
   listJobs(sessionId?: string): Promise<JobRecord[]>;

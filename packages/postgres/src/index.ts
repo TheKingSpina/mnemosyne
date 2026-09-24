@@ -64,6 +64,12 @@ interface MemoryRevisionRow extends QueryResultRow {
   activation: MemoryRevision['activation'];
   source_event_ids: string[];
 }
+interface ConflictRow extends QueryResultRow {
+  id: string;
+  type: ConflictRecord['type'];
+  memory_ids: string[];
+  status: 'open' | 'resolved';
+}
 interface JobRow extends QueryResultRow {
   id: string;
   operation: JobRecord['operation'];
@@ -404,29 +410,64 @@ export class PostgresMemoryRepository implements MemoryRepository {
   }
 
   async findConflicts(memoryId: string): Promise<ConflictRecord[]> {
-    const result = await this.database.query<{
-      id: string;
-      memory_ids: string[];
-      status: 'open' | 'resolved';
-    }>('SELECT id, memory_ids, status FROM conflicts WHERE $1 = ANY(memory_ids)', [memoryId]);
-    return result.rows.map((row) => ({
-      id: row.id,
-      memoryIds: row.memory_ids,
-      status: row.status,
-    }));
+    const result = await this.database.query<ConflictRow>(
+      'SELECT id, type, memory_ids, status FROM conflicts WHERE $1 = ANY(memory_ids)',
+      [memoryId],
+    );
+    return result.rows.map((row) => this.conflictFromRow(row));
   }
 
   async listAllConflicts(): Promise<ConflictRecord[]> {
-    const result = await this.database.query<{
-      id: string;
-      memory_ids: string[];
-      status: 'open' | 'resolved';
-    }>('SELECT id, memory_ids, status FROM conflicts ORDER BY detected_at DESC');
-    return result.rows.map((row) => ({
-      id: row.id,
-      memoryIds: row.memory_ids,
-      status: row.status,
-    }));
+    const result = await this.database.query<ConflictRow>(
+      'SELECT id, type, memory_ids, status FROM conflicts ORDER BY detected_at DESC',
+    );
+    return result.rows.map((row) => this.conflictFromRow(row));
+  }
+
+  async createConflict(
+    memoryIds: string[],
+    type: ConflictRecord['type'] = 'direct_contradiction',
+  ): Promise<ConflictRecord> {
+    const uniqueMemoryIds = [...new Set(memoryIds)];
+    if (uniqueMemoryIds.length < 2) throw new Error('conflict_requires_two_memories');
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        uniqueMemoryIds.join('\u0000'),
+      ]);
+      const existing = await client.query<ConflictRow>(
+        `SELECT id, type, memory_ids, status
+         FROM conflicts
+         WHERE status = 'open'
+           AND type = $2
+           AND cardinality(memory_ids) = $3
+           AND memory_ids @> $1::text[]
+           AND memory_ids <@ $1::text[]
+         LIMIT 1`,
+        [uniqueMemoryIds, type, uniqueMemoryIds.length],
+      );
+      const existingRow = existing.rows[0];
+      if (existingRow) {
+        await client.query('COMMIT');
+        return this.conflictFromRow(existingRow);
+      }
+      const result = await client.query<ConflictRow>(
+        `INSERT INTO conflicts (id, type, memory_ids, status)
+         VALUES ($1, $2, $3, 'open')
+         RETURNING id, type, memory_ids, status`,
+        [`conf_${randomUUID()}`, type, uniqueMemoryIds],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error('conflict_create_failed');
+      await client.query('COMMIT');
+      return this.conflictFromRow(row);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
@@ -792,5 +833,14 @@ export class PostgresMemoryRepository implements MemoryRepository {
       id,
     ]);
     return result.rows[0] ? 'job_lease_lost' : 'job_not_found';
+  }
+
+  private conflictFromRow(row: ConflictRow): ConflictRecord {
+    return {
+      id: row.id,
+      type: row.type,
+      memoryIds: row.memory_ids,
+      status: row.status,
+    };
   }
 }

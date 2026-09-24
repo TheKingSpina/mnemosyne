@@ -42,6 +42,7 @@ import {
   type SearchMemoriesInput,
 } from '@mnemosyne/contracts';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import type {
@@ -130,16 +131,44 @@ export class CoreMemoryService implements MemoryService {
           this.normalizedContent(validated.content),
     );
     if (duplicate) {
+      const newSourceEventIds = validated.sourceEventIds.filter(
+        (eventId) => !duplicate.current.sourceEventIds.includes(eventId),
+      );
+      if (newSourceEventIds.length === 0) {
+        return {
+          status: 'merged',
+          memoryId: duplicate.record.id,
+          proposalId: duplicate.record.id,
+          reason: 'duplicate',
+        };
+      }
       await this.repository.mergeMemorySources(
         duplicate.record.id,
         duplicate.record.currentVersion,
-        validated.sourceEventIds,
+        newSourceEventIds,
       );
       return {
         status: 'merged',
         memoryId: duplicate.record.id,
         proposalId: duplicate.record.id,
         reason: 'duplicate',
+      };
+    }
+    const contradiction = (await this.repository.listMemoryViews()).find(
+      (memory) =>
+        memory.record.lifecycle === 'accepted' &&
+        areDirectlyContradictory(memory.current, validated),
+    );
+    if (contradiction) {
+      const record = await this.repository.createMemory(validated);
+      await this.repository.updateMemoryLifecycle(record.id, 'pending_approval');
+      const conflict = await this.repository.createConflict([contradiction.record.id, record.id]);
+      return {
+        status: 'pending_approval',
+        memoryId: record.id,
+        proposalId: record.id,
+        conflictId: conflict.id,
+        reason: 'direct_contradiction',
       };
     }
     const record = await this.repository.createMemory(validated);
@@ -189,9 +218,21 @@ export class CoreMemoryService implements MemoryService {
       }
     }
     const revision = await this.repository.getCorpusRevision();
+    const conflicts = await this.repository.listAllConflicts();
+    const relevantMemoryIds = new Set(candidates.map(({ memory }) => memory.memoryId));
     return {
       context: selected,
-      conflicts: [],
+      conflicts: conflicts
+        .filter(
+          (conflict) =>
+            conflict.status === 'open' &&
+            conflict.memoryIds.some((memoryId) => relevantMemoryIds.has(memoryId)),
+        )
+        .map((conflict) => ({
+          id: conflict.id,
+          type: conflict.type,
+          memoryIds: conflict.memoryIds,
+        })),
       requiredContextComplete: true,
       tokensEstimated: usedTokens,
       budgetTokens: validated.budgetTokens,

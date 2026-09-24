@@ -676,7 +676,7 @@
             ...data.items.map((conflict) => {
               const panel = document.createElement('div');
               panel.className = 'panel';
-              panel.innerHTML = `<strong>${conflict.id}</strong> <span class="tag">${conflict.status}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div>`;
+              panel.innerHTML = `<strong>${conflict.id}</strong> <span class="tag">${conflict.status}</span> <span class="tag">${conflict.type}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div>`;
               return panel;
             }),
           );

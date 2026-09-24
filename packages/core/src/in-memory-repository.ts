@@ -230,6 +230,30 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.conflicts.values()];
   }
 
+  async createConflict(
+    memoryIds: string[],
+    type: ConflictRecord['type'] = 'direct_contradiction',
+  ): Promise<ConflictRecord> {
+    const uniqueMemoryIds = [...new Set(memoryIds)];
+    if (uniqueMemoryIds.length < 2) throw new Error('conflict_requires_two_memories');
+    const existing = [...this.conflicts.values()].find(
+      (conflict) =>
+        conflict.status === 'open' &&
+        conflict.type === type &&
+        conflict.memoryIds.length === uniqueMemoryIds.length &&
+        uniqueMemoryIds.every((memoryId) => conflict.memoryIds.includes(memoryId)),
+    );
+    if (existing) return existing;
+    const conflict: ConflictRecord = {
+      id: `conf_${randomUUID()}`,
+      type,
+      memoryIds: uniqueMemoryIds,
+      status: 'open',
+    };
+    this.conflicts.set(conflict.id, conflict);
+    return conflict;
+  }
+
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
     const createdAt = new Date().toISOString();
     const record: JobRecord = {

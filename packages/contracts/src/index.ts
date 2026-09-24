@@ -147,10 +147,18 @@ export type MemoryAdminView = z.infer<typeof memoryAdminViewSchema>;
 
 export const conflictViewSchema = z.object({
   id: z.string().min(1),
+  type: z.enum([
+    'direct_contradiction',
+    'scope_mismatch',
+    'temporal_overlap',
+    'different_subject',
+    'semantic_tension',
+  ]),
   memoryIds: z.array(z.string().min(1)).min(2),
   status: z.enum(['open', 'resolved']),
 });
 export type ConflictView = z.infer<typeof conflictViewSchema>;
+export type ConflictType = ConflictView['type'];
 
 export const conflictListOutputSchema = z.object({
   items: z.array(conflictViewSchema),
@@ -327,6 +335,7 @@ export const proposalResultSchema = z.object({
   status: z.enum(['accepted', 'pending_approval', 'rejected', 'merged']),
   memoryId: z.string().optional(),
   proposalId: z.string().optional(),
+  conflictId: z.string().optional(),
   jobId: z.string().optional(),
   reason: z.string().optional(),
 });
@@ -411,6 +420,7 @@ export const contextOutputSchema = z.object({
   conflicts: z.array(
     z.object({
       id: z.string(),
+      type: conflictViewSchema.shape.type,
       memoryIds: z.array(z.string()).min(2),
     }),
   ),
