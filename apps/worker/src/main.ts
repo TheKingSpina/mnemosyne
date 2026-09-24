@@ -6,6 +6,7 @@ import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
 import { OpenRouterExtractor } from './provider-extractor.js';
 import { ProviderRouter } from './provider-router.js';
 import { Neo4jProjection } from './neo4j-projection.js';
+import { ProjectionSupervisor } from './projection-supervisor.js';
 
 const connectionString = process.env.DATABASE_URL;
 const forgetSecret = process.env.MNEMOSYNE_FORGET_SECRET;
@@ -51,9 +52,17 @@ const neo4jProjection =
         batchSize: integerOption(process.env.NEO4J_BATCH_SIZE ?? '100', 1),
       })
     : undefined;
+const projectionSupervisor = neo4jProjection
+  ? new ProjectionSupervisor(neo4jProjection, {
+      rebuildOnStart: process.env.NEO4J_REBUILD_ON_START === 'true',
+      onError: (error) => {
+        const code = error instanceof Error ? error.message : 'unknown_projection_error';
+        process.stderr.write(`Mnemosyne derived projection error: ${code}\n`);
+      },
+    })
+  : undefined;
 
 let stopping = false;
-let rebuildPending = process.env.NEO4J_REBUILD_ON_START === 'true';
 let shutdownTimer: NodeJS.Timeout | undefined;
 let pollTimer: NodeJS.Timeout | undefined;
 let wakePolling: (() => void) | undefined;
@@ -65,11 +74,7 @@ let nextRetentionRun = Date.now() + retentionIntervalMs;
 while (!stopping) {
   try {
     const result = await worker.runOnce();
-    if (neo4jProjection && rebuildPending) {
-      await neo4jProjection.rebuild();
-      rebuildPending = false;
-    }
-    if (neo4jProjection) await neo4jProjection.runOnce();
+    await projectionSupervisor?.runOnce();
     if (retentionIntervalMs > 0 && Date.now() >= nextRetentionRun) {
       await service.runRetention();
       nextRetentionRun = Date.now() + retentionIntervalMs;
