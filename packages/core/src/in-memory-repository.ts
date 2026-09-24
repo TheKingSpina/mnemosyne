@@ -240,36 +240,128 @@ export class InMemoryRepository implements MemoryRepository {
   }
 
   async claimNextJob(workerId: string, leaseMs: number): Promise<JobRecord | null> {
-    void workerId;
-    void leaseMs;
+    const now = new Date();
+    const leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString();
+    const candidates = [...this.jobs.values()]
+      .filter(
+        (value) =>
+          value.status === 'running' &&
+          value.leaseExpiresAt !== undefined &&
+          value.leaseExpiresAt <= now.toISOString(),
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    for (const expired of candidates.filter((value) => value.status === 'running')) {
+      const attempts = this.jobAttempts.get(expired.id) ?? [];
+      for (const [index, attempt] of attempts.entries()) {
+        if (attempt.status !== 'running') continue;
+        attempts[index] = {
+          ...attempt,
+          status: 'failed',
+          errorCode: 'lease_expired',
+          updatedAt: now.toISOString(),
+        };
+      }
+      this.jobAttempts.set(expired.id, attempts);
+      this.jobs.set(expired.id, {
+        ...expired,
+        status: 'queued',
+        availableAt: now.toISOString(),
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        updatedAt: now.toISOString(),
+      });
+    }
     const job = [...this.jobs.values()]
-      .filter((value) => value.status === 'queued')
-      .find((value) => !this.jobAttempts.has(value.id));
+      .filter(
+        (value) =>
+          value.status === 'queued' &&
+          (value.availableAt === undefined || value.availableAt <= now.toISOString()),
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
     if (!job) return null;
-    const running = { ...job, status: 'running' as const, updatedAt: new Date().toISOString() };
+    const running = {
+      ...job,
+      status: 'running' as const,
+      availableAt: undefined,
+      leaseOwner: workerId,
+      leaseExpiresAt,
+      updatedAt: now.toISOString(),
+    };
     this.jobs.set(job.id, running);
     return running;
   }
 
-  async updateJob(id: string, status: JobRecord['status']): Promise<JobRecord> {
+  async renewJobLease(id: string, workerId: string, leaseMs: number): Promise<JobRecord> {
     const job = this.jobs.get(id);
     if (!job) throw new Error('job_not_found');
-    const updated = { ...job, status, updatedAt: new Date().toISOString() };
+    if (job.status !== 'running' || job.leaseOwner !== workerId) {
+      throw new Error('job_lease_lost');
+    }
+    const updated = {
+      ...job,
+      leaseExpiresAt: new Date(Date.now() + leaseMs).toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.jobs.set(id, updated);
+    return updated;
+  }
+
+  async updateJob(id: string, status: JobRecord['status'], workerId: string): Promise<JobRecord> {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error('job_not_found');
+    if (job.status === 'running' && job.leaseOwner !== workerId) {
+      throw new Error('job_lease_lost');
+    }
+    const updated = {
+      ...job,
+      status,
+      availableAt: undefined,
+      leaseOwner: status === 'running' ? workerId : undefined,
+      leaseExpiresAt: status === 'running' ? job.leaseExpiresAt : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    this.jobs.set(id, updated);
+    return updated;
+  }
+
+  async retryJob(id: string, workerId: string, availableAt: string): Promise<JobRecord> {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error('job_not_found');
+    if (job.status !== 'running' || job.leaseOwner !== workerId) {
+      throw new Error('job_lease_lost');
+    }
+    const updated = {
+      ...job,
+      status: 'queued' as const,
+      availableAt,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      updatedAt: new Date().toISOString(),
+    };
     this.jobs.set(id, updated);
     return updated;
   }
 
   async createJobAttempt(
-    attempt: Omit<JobAttemptRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    attempt: Omit<JobAttemptRecord, 'id' | 'workerId' | 'createdAt' | 'updatedAt'>,
+    workerId: string,
   ): Promise<JobAttemptRecord> {
     const now = new Date().toISOString();
+    const job = this.jobs.get(attempt.jobId);
+    if (!job || job.status !== 'running' || job.leaseOwner !== workerId) {
+      throw new Error('job_lease_lost');
+    }
     const record: JobAttemptRecord = {
       ...attempt,
       id: `attempt_${createRandomId()}`,
+      workerId,
       createdAt: now,
       updatedAt: now,
     };
     const attempts = this.jobAttempts.get(attempt.jobId) ?? [];
+    if (attempts.some((value) => value.attempt === attempt.attempt)) {
+      throw new Error('job_attempt_already_exists');
+    }
     attempts.push(record);
     this.jobAttempts.set(attempt.jobId, attempts);
     return record;
@@ -278,11 +370,17 @@ export class InMemoryRepository implements MemoryRepository {
   async finishJobAttempt(
     id: string,
     status: JobAttemptRecord['status'],
+    workerId: string,
     errorCode?: string,
   ): Promise<JobAttemptRecord> {
     for (const [jobId, attempts] of this.jobAttempts) {
       const index = attempts.findIndex((attempt) => attempt.id === id);
       if (index < 0) continue;
+      if (attempts[index]?.status !== 'running') throw new Error('job_attempt_not_running');
+      const job = this.jobs.get(jobId);
+      if (!job || job.status !== 'running' || job.leaseOwner !== workerId) {
+        throw new Error('job_lease_lost');
+      }
       const updated = {
         ...attempts[index],
         status,

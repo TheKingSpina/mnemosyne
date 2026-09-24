@@ -84,8 +84,11 @@ export interface CorpusRevision {
 export interface JobRecord {
   id: string;
   operation: 'session_consolidation' | 'memory_extraction';
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'quarantined' | 'cancelled';
   sessionId: string;
+  availableAt?: string;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,13 +155,17 @@ export interface MemoryRepository {
   listJobs(sessionId?: string): Promise<JobRecord[]>;
   listJobAttempts(jobId: string): Promise<ListJobAttemptsOutput>;
   claimNextJob(workerId: string, leaseMs: number): Promise<JobRecord | null>;
-  updateJob(id: string, status: JobRecord['status']): Promise<JobRecord>;
+  renewJobLease(id: string, workerId: string, leaseMs: number): Promise<JobRecord>;
+  updateJob(id: string, status: JobRecord['status'], workerId: string): Promise<JobRecord>;
+  retryJob(id: string, workerId: string, availableAt: string): Promise<JobRecord>;
   createJobAttempt(
-    attempt: Omit<JobAttemptRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    attempt: Omit<JobAttemptRecord, 'id' | 'workerId' | 'createdAt' | 'updatedAt'>,
+    workerId: string,
   ): Promise<JobAttemptRecord>;
   finishJobAttempt(
     id: string,
     status: JobAttemptRecord['status'],
+    workerId: string,
     errorCode?: string,
   ): Promise<JobAttemptRecord>;
   createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord>;

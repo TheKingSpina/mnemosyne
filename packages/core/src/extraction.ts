@@ -18,35 +18,64 @@ export interface ExtractionWorkerOptions {
   extractor: Extractor;
   workerId: string;
   leaseMs?: number;
+  maxAttempts?: number;
+  backoffMs?: number;
+  heartbeatMs?: number;
 }
 
 export class ExtractionWorker {
   private readonly leaseMs: number;
+  private readonly maxAttempts: number;
+  private readonly backoffMs: number;
+  private readonly heartbeatMs: number;
 
   constructor(private readonly options: ExtractionWorkerOptions) {
     this.leaseMs = options.leaseMs ?? 30_000;
+    this.maxAttempts = options.maxAttempts ?? 3;
+    this.backoffMs = options.backoffMs ?? 1_000;
+    this.heartbeatMs = options.heartbeatMs ?? Math.max(1_000, Math.floor(this.leaseMs / 3));
     if (this.leaseMs < 1_000) throw new Error('extraction_lease_too_short');
+    if (!Number.isSafeInteger(this.maxAttempts) || this.maxAttempts < 1)
+      throw new Error('extraction_max_attempts_invalid');
+    if (!Number.isSafeInteger(this.backoffMs) || this.backoffMs < 0)
+      throw new Error('extraction_backoff_invalid');
+    if (!Number.isSafeInteger(this.heartbeatMs) || this.heartbeatMs < 250)
+      throw new Error('extraction_heartbeat_invalid');
   }
 
   async runOnce(): Promise<ExtractionResult | null> {
     const job = await this.options.repository.claimNextJob(this.options.workerId, this.leaseMs);
     if (!job) return null;
     if (job.operation !== 'memory_extraction') {
-      await this.options.repository.updateJob(job.id, 'succeeded');
+      await this.options.repository.updateJob(job.id, 'succeeded', this.options.workerId);
       return { candidates: [] };
     }
     const session = await this.options.repository.findSession(job.sessionId);
     if (!session) {
-      await this.fail(job.id, 'session_not_found');
+      await this.options.repository.updateJob(job.id, 'failed', this.options.workerId);
       return { candidates: [] };
     }
     const events = await this.options.repository.listEvents(job.sessionId);
     const previousAttempts = await this.options.repository.listJobAttempts(job.id);
-    const attempt = await this.options.repository.createJobAttempt({
-      jobId: job.id,
-      attempt: previousAttempts.items.length + 1,
-      status: 'running',
-    });
+    if (previousAttempts.items.length >= this.maxAttempts) {
+      await this.options.repository.updateJob(job.id, 'failed', this.options.workerId);
+      return { candidates: [] };
+    }
+    const attemptNumber = previousAttempts.items.length + 1;
+    const attempt = await this.options.repository.createJobAttempt(
+      {
+        jobId: job.id,
+        attempt: attemptNumber,
+        status: 'running',
+      },
+      this.options.workerId,
+    );
+    const heartbeat = setInterval(() => {
+      void this.options.repository
+        .renewJobLease(job.id, this.options.workerId, this.leaseMs)
+        .catch(() => undefined);
+    }, this.heartbeatMs);
+    heartbeat.unref();
     try {
       const raw = await this.options.extractor.extract({ session, events });
       const result = extractionResultSchema.parse(raw);
@@ -54,18 +83,48 @@ export class ExtractionWorker {
       for (const candidate of candidates) {
         await this.createCandidate(candidate, session);
       }
-      await this.options.repository.finishJobAttempt(attempt.id, 'succeeded');
-      await this.options.repository.updateJob(job.id, 'succeeded');
-      return { candidates };
-    } catch (error) {
       await this.options.repository.finishJobAttempt(
         attempt.id,
-        'quarantined',
-        error instanceof Error ? error.message : 'extraction_failed',
+        'succeeded',
+        this.options.workerId,
       );
-      await this.options.repository.updateJob(job.id, 'failed');
+      await this.options.repository.updateJob(job.id, 'succeeded', this.options.workerId);
+      return { candidates };
+    } catch (error) {
+      const errorCode = error instanceof Error ? error.message : 'extraction_failed';
+      const retryable = this.isRetryable(errorCode);
+      await this.options.repository.finishJobAttempt(
+        attempt.id,
+        retryable ? 'failed' : 'quarantined',
+        this.options.workerId,
+        errorCode,
+      );
+      if (retryable && attemptNumber < this.maxAttempts) {
+        const availableAt = Date.now() + this.backoffMs * 2 ** (attemptNumber - 1);
+        await this.options.repository.retryJob(
+          job.id,
+          this.options.workerId,
+          new Date(availableAt).toISOString(),
+        );
+      } else {
+        await this.options.repository.updateJob(
+          job.id,
+          retryable ? 'failed' : 'quarantined',
+          this.options.workerId,
+        );
+      }
       return { candidates: [] };
+    } finally {
+      clearInterval(heartbeat);
     }
+  }
+
+  private isRetryable(errorCode: string): boolean {
+    return (
+      errorCode === 'extraction_provider_timeout' ||
+      errorCode === 'extraction_provider_unavailable' ||
+      errorCode === 'extraction_temporarily_unavailable'
+    );
   }
 
   private filterCandidates(
@@ -115,10 +174,5 @@ export class ExtractionWorker {
       (scope.type === 'area' && session.areaIds.includes(scope.id)) ||
       (scope.type === 'global' && scope.id === 'personal')
     );
-  }
-
-  private async fail(jobId: string, errorCode: string): Promise<void> {
-    await this.options.repository.updateJob(jobId, 'failed');
-    void errorCode;
   }
 }

@@ -462,6 +462,9 @@ export class CoreMemoryService implements MemoryService {
       operation: job.operation,
       status: job.status,
       sessionId: job.sessionId,
+      availableAt: job.availableAt,
+      leaseOwner: job.leaseOwner,
+      leaseExpiresAt: job.leaseExpiresAt,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     };

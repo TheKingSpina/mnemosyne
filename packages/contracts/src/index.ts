@@ -199,15 +199,20 @@ export type AdminSessionsOutput = z.infer<typeof adminSessionsOutputSchema>;
 export const jobViewSchema = z.object({
   id: z.string().min(1),
   operation: z.enum(['session_consolidation', 'memory_extraction']),
-  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'quarantined', 'cancelled']),
   sessionId: z.string().min(1),
+  availableAt: z.string().datetime({ offset: true }).optional(),
+  leaseOwner: z.string().min(1).optional(),
+  leaseExpiresAt: z.string().datetime({ offset: true }).optional(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
 });
 export type JobView = z.infer<typeof jobViewSchema>;
 
 export const listAdminJobsInputSchema = z.object({
-  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional(),
+  status: z
+    .enum(['queued', 'running', 'succeeded', 'failed', 'quarantined', 'cancelled'])
+    .optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -243,6 +248,7 @@ export type AdminSessionDetailOutput = z.infer<typeof adminSessionDetailOutputSc
 export const jobAttemptViewSchema = z.object({
   id: z.string().min(1),
   jobId: z.string().min(1),
+  workerId: z.string().min(1),
   attempt: z.number().int().positive(),
   status: z.enum(['running', 'succeeded', 'failed', 'quarantined']),
   errorCode: z.string().max(200).optional(),

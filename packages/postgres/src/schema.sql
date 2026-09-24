@@ -70,22 +70,40 @@ CREATE TABLE IF NOT EXISTS jobs (
   operation text NOT NULL,
   status text NOT NULL,
   session_id text NOT NULL,
+  available_at timestamptz,
+  lease_owner text,
+  lease_expires_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS available_at timestamptz;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lease_owner text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;
+
+CREATE INDEX IF NOT EXISTS jobs_claim_idx
+  ON jobs(available_at, created_at)
+  WHERE status = 'queued';
+
+CREATE INDEX IF NOT EXISTS jobs_expired_lease_idx
+  ON jobs(lease_expires_at)
+  WHERE status = 'running';
 
 CREATE TABLE IF NOT EXISTS job_attempts (
   id text PRIMARY KEY,
   job_id text NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   attempt integer NOT NULL,
-  status text NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'quarantined')),
+  status text NOT NULL
+    CHECK (status IN ('running', 'succeeded', 'failed', 'quarantined')),
   error_code text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  worker_id text NOT NULL DEFAULT 'legacy',
   UNIQUE (job_id, attempt)
 );
+
+ALTER TABLE job_attempts ADD COLUMN IF NOT EXISTS worker_id text NOT NULL DEFAULT 'legacy';
 
 CREATE INDEX IF NOT EXISTS job_attempts_job_idx ON job_attempts(job_id, attempt DESC);
 

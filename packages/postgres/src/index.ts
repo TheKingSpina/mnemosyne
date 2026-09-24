@@ -69,6 +69,9 @@ interface JobRow extends QueryResultRow {
   operation: JobRecord['operation'];
   status: JobRecord['status'];
   session_id: string;
+  available_at: Date | null;
+  lease_owner: string | null;
+  lease_expires_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -76,6 +79,7 @@ interface JobRow extends QueryResultRow {
 interface JobAttemptRow extends QueryResultRow {
   id: string;
   job_id: string;
+  worker_id: string;
   attempt: number;
   status: JobAttemptRecord['status'];
   error_code: string | null;
@@ -429,29 +433,44 @@ export class PostgresMemoryRepository implements MemoryRepository {
     const client = await this.client();
     try {
       await client.query('BEGIN');
+      await client.query(
+        `WITH recovered AS (
+           UPDATE jobs
+           SET status = 'queued',
+               available_at = now(),
+               lease_owner = NULL,
+               lease_expires_at = NULL,
+               updated_at = now()
+           WHERE status = 'running' AND lease_expires_at <= now()
+           RETURNING id
+         )
+         UPDATE job_attempts attempts
+         SET status = 'failed',
+             error_code = 'lease_expired',
+             updated_at = now()
+         FROM recovered
+         WHERE attempts.job_id = recovered.id AND attempts.status = 'running'`,
+      );
       const result = await client.query<JobRow>(
         `UPDATE jobs
-         SET status = 'running', updated_at = now()
+         SET status = 'running',
+             lease_owner = $1,
+             lease_expires_at = now() + ($2::integer * interval '1 millisecond'),
+             updated_at = now()
          WHERE id = (
            SELECT id FROM jobs
-           WHERE status = 'queued'
+           WHERE status = 'queued' AND (available_at IS NULL OR available_at <= now())
            ORDER BY created_at
            FOR UPDATE SKIP LOCKED
            LIMIT 1
          )
          RETURNING *`,
+        [workerId, leaseMs],
       );
       if (!result.rows[0]) {
         await client.query('COMMIT');
         return null;
       }
-      await client.query(
-        `INSERT INTO job_attempts (id, job_id, attempt, status, created_at, updated_at)
-         VALUES ($1, $2, 1, 'running', now(), now())`,
-        [`attempt_${randomUUID()}`, result.rows[0].id],
-      );
-      void workerId;
-      void leaseMs;
       await client.query('COMMIT');
       return this.jobFromRow(result.rows[0]);
     } catch (error) {
@@ -462,40 +481,95 @@ export class PostgresMemoryRepository implements MemoryRepository {
     }
   }
 
-  async updateJob(id: string, status: JobRecord['status']): Promise<JobRecord> {
+  async updateJob(id: string, status: JobRecord['status'], workerId: string): Promise<JobRecord> {
     const result = await this.database.query<JobRow>(
-      'UPDATE jobs SET status = $2, updated_at = now() WHERE id = $1 RETURNING *',
-      [id, status],
+      `UPDATE jobs
+       SET status = $2,
+           available_at = NULL,
+           lease_owner = CASE WHEN $2 = 'running' THEN $3 ELSE NULL END,
+           lease_expires_at = CASE WHEN $2 = 'running' THEN lease_expires_at ELSE NULL END,
+           updated_at = now()
+       WHERE id = $1 AND (status <> 'running' OR lease_owner = $3)
+       RETURNING *`,
+      [id, status, workerId],
     );
-    if (!result.rows[0]) throw new Error('job_not_found');
+    if (!result.rows[0]) throw new Error(await this.jobUpdateError(id));
+    return this.jobFromRow(result.rows[0]);
+  }
+
+  async renewJobLease(id: string, workerId: string, leaseMs: number): Promise<JobRecord> {
+    const result = await this.database.query<JobRow>(
+      `UPDATE jobs
+       SET lease_expires_at = now() + ($3::integer * interval '1 millisecond'),
+           updated_at = now()
+       WHERE id = $1 AND status = 'running' AND lease_owner = $2
+       RETURNING *`,
+      [id, workerId, leaseMs],
+    );
+    if (!result.rows[0]) throw new Error(await this.jobUpdateError(id));
+    return this.jobFromRow(result.rows[0]);
+  }
+
+  async retryJob(id: string, workerId: string, availableAt: string): Promise<JobRecord> {
+    const result = await this.database.query<JobRow>(
+      `UPDATE jobs
+       SET status = 'queued',
+           available_at = $3,
+           lease_owner = NULL,
+           lease_expires_at = NULL,
+           updated_at = now()
+       WHERE id = $1 AND status = 'running' AND lease_owner = $2
+       RETURNING *`,
+      [id, workerId, availableAt],
+    );
+    if (!result.rows[0]) throw new Error(await this.jobUpdateError(id));
     return this.jobFromRow(result.rows[0]);
   }
 
   async createJobAttempt(
-    attempt: Omit<JobAttemptRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    attempt: Omit<JobAttemptRecord, 'id' | 'workerId' | 'createdAt' | 'updatedAt'>,
+    workerId: string,
   ): Promise<JobAttemptRecord> {
     const result = await this.database.query<JobAttemptRow>(
-      `INSERT INTO job_attempts (id, job_id, attempt, status, error_code, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, now(), now()) RETURNING *`,
+      `INSERT INTO job_attempts
+         (id, job_id, worker_id, attempt, status, error_code, created_at, updated_at)
+       SELECT $1, id, $5, $3, $4, $6, now(), now()
+       FROM jobs
+       WHERE id = $2 AND status = 'running' AND lease_owner = $5
+       RETURNING *`,
       [
         `attempt_${randomUUID()}`,
         attempt.jobId,
         attempt.attempt,
         attempt.status,
+        workerId,
         attempt.errorCode ?? null,
       ],
     );
+    if (!result.rows[0]) throw new Error('job_lease_lost');
     return this.jobAttemptFromRow(result.rows[0]);
   }
 
   async finishJobAttempt(
     id: string,
     status: JobAttemptRecord['status'],
+    workerId: string,
     errorCode?: string,
   ): Promise<JobAttemptRecord> {
     const result = await this.database.query<JobAttemptRow>(
-      'UPDATE job_attempts SET status = $2, error_code = $3, updated_at = now() WHERE id = $1 RETURNING *',
-      [id, status, errorCode ?? null],
+      `UPDATE job_attempts
+       SET status = $2, error_code = $3, updated_at = now()
+       WHERE id = $1
+         AND status = 'running'
+         AND worker_id = $4
+         AND EXISTS (
+           SELECT 1 FROM jobs
+           WHERE jobs.id = job_attempts.job_id
+             AND jobs.status = 'running'
+             AND jobs.lease_owner = $4
+         )
+       RETURNING *`,
+      [id, status, errorCode ?? null, workerId],
     );
     if (!result.rows[0]) throw new Error('job_attempt_not_found');
     return this.jobAttemptFromRow(result.rows[0]);
@@ -650,6 +724,9 @@ export class PostgresMemoryRepository implements MemoryRepository {
       operation: row.operation,
       status: row.status,
       sessionId: row.session_id,
+      availableAt: row.available_at?.toISOString(),
+      leaseOwner: row.lease_owner ?? undefined,
+      leaseExpiresAt: row.lease_expires_at?.toISOString(),
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };
@@ -659,11 +736,19 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return {
       id: row.id,
       jobId: row.job_id,
+      workerId: row.worker_id,
       attempt: row.attempt,
       status: row.status,
       errorCode: row.error_code ?? undefined,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };
+  }
+
+  private async jobUpdateError(id: string): Promise<'job_not_found' | 'job_lease_lost'> {
+    const result = await this.database.query<{ id: string }>('SELECT id FROM jobs WHERE id = $1', [
+      id,
+    ]);
+    return result.rows[0] ? 'job_lease_lost' : 'job_not_found';
   }
 }
