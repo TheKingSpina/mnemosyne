@@ -1,7 +1,7 @@
 import { extractionResultSchema } from '@mnemosyne/contracts';
 import type { EventRecord, SessionRecord } from '@mnemosyne/core';
 import { describe, expect, it, vi } from 'vitest';
-import { OpenRouterExtractor } from './provider-extractor.js';
+import { OpenRouterExtractor, systemPrompt } from './provider-extractor.js';
 
 const session: SessionRecord = {
   id: 'ses_synthetic',
@@ -23,10 +23,10 @@ const event: EventRecord = {
   explicitMemoryRequest: true,
 };
 
-function providerResponse(content: string, status = 200): Response {
+function providerResponse(content: string, status = 200, finishReason = 'stop'): Response {
   return new Response(
     JSON.stringify({
-      choices: [{ message: { content }, finish_reason: 'stop' }],
+      choices: [{ message: { content }, finish_reason: finishReason }],
     }),
     { status, headers: { 'content-type': 'application/json' } },
   );
@@ -83,6 +83,21 @@ describe('OpenRouterExtractor', () => {
     const request = fetchImpl.mock.calls[0];
     const headers = new Headers(request?.[1]?.headers);
     expect(headers.get('authorization')).toBe('Bearer synthetic-provider-key-1234567890');
+    const requestBody = request?.[1]?.body as string;
+    const parsedBody = JSON.parse(requestBody) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    expect(parsedBody.messages[0]).toEqual({ role: 'system', content: systemPrompt });
+  });
+
+  it('rejects a truncated provider response', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(providerResponse('{"candidates":', 200, 'length'));
+
+    await expect(createExtractor(fetchImpl).extract({ session, events: [event] })).rejects.toThrow(
+      'extraction_provider_truncated',
+    );
   });
 
   it('returns no candidates when the provider returns none', async () => {
