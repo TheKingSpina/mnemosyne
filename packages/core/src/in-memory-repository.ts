@@ -28,6 +28,7 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly conflicts = new Map<string, ConflictRecord>();
   private readonly jobs = new Map<string, JobRecord>();
   private readonly jobAttempts = new Map<string, JobAttemptRecord[]>();
+  private readonly forgetLedger = new Map<string, string>();
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
@@ -191,6 +192,7 @@ export class InMemoryRepository implements MemoryRepository {
   async removeMemory(id: string): Promise<void> {
     if (!this.memories.delete(id)) throw new Error('memory_not_found');
     this.revisions.delete(id);
+    this.forgetLedger.set(id, new Date().toISOString());
     this.corpusRevision += 1n;
   }
 
@@ -199,6 +201,30 @@ export class InMemoryRepository implements MemoryRepository {
       .filter((memory) => memory.lifecycle === 'accepted')
       .map((memory) => this.revisions.get(memory.id)?.get(memory.currentVersion))
       .filter((revision): revision is MemoryRevision => revision !== undefined);
+  }
+
+  async listAllMemoryViews(): Promise<MemoryWithCurrent[]> {
+    return this.listMemoryViews();
+  }
+
+  async listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>> {
+    return [...this.revisions.entries()].flatMap(([memoryId, versions]) =>
+      [...versions.values()].map((revision) => ({ memoryId, revision })),
+    );
+  }
+
+  async listAllEvents(): Promise<EventRecord[]> {
+    return [...this.events.values()].sort(
+      (left, right) =>
+        left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence,
+    );
+  }
+
+  async listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>> {
+    return [...this.forgetLedger.entries()].map(([memoryId, forgottenAt]) => ({
+      memoryId,
+      forgottenAt,
+    }));
   }
 
   async listPendingMemories(): Promise<MemoryRecord[]> {

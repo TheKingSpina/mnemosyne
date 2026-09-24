@@ -10,6 +10,7 @@ import type {
   AdminOverviewOutput,
   AdminCapabilitiesOutput,
   ConflictListOutput,
+  CorpusExport,
   ConflictType,
   CorrectMemoryInput,
   CorrectMemoryOutput,
@@ -107,6 +108,7 @@ export interface ProposalContext {
 
 export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
+  listCorpusExport(): Promise<CorpusExport>;
   openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
   recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
@@ -155,6 +157,10 @@ export interface MemoryRepository {
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
+  listAllMemoryViews(): Promise<MemoryWithCurrent[]>;
+  listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>>;
+  listAllEvents(): Promise<EventRecord[]>;
+  listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>>;
   listPendingMemories(): Promise<MemoryRecord[]>;
   listMemoryViews(): Promise<MemoryWithCurrent[]>;
   listRevisions(id: string): Promise<MemoryRevision[]>;

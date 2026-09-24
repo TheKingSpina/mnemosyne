@@ -482,4 +482,50 @@ describe('CoreMemoryService', () => {
     expect(detail.jobs[0]?.id).toBe(events.jobIds[0]);
     expect(jobs.total).toBe(1);
   });
+
+  it('exports canonical corpus data and the forget ledger', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'evt_export',
+          type: 'message',
+          role: 'user',
+          content: 'Ricorda che il progetto usa pnpm',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: true,
+        },
+      ],
+    });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa npm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['evt_export'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const prepared = await service.prepareForget(proposed.memoryId!);
+    await service.forgetMemory(proposed.memoryId!, prepared.confirmationToken);
+
+    const exportValue = await service.listCorpusExport();
+
+    expect(exportValue).toMatchObject({
+      schemaVersion: 1,
+      sessions: [{ id: session.sessionId }],
+      events: [{ id: 'evt_export' }],
+      memories: [],
+      revisions: [],
+      forgetLedger: [{ memoryId: proposed.memoryId }],
+    });
+  });
 });

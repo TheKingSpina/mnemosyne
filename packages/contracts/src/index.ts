@@ -445,6 +445,32 @@ export const contextOutputSchema = z.object({
 });
 export type ContextOutput = z.infer<typeof contextOutputSchema>;
 
+export const corpusExportSchema = z.object({
+  schemaVersion: z.literal(1),
+  exportedAt: z.string().datetime({ offset: true }),
+  corpusRevision: z.string().min(1),
+  sessions: z.array(sessionViewSchema),
+  events: z.array(eventViewSchema),
+  memories: z.array(
+    z.object({
+      record: z.object({
+        id: z.string().min(1),
+        currentVersion: z.number().int().positive(),
+        lifecycle: memoryLifecycleSchema,
+        createdAt: z.string().datetime({ offset: true }),
+        updatedAt: z.string().datetime({ offset: true }),
+      }),
+      current: memoryRevisionSchema,
+    }),
+  ),
+  revisions: z.array(z.object({ memoryId: z.string().min(1), revision: memoryRevisionSchema })),
+  conflicts: z.array(conflictViewSchema),
+  forgetLedger: z.array(
+    z.object({ memoryId: z.string().min(1), forgottenAt: z.string().datetime({ offset: true }) }),
+  ),
+});
+export type CorpusExport = z.infer<typeof corpusExportSchema>;
+
 export const adminCapabilitiesOutputSchema = z.object({
   extraction: z.object({
     localExtractor: z.boolean(),

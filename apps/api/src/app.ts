@@ -218,6 +218,18 @@ async function handleAuthorizedRequest(
     sendJson(response, 200, await service.getAdminCapabilities());
     return;
   }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/exports/corpus') {
+    const payload = await service.listCorpusExport();
+    const serialized = JSON.stringify(payload);
+    response.writeHead(200, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(serialized),
+      'content-disposition': 'attachment; filename="mnemosyne-corpus-export.json"',
+      'cache-control': 'no-store',
+    });
+    response.end(serialized);
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/sessions') {
     const input = listAdminSessionsInputSchema.parse({
       projectId: url.searchParams.get('projectId') || undefined,

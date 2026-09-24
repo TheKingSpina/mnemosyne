@@ -378,6 +378,37 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows.map((row) => this.revisionFromRow(row));
   }
 
+  async listAllMemoryViews(): Promise<MemoryWithCurrent[]> {
+    return this.listMemoryViews();
+  }
+
+  async listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>> {
+    const result = await this.database.query<MemoryRevisionRow>(
+      'SELECT * FROM memory_revisions ORDER BY memory_id, version',
+    );
+    return result.rows.map((row) => ({
+      memoryId: row.memory_id,
+      revision: this.revisionFromRow(row),
+    }));
+  }
+
+  async listAllEvents(): Promise<EventRecord[]> {
+    const result = await this.database.query<EventRow>(
+      'SELECT * FROM events ORDER BY session_id, sequence',
+    );
+    return result.rows.map((row) => this.eventFromRow(row));
+  }
+
+  async listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>> {
+    const result = await this.database.query<{ memory_id: string; forgotten_at: Date }>(
+      'SELECT memory_id, forgotten_at FROM forget_ledger ORDER BY forgotten_at, memory_id',
+    );
+    return result.rows.map((row) => ({
+      memoryId: row.memory_id,
+      forgottenAt: row.forgotten_at.toISOString(),
+    }));
+  }
+
   async listPendingMemories(): Promise<MemoryRecord[]> {
     const result = await this.database.query<MemoryRow>(
       `SELECT * FROM memories

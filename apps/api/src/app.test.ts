@@ -239,6 +239,45 @@ describe('Mnemosyne API authorization', () => {
     });
   });
 
+  it('exports the canonical corpus with a no-store attachment response', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    const events = await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'event-export-1',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: false,
+        },
+      ],
+    });
+    const response = await fetch(`${baseUrl}/v1/admin/exports/corpus`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const body = (await response.json()) as {
+      sessions: Array<{ id: string }>;
+      events: Array<{ id: string }>;
+      jobIds?: string[];
+      memories: unknown[];
+      revisions: unknown[];
+      forgetLedger: unknown[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-disposition')).toContain('mnemosyne-corpus-export.json');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(body.sessions[0]?.id).toBe(session.sessionId);
+    expect(body.events[0]?.id).toBe('event-export-1');
+    expect(body.jobIds).toBeUndefined();
+    expect(body.memories).toEqual([]);
+    expect(events.jobIds).toHaveLength(1);
+  });
+
   it('filters owner memories by exact scope identifier', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

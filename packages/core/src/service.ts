@@ -1,4 +1,5 @@
 import {
+  corpusExportSchema,
   contextInputSchema,
   correctMemoryInputSchema,
   listAdminMemoriesInputSchema,
@@ -15,6 +16,7 @@ import {
   type AdminMemoriesOutput,
   type AdminOverviewOutput,
   type AdminCapabilitiesOutput,
+  type CorpusExport,
   type ConflictListOutput,
   type CorrectMemoryInput,
   type CorrectMemoryOutput,
@@ -92,6 +94,21 @@ export class CoreMemoryService implements MemoryService {
         exportAvailable: false,
       },
     };
+  }
+
+  async listCorpusExport(): Promise<CorpusExport> {
+    const revision = await this.repository.getCorpusRevision();
+    return corpusExportSchema.parse({
+      schemaVersion: 1,
+      exportedAt: this.now().toISOString(),
+      corpusRevision: `${revision.epoch}:${revision.revision}`,
+      sessions: await this.repository.listSessions(),
+      events: await this.repository.listAllEvents(),
+      memories: await this.repository.listAllMemoryViews(),
+      revisions: await this.repository.listAllMemoryRevisions(),
+      conflicts: await this.repository.listAllConflicts(),
+      forgetLedger: await this.repository.listForgetLedger(),
+    });
   }
 
   async openSession(input: OpenSessionInput): Promise<OpenSessionOutput> {
