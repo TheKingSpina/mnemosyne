@@ -24,10 +24,11 @@ const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?
 const workerId = process.env.WORKER_ID ?? `${hostname()}:${process.pid}:${randomUUID()}`;
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
 const service = new CoreMemoryService(repository, { forgetSecret });
+const extractor = explicitRememberExtractor();
 const worker = new ExtractionWorker({
   repository,
   service,
-  extractor: explicitRememberExtractor(),
+  extractor,
   workerId,
   leaseMs,
   maxAttempts,
@@ -36,6 +37,7 @@ const worker = new ExtractionWorker({
 
 let stopping = false;
 let shutdownTimer: NodeJS.Timeout | undefined;
+let pollTimer: NodeJS.Timeout | undefined;
 process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGTERM', () => stop('SIGTERM'));
 
@@ -57,6 +59,7 @@ function stop(signal: NodeJS.Signals): void {
   if (stopping) return;
   stopping = true;
   process.stdout.write(`Mnemosyne extraction worker ${workerId} received ${signal}\n`);
+  if (pollTimer) clearTimeout(pollTimer);
   shutdownTimer = setTimeout(() => {
     process.stderr.write('Mnemosyne extraction worker shutdown timed out\n');
     process.exitCode = 1;
@@ -100,7 +103,6 @@ function integerOption(value: string, minimum: number): number {
 
 async function delay(milliseconds: number): Promise<void> {
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref();
+    pollTimer = setTimeout(resolve, milliseconds);
   });
 }
