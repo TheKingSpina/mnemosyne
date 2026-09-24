@@ -121,6 +121,27 @@ export class CoreMemoryService implements MemoryService {
     if (!this.belongsToSession(validated.scope, session)) throw new Error('scope_not_available');
     const decision = decideProposal(validated, context.actor, context.explicitDirective);
     if (decision.status === 'rejected') return decision;
+    const duplicate = (await this.repository.listMemoryViews()).find(
+      (memory) =>
+        (memory.record.lifecycle === 'accepted' ||
+          memory.record.lifecycle === 'pending_approval') &&
+        this.matchesScope(memory.current.scope, validated.scope) &&
+        this.normalizedContent(memory.current.content) ===
+          this.normalizedContent(validated.content),
+    );
+    if (duplicate) {
+      await this.repository.mergeMemorySources(
+        duplicate.record.id,
+        duplicate.record.currentVersion,
+        validated.sourceEventIds,
+      );
+      return {
+        status: 'merged',
+        memoryId: duplicate.record.id,
+        proposalId: duplicate.record.id,
+        reason: 'duplicate',
+      };
+    }
     const record = await this.repository.createMemory(validated);
     await this.repository.updateMemoryLifecycle(
       record.id,
@@ -516,6 +537,10 @@ export class CoreMemoryService implements MemoryService {
   private lexicalScore(memory: MemoryRevision, terms: string[]): number {
     const content = memory.content.toLocaleLowerCase();
     return terms.reduce((score, term) => score + (content.includes(term) ? 1 : 0), 0);
+  }
+
+  private normalizedContent(content: string): string {
+    return content.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
   }
 
   private signForgetPayload(payload: string): string {

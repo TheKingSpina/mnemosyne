@@ -221,6 +221,52 @@ describe('CoreMemoryService', () => {
     expect(result.status).toBe('pending_approval');
   });
 
+  it('merges an equivalent proposal into the existing memory and preserves sources', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const first = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'observed',
+        assessment: 'uncontested',
+        confidence: 0.9,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['event-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const duplicate = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: '  il   progetto usa PNPM  ',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['event-2', 'event-1'],
+      },
+      { actor: 'owner', explicitDirective: false },
+    );
+    const merged = await service.getMemoryAdminView(first.memoryId!);
+
+    expect(duplicate).toMatchObject({
+      status: 'merged',
+      memoryId: first.memoryId,
+      proposalId: first.memoryId,
+      reason: 'duplicate',
+    });
+    expect(merged?.memory.currentVersion).toBe(1);
+    expect(merged?.revisions[0]?.sourceEventIds).toEqual(['event-1', 'event-2']);
+  });
+
   it('rejects an owner directive context supplied by a harness', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });

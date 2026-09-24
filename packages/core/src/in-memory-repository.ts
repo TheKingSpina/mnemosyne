@@ -109,6 +109,27 @@ export class InMemoryRepository implements MemoryRepository {
     return current ? { record, current } : null;
   }
 
+  async mergeMemorySources(
+    id: string,
+    expectedVersion: number,
+    sourceEventIds: string[],
+  ): Promise<MemoryRecord> {
+    const record = this.memories.get(id);
+    if (!record) throw new Error('memory_not_found');
+    if (record.currentVersion !== expectedVersion) throw new Error('memory_version_conflict');
+    const versions = this.revisions.get(id);
+    const current = versions?.get(expectedVersion);
+    if (!versions || !current) throw new Error('memory_revision_not_found');
+    versions.set(expectedVersion, {
+      ...current,
+      sourceEventIds: [...new Set([...current.sourceEventIds, ...sourceEventIds])],
+    });
+    const updated = { ...record, updatedAt: new Date().toISOString() };
+    this.memories.set(id, updated);
+    this.corpusRevision += 1n;
+    return updated;
+  }
+
   async createRevision(input: CorrectMemoryInput): Promise<MemoryRecord> {
     const current = await this.getMemory(input.memoryId);
     if (!current) throw new Error('memory_not_found');

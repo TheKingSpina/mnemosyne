@@ -140,6 +140,11 @@ export interface MemoryRepository {
   findEvents(sessionId: string): Promise<EventRecord[]>;
   createMemory(input: ProposeMemoryInput): Promise<MemoryRecord>;
   getMemory(id: string): Promise<MemoryWithCurrent | null>;
+  mergeMemorySources(
+    id: string,
+    expectedVersion: number,
+    sourceEventIds: string[],
+  ): Promise<MemoryRecord>;
   createRevision(input: CorrectMemoryInput): Promise<MemoryRecord>;
   updateMemoryRevision(id: string, revision: MemoryRevision): Promise<MemoryRecord>;
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;

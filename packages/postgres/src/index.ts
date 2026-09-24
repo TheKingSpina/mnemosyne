@@ -220,6 +220,46 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return row ? { record: this.memoryFromRow(row), current: this.revisionFromRow(row) } : null;
   }
 
+  async mergeMemorySources(
+    id: string,
+    expectedVersion: number,
+    sourceEventIds: string[],
+  ): Promise<MemoryRecord> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query<MemoryRow & MemoryRevisionRow>(
+        `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+                r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation,
+                r.source_event_ids
+         FROM memories m
+         JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+         WHERE m.id = $1
+         FOR UPDATE OF m`,
+        [id],
+      );
+      const row = current.rows[0];
+      if (!row) throw new Error('memory_not_found');
+      if (row.current_version !== expectedVersion) throw new Error('memory_version_conflict');
+      await client.query(
+        'UPDATE memory_revisions SET source_event_ids = $3 WHERE memory_id = $1 AND version = $2',
+        [id, expectedVersion, [...new Set([...row.source_event_ids, ...sourceEventIds])]],
+      );
+      const result = await client.query<MemoryRow>(
+        'UPDATE memories SET updated_at = now() WHERE id = $1 RETURNING *',
+        [id],
+      );
+      await this.bumpCorpus(client, 'memory.sources.merged', id, expectedVersion);
+      await client.query('COMMIT');
+      return this.memoryFromRow(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async createRevision(input: CorrectMemoryInput): Promise<MemoryRecord> {
     const current = await this.getMemory(input.memoryId);
     if (!current) throw new Error('memory_not_found');
