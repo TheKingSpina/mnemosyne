@@ -59,7 +59,7 @@ import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import type { EmbeddingProvider, SemanticSearchIndex } from './semantic-search.js';
-import type { CorpusCache } from './corpus-cache.js';
+import { corpusCacheKeyPrefix, type CorpusCache } from './corpus-cache.js';
 import type {
   ConflictRecord,
   CorpusRevision,
@@ -552,6 +552,11 @@ export class CoreMemoryService implements MemoryService {
     }
     await this.options.semanticSearchIndex?.remove(memoryId);
     await this.repository.removeMemory(memoryId);
+    try {
+      await this.options.corpusCache?.clear();
+    } catch {
+      // The cache is derived; retention of the authoritative tombstone must not depend on Redis.
+    }
   }
 
   async getJob(id: string): Promise<JobRecord | null> {
@@ -783,7 +788,7 @@ export class CoreMemoryService implements MemoryService {
 
   private corpusCacheKey(kind: string, value: unknown): string {
     const digest = createHash('sha256').update(this.stableCacheValue(value)).digest('base64url');
-    return `mnemosyne:${kind}:${digest}`;
+    return `${corpusCacheKeyPrefix}${kind}:${digest}`;
   }
 
   private async cachedCorpusResult(

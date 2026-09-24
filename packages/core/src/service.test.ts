@@ -965,6 +965,44 @@ describe('CoreMemoryService', () => {
     expect(second[0]?.content).toBe('Memoria cacheata sintetica');
   });
 
+  it('clears the derived corpus cache after a confirmed forget', async () => {
+    const repository = new InMemoryRepository();
+    let clearCalls = 0;
+    const cache = {
+      get: async () => null,
+      set: async () => undefined,
+      delete: async () => undefined,
+      clear: async () => {
+        clearCalls += 1;
+      },
+    };
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      corpusCache: cache,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria da dimenticare',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const prepared = await service.prepareForget(proposed.memoryId!);
+
+    await service.forgetMemory(proposed.memoryId!, prepared.confirmationToken);
+
+    expect(clearCalls).toBe(1);
+  });
+
   it('records non-destructive feedback without changing memory lifecycle', async () => {
     const repository = new InMemoryRepository();
     const service = new CoreMemoryService(repository, {

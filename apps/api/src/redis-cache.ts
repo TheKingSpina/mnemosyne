@@ -1,5 +1,5 @@
 import { createClient, type RedisClientType } from 'redis';
-import type { CorpusCache } from '@mnemosyne/core';
+import { corpusCacheKeyPrefix, type CorpusCache } from '@mnemosyne/core';
 
 export class RedisCorpusCache implements CorpusCache {
   private constructor(private readonly client: RedisClientType) {}
@@ -24,5 +24,14 @@ export class RedisCorpusCache implements CorpusCache {
 
   async delete(key: string): Promise<void> {
     await this.client.del(key);
+  }
+
+  async clear(): Promise<void> {
+    for await (const key of this.client.scanIterator({
+      MATCH: `${corpusCacheKeyPrefix}*`,
+      COUNT: 100,
+    })) {
+      await this.client.del(key);
+    }
   }
 }

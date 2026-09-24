@@ -2,7 +2,10 @@ export interface CorpusCache {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlSeconds: number): Promise<void>;
   delete(key: string): Promise<void>;
+  clear(): Promise<void>;
 }
+
+export const corpusCacheKeyPrefix = 'mnemosyne:';
 
 export class InMemoryCorpusCache implements CorpusCache {
   private readonly records = new Map<string, { value: string; expiresAt: number }>();
@@ -28,5 +31,9 @@ export class InMemoryCorpusCache implements CorpusCache {
 
   async delete(key: string): Promise<void> {
     this.records.delete(key);
+  }
+
+  async clear(): Promise<void> {
+    this.records.clear();
   }
 }
