@@ -16,7 +16,7 @@ The first vertical slice provides:
 - correction, retraction, and confirmed forget operations;
 - PostgreSQL persistence with `pgvector`-ready storage;
 - a REST API;
-- an MCP server over `stdio` and an extensible MCP service boundary;
+- an MCP server over `stdio` and Streamable HTTP with bearer authentication;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -54,6 +54,16 @@ Check readiness:
 ```bash
 curl http://127.0.0.1:3000/health/ready
 ```
+
+Start the local MCP server over `stdio` in a separate process:
+
+```bash
+DATABASE_URL='postgresql://mnemosyne:your-local-password@127.0.0.1:5432/mnemosyne' \
+MNEMOSYNE_FORGET_SECRET='a-secret-at-least-32-characters-long' \
+npm run mcp:dev
+```
+
+For remote Streamable HTTP, set `MCP_TRANSPORT=http` and a non-empty `MCP_BEARER_TOKEN`; the HTTP transport refuses to start without authentication. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
 

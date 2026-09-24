@@ -14,6 +14,9 @@ if (!connectionString || !forgetSecret) {
   throw new Error('DATABASE_URL and MNEMOSYNE_FORGET_SECRET are required');
 }
 const profile = process.env.MCP_PROFILE === 'owner' ? 'owner' : 'harness';
+if (process.env.MCP_TRANSPORT === 'http' && !process.env.MCP_BEARER_TOKEN) {
+  throw new Error('MCP_BEARER_TOKEN is required for HTTP transport');
+}
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
 const service = new CoreMemoryService(repository, { forgetSecret });
 
@@ -42,28 +45,41 @@ async function handleMcpHttp(
   response: ServerResponse,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-  if (request.method !== 'POST' || url.pathname !== '/mcp') {
+  if (url.pathname !== '/mcp' || !['POST', 'GET', 'DELETE'].includes(request.method ?? '')) {
     response.writeHead(404).end();
     return;
   }
+  const authorization = request.headers.authorization;
+  if (process.env.MCP_BEARER_TOKEN && authorization !== `Bearer ${process.env.MCP_BEARER_TOKEN}`) {
+    response.writeHead(401).end();
+    return;
+  }
   const sessionId = request.headers['mcp-session-id'];
+  const body = request.method === 'POST' ? await readJsonBody(request) : undefined;
   let transport = typeof sessionId === 'string' ? transports.get(sessionId) : undefined;
-  if (!transport) {
-    if (sessionId || !isInitializeRequest(await readJsonBody(request))) {
+  if (request.method === 'POST' && !transport) {
+    if (sessionId || !isInitializeRequest(body)) {
       response.writeHead(400).end();
       return;
     }
-    transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-    const initializedTransport = transport;
+    const initializedTransport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        transports.set(id, initializedTransport);
+      },
+    });
+    transport = initializedTransport;
     initializedTransport.onclose = () => {
       if (initializedTransport.sessionId) transports.delete(initializedTransport.sessionId);
     };
     const mcpServer = createMcpServer(service, profile);
     await mcpServer.connect(initializedTransport);
-    if (initializedTransport.sessionId)
-      transports.set(initializedTransport.sessionId, initializedTransport);
   }
-  await transport.handleRequest(request, response);
+  if (!transport) {
+    response.writeHead(400).end();
+    return;
+  }
+  await transport.handleRequest(request, response, request.method === 'POST' ? body : undefined);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
