@@ -148,6 +148,21 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
     );
 
     server.registerTool(
+      'memory_restore',
+      {
+        description: 'Restore a canonical corpus into an empty database.',
+        inputSchema: shape(corpusExportSchema),
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      },
+      async (input) =>
+        result(
+          await authorized(profile, 'proposal.review', () =>
+            service.restoreCorpus(corpusExportSchema.parse(input)),
+          ),
+        ),
+    );
+
+    server.registerTool(
       'memory_retention_status',
       {
         description: 'Read the configured retention profile and last owner run.',

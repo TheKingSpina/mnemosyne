@@ -22,6 +22,7 @@ The first vertical slice provides:
 - a recoverable extraction worker with leases, retries, and quarantine;
 - an owner-only canonical corpus export with no-store download semantics;
 - an owner-triggered balanced retention policy with persistent last-run status;
+- a guarded empty-database restore path that re-applies the forget ledger;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -175,6 +176,12 @@ older than 7 days, and retracted memories older than 30 days. Forget ledger
 entries are never removed. It is owner-triggered; it is not an automatic job
 yet. The initial implementation also reports superseded-revision retention but
 does not delete those rows until provenance snapshots are explicitly modeled.
+
+Restore is deliberately destructive and owner-only. It accepts a canonical
+export only when the target corpus is empty, validates referential relationships,
+restores the forget ledger, and skips any memory, revision, or conflict belonging
+to a forgotten memory. It is a controlled migration/import path, not yet a
+production backup-and-restore guarantee.
 
 ## MCP
 

@@ -19,6 +19,8 @@ import type {
   BalancedRetentionCutoffs,
   RetentionRunCounts,
   RetentionState,
+  CorpusRestore,
+  CorpusRestoreCounts,
   SessionRecord,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
@@ -104,6 +106,140 @@ interface JobAttemptRow extends QueryResultRow {
 
 export class PostgresMemoryRepository implements MemoryRepository {
   constructor(private readonly database: Database) {}
+
+  async restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts> {
+    const client = await this.client();
+    const forgottenMemoryIds = input.forgetLedger.map((entry) => entry.memoryId);
+    const forgottenSet = new Set(forgottenMemoryIds);
+    const restoredMemories = input.memories.filter((memory) => !forgottenSet.has(memory.record.id));
+    const restoredMemoryIds = new Set(restoredMemories.map((memory) => memory.record.id));
+    const restoredRevisions = input.revisions.filter(
+      (item) => restoredMemoryIds.has(item.memoryId) && !forgottenSet.has(item.memoryId),
+    );
+    const restoredConflicts = input.conflicts.filter((conflict) =>
+      conflict.memoryIds.every((memoryId) => restoredMemoryIds.has(memoryId)),
+    );
+    try {
+      await client.query('BEGIN');
+      for (const session of input.sessions) {
+        await client.query(
+          `INSERT INTO sessions (id, project_id, area_ids, task_title, sequence, status, created_at, closed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            session.id,
+            session.projectId,
+            session.areaIds,
+            session.taskTitle,
+            session.sequence,
+            session.status,
+            session.createdAt,
+            session.closedAt,
+          ],
+        );
+      }
+      for (const event of input.events) {
+        await client.query(
+          `INSERT INTO events (session_id, event_id, sequence, type, role, content, occurred_at, explicit_memory_request)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            event.sessionId,
+            event.id,
+            event.sequence,
+            event.type,
+            event.role,
+            event.content,
+            event.occurredAt,
+            event.explicitMemoryRequest,
+          ],
+        );
+      }
+      for (const memory of restoredMemories) {
+        await client.query(
+          `INSERT INTO memories (id, current_version, lifecycle, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            memory.record.id,
+            memory.record.currentVersion,
+            memory.record.lifecycle,
+            memory.record.createdAt,
+            memory.record.updatedAt,
+          ],
+        );
+      }
+      for (const item of restoredRevisions) {
+        await this.insertRevision(client, item.memoryId, item.revision);
+      }
+      for (const conflict of restoredConflicts) {
+        await client.query(
+          `INSERT INTO conflicts (id, type, memory_ids, status)
+           VALUES ($1, $2, $3, $4)`,
+          [conflict.id, conflict.type, conflict.memoryIds, conflict.status],
+        );
+      }
+      for (const job of input.jobs) {
+        await client.query(
+          `INSERT INTO jobs (id, operation, status, session_id, available_at, lease_owner, lease_expires_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            job.id,
+            job.operation,
+            job.status,
+            job.sessionId,
+            job.availableAt,
+            job.leaseOwner,
+            job.leaseExpiresAt,
+            job.createdAt,
+            job.updatedAt,
+          ],
+        );
+      }
+      for (const attempt of input.jobAttempts) {
+        await client.query(
+          `INSERT INTO job_attempts (id, job_id, worker_id, attempt, status, error_code, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            attempt.id,
+            attempt.jobId,
+            attempt.workerId,
+            attempt.attempt,
+            attempt.status,
+            attempt.errorCode,
+            attempt.createdAt,
+            attempt.updatedAt,
+          ],
+        );
+      }
+      for (const entry of input.forgetLedger) {
+        await client.query('INSERT INTO forget_ledger (memory_id, forgotten_at) VALUES ($1, $2)', [
+          entry.memoryId,
+          entry.forgottenAt,
+        ]);
+      }
+      await client.query('COMMIT');
+      return {
+        restored: {
+          sessions: input.sessions.length,
+          events: input.events.length,
+          memories: restoredMemories.length,
+          revisions: restoredRevisions.length,
+          conflicts: restoredConflicts.length,
+          jobs: input.jobs.length,
+          jobAttempts: input.jobAttempts.length,
+          forgetLedger: input.forgetLedger.length,
+        },
+        skipped: {
+          forgottenMemories: input.memories.length - restoredMemories.length,
+          forgottenRevisions: input.revisions.length - restoredRevisions.length,
+          forgottenConflicts: input.conflicts.length - restoredConflicts.length,
+        },
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   static async fromConnectionString(connectionString: string): Promise<PostgresMemoryRepository> {
     const pool = new Pool({ connectionString });

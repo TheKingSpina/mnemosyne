@@ -11,6 +11,7 @@ import type {
   AdminCapabilitiesOutput,
   ConflictListOutput,
   CorpusExport,
+  CorpusRestoreResult,
   ConflictType,
   CorrectMemoryInput,
   CorrectMemoryOutput,
@@ -111,6 +112,7 @@ export interface ProposalContext {
 export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
   listCorpusExport(): Promise<CorpusExport>;
+  restoreCorpus(input: CorpusExport): Promise<CorpusRestoreResult>;
   openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
   recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
@@ -141,6 +143,7 @@ export interface MemoryService {
 }
 
 export interface MemoryRepository {
+  restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts>;
   createSession(input: OpenSessionInput): Promise<SessionRecord>;
   findSession(id: string): Promise<SessionRecord | null>;
   closeSession(id: string): Promise<SessionRecord>;
@@ -218,4 +221,34 @@ export interface RetentionRunCounts {
 
 export interface RetentionState {
   lastRunAt?: string;
+}
+
+export interface CorpusRestore {
+  sourceCorpusRevision: string;
+  sessions: CorpusExport['sessions'];
+  events: CorpusExport['events'];
+  memories: CorpusExport['memories'];
+  revisions: CorpusExport['revisions'];
+  conflicts: CorpusExport['conflicts'];
+  jobs: CorpusExport['jobs'];
+  jobAttempts: CorpusExport['jobAttempts'];
+  forgetLedger: CorpusExport['forgetLedger'];
+}
+
+export interface CorpusRestoreCounts {
+  restored: {
+    sessions: number;
+    events: number;
+    memories: number;
+    revisions: number;
+    conflicts: number;
+    jobs: number;
+    jobAttempts: number;
+    forgetLedger: number;
+  };
+  skipped: {
+    forgottenMemories: number;
+    forgottenRevisions: number;
+    forgottenConflicts: number;
+  };
 }

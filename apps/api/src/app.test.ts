@@ -433,6 +433,35 @@ describe('Mnemosyne API authorization', () => {
     expect(events.jobIds).toHaveLength(1);
   });
 
+  it('restores an empty corpus through an owner-only endpoint', async () => {
+    const { service, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const emptyExport = await service.listCorpusExport();
+    const harnessResponse = await fetch(`${baseUrl}/v1/admin/restore/corpus`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'restore-harness',
+      },
+      body: JSON.stringify(emptyExport),
+    });
+    const ownerResponse = await fetch(`${baseUrl}/v1/admin/restore/corpus`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'restore-owner',
+      },
+      body: JSON.stringify(emptyExport),
+    });
+    const result = (await ownerResponse.json()) as { restored: { sessions: number } };
+
+    expect(harnessResponse.status).toBe(403);
+    expect(ownerResponse.status).toBe(200);
+    expect(result.restored.sessions).toBe(0);
+  });
+
   it('filters owner memories by exact scope identifier', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

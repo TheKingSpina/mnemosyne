@@ -18,6 +18,7 @@ import {
   type AdminOverviewOutput,
   type AdminCapabilitiesOutput,
   type CorpusExport,
+  type CorpusRestoreResult,
   type ConflictListOutput,
   type CorrectMemoryInput,
   type CorrectMemoryOutput,
@@ -119,6 +120,55 @@ export class CoreMemoryService implements MemoryService {
       jobAttempts: await this.repository.listAllJobAttempts(),
       forgetLedger,
     });
+  }
+
+  async restoreCorpus(input: CorpusExport): Promise<CorpusRestoreResult> {
+    const validated = corpusExportSchema.parse(input);
+    this.validateRestoreExport(validated);
+    const [sessions, events, memories, revisions, conflicts, jobs, jobAttempts, existingLedger] =
+      await Promise.all([
+        this.repository.listSessions(),
+        this.repository.listAllEvents(),
+        this.repository.listMemoryViews(),
+        this.repository.listAllMemoryRevisions(),
+        this.repository.listAllConflicts(),
+        this.repository.listAllJobs(),
+        this.repository.listAllJobAttempts(),
+        this.repository.listForgetLedger(),
+      ]);
+    if (
+      sessions.length > 0 ||
+      events.length > 0 ||
+      memories.length > 0 ||
+      revisions.length > 0 ||
+      conflicts.length > 0 ||
+      jobs.length > 0 ||
+      jobAttempts.length > 0
+    ) {
+      throw new Error('restore_requires_empty_corpus');
+    }
+    const forgetLedger = new Map(
+      existingLedger.map((entry) => [entry.memoryId, entry.forgottenAt]),
+    );
+    for (const entry of validated.forgetLedger) {
+      if (!forgetLedger.has(entry.memoryId)) forgetLedger.set(entry.memoryId, entry.forgottenAt);
+    }
+    const counts = await this.repository.restoreCorpus({
+      sourceCorpusRevision: validated.corpusRevision,
+      sessions: validated.sessions,
+      events: validated.events,
+      memories: validated.memories,
+      revisions: validated.revisions,
+      conflicts: validated.conflicts,
+      jobs: validated.jobs,
+      jobAttempts: validated.jobAttempts,
+      forgetLedger: [...forgetLedger].map(([memoryId, forgottenAt]) => ({ memoryId, forgottenAt })),
+    });
+    return {
+      sourceCorpusRevision: validated.corpusRevision,
+      corpusRevision: await this.getCorpusRevision(),
+      ...counts,
+    };
   }
 
   async openSession(input: OpenSessionInput): Promise<OpenSessionOutput> {
@@ -595,6 +645,80 @@ export class CoreMemoryService implements MemoryService {
   private assertNotSecret(content: string, sensitivity: string): void {
     if (sensitivity === 'secret' || containsSecret(content)) {
       throw new Error('sensitive_content');
+    }
+  }
+
+  private validateRestoreExport(value: CorpusExport): void {
+    const sessionIds = new Set<string>();
+    for (const session of value.sessions) {
+      if (sessionIds.has(session.id)) throw new Error('restore_invalid_export');
+      sessionIds.add(session.id);
+    }
+
+    const eventKeys = new Set<string>();
+    for (const event of value.events) {
+      const key = `${event.sessionId}:${event.id}`;
+      if (!sessionIds.has(event.sessionId) || eventKeys.has(key)) {
+        throw new Error('restore_invalid_export');
+      }
+      eventKeys.add(key);
+    }
+
+    const memoryIds = new Set<string>();
+    for (const memory of value.memories) {
+      if (memoryIds.has(memory.record.id)) throw new Error('restore_invalid_export');
+      memoryIds.add(memory.record.id);
+    }
+    const revisionKeys = new Set<string>();
+    for (const item of value.revisions) {
+      const key = `${item.memoryId}:${item.revision.version}`;
+      if (
+        !memoryIds.has(item.memoryId) ||
+        item.revision.memoryId !== item.memoryId ||
+        revisionKeys.has(key)
+      ) {
+        throw new Error('restore_invalid_export');
+      }
+      revisionKeys.add(key);
+    }
+    for (const memory of value.memories) {
+      if (
+        memory.current.memoryId !== memory.record.id ||
+        memory.current.version !== memory.record.currentVersion ||
+        !revisionKeys.has(`${memory.record.id}:${memory.record.currentVersion}`)
+      ) {
+        throw new Error('restore_invalid_export');
+      }
+    }
+
+    const jobIds = new Set<string>();
+    for (const job of value.jobs) {
+      if (jobIds.has(job.id) || !sessionIds.has(job.sessionId)) {
+        throw new Error('restore_invalid_export');
+      }
+      jobIds.add(job.id);
+    }
+    const attemptIds = new Set<string>();
+    for (const attempt of value.jobAttempts) {
+      if (attemptIds.has(attempt.id) || !jobIds.has(attempt.jobId)) {
+        throw new Error('restore_invalid_export');
+      }
+      attemptIds.add(attempt.id);
+    }
+    const conflictIds = new Set<string>();
+    for (const conflict of value.conflicts) {
+      if (
+        conflictIds.has(conflict.id) ||
+        conflict.memoryIds.some((memoryId) => !memoryIds.has(memoryId))
+      ) {
+        throw new Error('restore_invalid_export');
+      }
+      conflictIds.add(conflict.id);
+    }
+    const ledgerIds = new Set<string>();
+    for (const entry of value.forgetLedger) {
+      if (ledgerIds.has(entry.memoryId)) throw new Error('restore_invalid_export');
+      ledgerIds.add(entry.memoryId);
     }
   }
 

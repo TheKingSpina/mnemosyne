@@ -19,6 +19,8 @@ import type {
   BalancedRetentionCutoffs,
   RetentionRunCounts,
   RetentionState,
+  CorpusRestore,
+  CorpusRestoreCounts,
   SessionRecord,
 } from './types.js';
 import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
@@ -39,6 +41,68 @@ export class InMemoryRepository implements MemoryRepository {
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
+
+  async restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts> {
+    const forgottenMemoryIds = new Set(input.forgetLedger.map((entry) => entry.memoryId));
+    const restoredMemories = input.memories.filter(
+      (memory) => !forgottenMemoryIds.has(memory.record.id),
+    );
+    const restoredMemoryIds = new Set(restoredMemories.map((memory) => memory.record.id));
+    const restoredRevisions = input.revisions.filter(
+      (item) => restoredMemoryIds.has(item.memoryId) && !forgottenMemoryIds.has(item.memoryId),
+    );
+    for (const session of input.sessions) {
+      this.sessions.set(session.id, session);
+    }
+    for (const event of input.events) {
+      this.events.set(`${event.sessionId}:${event.id}`, event);
+    }
+    for (const memory of restoredMemories) {
+      this.memories.set(memory.record.id, memory.record);
+      const revisions = new Map<number, MemoryRevision>();
+      for (const item of restoredRevisions.filter((value) => value.memoryId === memory.record.id)) {
+        revisions.set(item.revision.version, item.revision);
+      }
+      this.revisions.set(memory.record.id, revisions);
+      this.revisionTimestamps.set(memory.record.id, new Map());
+    }
+    for (const conflict of input.conflicts) {
+      if (conflict.memoryIds.every((memoryId) => restoredMemoryIds.has(memoryId))) {
+        this.conflicts.set(conflict.id, conflict);
+      }
+    }
+    for (const job of input.jobs) {
+      this.jobs.set(job.id, job);
+    }
+    for (const attempt of input.jobAttempts) {
+      this.jobAttempts.set(attempt.jobId, [
+        ...(this.jobAttempts.get(attempt.jobId) ?? []),
+        attempt,
+      ]);
+    }
+    for (const entry of input.forgetLedger)
+      this.forgetLedger.set(entry.memoryId, entry.forgottenAt);
+    this.corpusRevision = 1n;
+    return {
+      restored: {
+        sessions: input.sessions.length,
+        events: input.events.length,
+        memories: restoredMemories.length,
+        revisions: restoredRevisions.length,
+        conflicts: [...this.conflicts.values()].length,
+        jobs: input.jobs.length,
+        jobAttempts: input.jobAttempts.length,
+        forgetLedger: input.forgetLedger.length,
+      },
+      skipped: {
+        forgottenMemories: input.memories.length - restoredMemories.length,
+        forgottenRevisions: input.revisions.length - restoredRevisions.length,
+        forgottenConflicts: input.conflicts.filter(
+          (conflict) => !conflict.memoryIds.every((memoryId) => restoredMemoryIds.has(memoryId)),
+        ).length,
+      },
+    };
+  }
 
   async createSession(input: OpenSessionInput): Promise<SessionRecord> {
     const session: SessionRecord = {

@@ -496,6 +496,27 @@ export const corpusExportSchema = z.object({
 });
 export type CorpusExport = z.infer<typeof corpusExportSchema>;
 
+export const corpusRestoreResultSchema = z.object({
+  sourceCorpusRevision: z.string().min(1),
+  corpusRevision: z.string().min(1),
+  restored: z.object({
+    sessions: z.number().int().nonnegative(),
+    events: z.number().int().nonnegative(),
+    memories: z.number().int().nonnegative(),
+    revisions: z.number().int().nonnegative(),
+    conflicts: z.number().int().nonnegative(),
+    jobs: z.number().int().nonnegative(),
+    jobAttempts: z.number().int().nonnegative(),
+    forgetLedger: z.number().int().nonnegative(),
+  }),
+  skipped: z.object({
+    forgottenMemories: z.number().int().nonnegative(),
+    forgottenRevisions: z.number().int().nonnegative(),
+    forgottenConflicts: z.number().int().nonnegative(),
+  }),
+});
+export type CorpusRestoreResult = z.infer<typeof corpusRestoreResultSchema>;
+
 export const balancedRetentionPolicy = {
   profile: 'balanced',
   closedEventDays: 30,

@@ -640,4 +640,108 @@ describe('CoreMemoryService', () => {
       forgotten.memoryId,
     ]);
   });
+
+  it('restores a canonical export while protecting forgotten memories', async () => {
+    const sourceRepository = new InMemoryRepository();
+    const sourceService = new CoreMemoryService(sourceRepository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+    const session = await sourceService.openSession({ projectId: 'memory-service' });
+    const forgotten = await sourceService.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria dimenticata da non reimportare',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const retained = await sourceService.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria da ripristinare',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const prepared = await sourceService.prepareForget(forgotten.memoryId!);
+    await sourceService.forgetMemory(forgotten.memoryId!, prepared.confirmationToken);
+    const exportValue = await sourceService.listCorpusExport();
+    const protectedExport = {
+      ...exportValue,
+      memories: [
+        ...exportValue.memories,
+        {
+          record: {
+            id: forgotten.memoryId!,
+            currentVersion: 1,
+            lifecycle: 'accepted' as const,
+            createdAt: '2026-01-20T10:00:00.000Z',
+            updatedAt: '2026-01-20T10:00:00.000Z',
+          },
+          current: {
+            memoryId: forgotten.memoryId!,
+            version: 1,
+            content: 'Memoria dimenticata da non reimportare',
+            kind: 'fact' as const,
+            scope: projectScope,
+            epistemicBasis: 'user_asserted' as const,
+            assessment: 'uncontested' as const,
+            confidence: 1,
+            sensitivity: 'normal' as const,
+            activation: 'on_demand' as const,
+            sourceEventIds: [],
+          },
+        },
+      ],
+      revisions: [
+        ...exportValue.revisions,
+        {
+          memoryId: forgotten.memoryId!,
+          revision: {
+            memoryId: forgotten.memoryId!,
+            version: 1,
+            content: 'Memoria dimenticata da non reimportare',
+            kind: 'fact' as const,
+            scope: projectScope,
+            epistemicBasis: 'user_asserted' as const,
+            assessment: 'uncontested' as const,
+            confidence: 1,
+            sensitivity: 'normal' as const,
+            activation: 'on_demand' as const,
+            sourceEventIds: [],
+          },
+        },
+      ],
+    };
+    const targetService = new CoreMemoryService(new InMemoryRepository(), {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+
+    const result = await targetService.restoreCorpus(protectedExport);
+    const restored = await targetService.listAdminMemories({ q: '', limit: 100, offset: 0 });
+
+    expect(result.skipped).toEqual({
+      forgottenMemories: 1,
+      forgottenRevisions: 1,
+      forgottenConflicts: 0,
+    });
+    expect(restored.items.map((memory) => memory.content)).toEqual(['Memoria da ripristinare']);
+    expect((await targetService.getMemory(retained.memoryId!))?.content).toBe(
+      'Memoria da ripristinare',
+    );
+  });
 });

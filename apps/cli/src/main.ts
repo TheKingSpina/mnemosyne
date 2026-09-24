@@ -11,6 +11,7 @@ import {
   adminSessionsOutputSchema,
   conflictListOutputSchema,
   corpusExportSchema,
+  corpusRestoreResultSchema,
   memoryAdminViewSchema,
   pendingProposalsOutputSchema,
   retentionRunOutputSchema,
@@ -151,6 +152,19 @@ async function run(name: string, args: string[]): Promise<void> {
     process.stdout.write(`Export scritto in ${destination}\n`);
     return;
   }
+  if (name === 'restore') {
+    const source = required(args, 0, 'input export path');
+    const file = await import('node:fs/promises').then(({ readFile }) => readFile(source, 'utf8'));
+    const value = corpusExportSchema.parse(JSON.parse(file) as unknown);
+    printJson(
+      await request('/v1/admin/restore/corpus', corpusRestoreResultSchema, {
+        method: 'POST',
+        headers: { 'idempotency-key': randomUUID() },
+        body: JSON.stringify(value),
+      }),
+    );
+    return;
+  }
   throw new Error(`unknown_command:${name}`);
 }
 
@@ -228,6 +242,7 @@ function printHelp(): void {
       'mnemosyne conflicts',
       'mnemosyne resolve-conflict <conflict-id> --yes',
       'mnemosyne export <output.json>',
+      'mnemosyne restore <input.json>',
       '',
       'Options: --api <url> --token <owner-token>',
       '',

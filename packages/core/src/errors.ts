@@ -24,6 +24,8 @@ export function toDomainError(error: unknown): DomainError {
       idempotency_key_required: ['Idempotency-Key is required for this write', 400],
       idempotency_key_invalid: ['Idempotency-Key is invalid', 400],
       idempotency_in_progress: ['The request with this Idempotency-Key is still in progress', 409],
+      restore_requires_empty_corpus: ['Corpus restore requires an empty corpus', 409],
+      restore_invalid_export: ['Corpus export is not internally consistent', 400],
       conflict_not_found: ['Conflict not found', 404],
       scope_not_available: ['Scope is not available in this session', 403],
       harness_cannot_issue_owner_directive: ['Harness cannot issue an owner directive', 403],

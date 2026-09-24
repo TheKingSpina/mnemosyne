@@ -1,4 +1,5 @@
 import {
+  corpusExportSchema,
   contextInputSchema,
   correctMemoryInputSchema,
   openSessionInputSchema,
@@ -316,6 +317,11 @@ async function handleAuthorizedRequestUnchecked(
       'cache-control': 'no-store',
     });
     response.end(serialized);
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/admin/restore/corpus') {
+    const body = corpusExportSchema.parse(await readJson(request, maxRequestBodyBytes));
+    sendJson(response, 200, await service.restoreCorpus(body));
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/admin/sessions') {
