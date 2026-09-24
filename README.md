@@ -21,7 +21,7 @@ The first vertical slice provides:
 - a local owner web console for overview, search, review, history, conflicts, and context preview;
 - a recoverable extraction worker with leases, retries, and quarantine;
 - an owner-only canonical corpus export with no-store download semantics;
-- an owner-triggered balanced retention policy with persistent last-run status;
+- a balanced retention policy with persistent last-run status, owner trigger, and worker schedule;
 - a guarded empty-database restore path that re-applies the forget ledger;
 - a conservative session-consolidation job and scheduled balanced retention in the worker;
 - a derived Redis cache with revision validation and lexical/semantic fallback;
@@ -193,10 +193,13 @@ validates returned data against the shared contracts.
 
 The initial `balanced` retention policy removes events from sessions closed for
 more than 30 days, pending proposals older than 30 days, rejected proposals
-older than 7 days, and retracted memories older than 30 days. Forget ledger
-entries are never removed. It is owner-triggered; it is not an automatic job
-yet. The initial implementation also reports superseded-revision retention but
-does not delete those rows until provenance snapshots are explicitly modeled.
+older than 7 days, retracted memories older than 30 days, and superseded
+revision snapshots older than 90 days. The current revision of every retained
+memory is never removed, and the forget ledger is never removed. Retention can
+be triggered by the owner or run on the worker's `WORKER_RETENTION_INTERVAL_MS`
+schedule; the worker default is once every 24 hours. Older revision history is
+therefore intentionally available only until its retention cutoff, while the
+current revision and its source identifiers remain in the canonical export.
 
 Restore is deliberately destructive and owner-only. It accepts a canonical
 export only when the target corpus is empty, validates referential relationships,

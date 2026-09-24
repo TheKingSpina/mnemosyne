@@ -582,19 +582,31 @@ export class PostgresMemoryRepository implements MemoryRepository {
       const conflicts = await client.query(
         `DELETE FROM conflicts c
          WHERE c.status = 'open'
-           AND $1::text[] <@ c.memory_ids
+           AND cardinality($1::text[]) > 0
+           AND c.memory_ids <@ $1::text[]
            AND NOT (c.memory_ids && $2::text[])`,
         [expiredMemoryIds, await this.forgetLedgerIds(client, expiredMemoryIds)],
       );
-      await client.query('COMMIT');
-      return {
+      const superseded = await client.query(
+        `DELETE FROM memory_revisions r
+         USING memories m
+         WHERE r.memory_id = m.id
+           AND r.version <> m.current_version
+           AND r.created_at < $1::timestamptz`,
+        [cutoffs.supersededRevisions],
+      );
+      const deleted = {
         closedSessionEvents: events.rowCount ?? 0,
         pendingCandidates: pending.rowCount ?? 0,
         rejectedCandidates: rejected.rowCount ?? 0,
-        supersededRevisions: 0,
+        supersededRevisions: superseded.rowCount ?? 0,
         retractedMemories: retracted.rowCount ?? 0,
         conflicts: conflicts.rowCount ?? 0,
       };
+      const deletionCount = Object.values(deleted).reduce((total, count) => total + count, 0);
+      if (deletionCount > 0) await this.bumpCorpus(client, 'retention.applied', 'corpus');
+      await client.query('COMMIT');
+      return deleted;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

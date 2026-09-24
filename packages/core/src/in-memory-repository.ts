@@ -69,7 +69,11 @@ export class InMemoryRepository implements MemoryRepository {
         revisions.set(item.revision.version, item.revision);
       }
       this.revisions.set(memory.record.id, revisions);
-      this.revisionTimestamps.set(memory.record.id, new Map());
+      const restoredAt = this.now().toISOString();
+      this.revisionTimestamps.set(
+        memory.record.id,
+        new Map([...revisions.keys()].map((version) => [version, restoredAt])),
+      );
     }
     for (const conflict of input.conflicts) {
       if (conflict.memoryIds.every((memoryId) => restoredMemoryIds.has(memoryId))) {
@@ -316,12 +320,28 @@ export class InMemoryRepository implements MemoryRepository {
         ),
     );
     for (const conflict of conflicts) this.conflicts.delete(conflict.id);
-    if (closedEvents.length + expiredMemoryIds.length > 0) this.corpusRevision += 1n;
+    let supersededRevisions = 0;
+    for (const [memoryId, revisions] of this.revisions) {
+      const record = this.memories.get(memoryId);
+      if (!record || !revisions.has(record.currentVersion)) continue;
+      const timestamps = this.revisionTimestamps.get(memoryId);
+      for (const [version, createdAt] of timestamps ?? []) {
+        if (version === record.currentVersion || createdAt >= cutoffs.supersededRevisions) {
+          continue;
+        }
+        revisions.delete(version);
+        timestamps?.delete(version);
+        supersededRevisions += 1;
+      }
+    }
+    if (closedEvents.length + expiredMemoryIds.length + supersededRevisions > 0) {
+      this.corpusRevision += 1n;
+    }
     return {
       closedSessionEvents: closedEvents.length,
       pendingCandidates: pendingCandidates.length,
       rejectedCandidates: rejectedCandidates.length,
-      supersededRevisions: 0,
+      supersededRevisions,
       retractedMemories: retractedMemories.length,
       conflicts: conflicts.length,
     };

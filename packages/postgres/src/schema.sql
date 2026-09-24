@@ -74,6 +74,9 @@ CREATE TABLE IF NOT EXISTS memory_revisions (
 CREATE INDEX IF NOT EXISTS memory_revisions_current_content_idx
   ON memory_revisions USING gin (to_tsvector('simple', content));
 
+CREATE INDEX IF NOT EXISTS memory_revisions_retention_idx
+  ON memory_revisions(created_at, memory_id, version);
+
 CREATE INDEX IF NOT EXISTS memories_lifecycle_idx ON memories(lifecycle);
 
 CREATE TABLE IF NOT EXISTS memory_embeddings (

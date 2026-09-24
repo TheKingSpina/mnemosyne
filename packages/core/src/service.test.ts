@@ -647,6 +647,92 @@ describe('CoreMemoryService', () => {
     ]);
   });
 
+  it('deletes only superseded revisions older than the retention cutoff', async () => {
+    let now = new Date('2026-01-01T12:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa npm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    await service.correctMemory({
+      memoryId: proposed.memoryId!,
+      expectedVersion: 1,
+      content: 'Il progetto usa pnpm',
+    });
+    now = new Date('2026-03-01T12:00:00.000Z');
+    await service.correctMemory({
+      memoryId: proposed.memoryId!,
+      expectedVersion: 2,
+      content: 'Il progetto usa npm workspaces',
+    });
+    now = new Date('2026-12-01T12:00:00.000Z');
+
+    const result = await service.runRetention();
+    const detail = await service.getMemoryAdminView(proposed.memoryId!);
+    const exported = await service.listCorpusExport();
+
+    expect(result.deleted.supersededRevisions).toBe(2);
+    expect(detail?.memory).toMatchObject({
+      currentVersion: 3,
+      content: 'Il progetto usa npm workspaces',
+    });
+    expect(detail?.revisions.map((revision) => revision.version)).toEqual([3]);
+    expect(exported.revisions.map((item) => item.revision.version)).toEqual([3]);
+  });
+
+  it('preserves a recent superseded revision and the current revision', async () => {
+    let now = new Date('2026-11-01T12:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa npm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    now = new Date('2026-12-01T12:00:00.000Z');
+    await service.correctMemory({
+      memoryId: proposed.memoryId!,
+      expectedVersion: 1,
+      content: 'Il progetto usa pnpm',
+    });
+
+    const result = await service.runRetention();
+    const detail = await service.getMemoryAdminView(proposed.memoryId!);
+
+    expect(result.deleted.supersededRevisions).toBe(0);
+    expect(detail?.revisions.map((revision) => revision.version)).toEqual([2, 1]);
+  });
+
   it('restores a canonical export while protecting forgotten memories', async () => {
     const sourceRepository = new InMemoryRepository();
     const sourceService = new CoreMemoryService(sourceRepository, {
