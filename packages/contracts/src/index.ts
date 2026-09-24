@@ -577,7 +577,7 @@ export const adminCapabilitiesOutputSchema = z.object({
     openRouterConfigured: z.boolean(),
   }),
   projections: z.object({
-    redis: z.literal(false),
+    redis: z.boolean(),
     neo4j: z.literal(false),
     semanticSearch: z.boolean(),
   }),

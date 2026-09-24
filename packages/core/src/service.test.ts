@@ -3,6 +3,7 @@ import {
   CoreMemoryService,
   DeterministicEmbeddingProvider,
   InMemoryRepository,
+  InMemoryCorpusCache,
   InMemorySemanticSearchIndex,
 } from './index.js';
 
@@ -835,5 +836,46 @@ describe('CoreMemoryService', () => {
     });
 
     expect(found[0]?.content).toBe('Il progetto usa pnpm per i test sintetici');
+  });
+
+  it('uses the derived cache only when the corpus revision still matches', async () => {
+    const repository = new InMemoryRepository();
+    const cache = new InMemoryCorpusCache();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      corpusCache: cache,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria cacheata sintetica',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const first = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'cacheata',
+      limit: 5,
+      offset: 0,
+    });
+    await service.openSession({ projectId: 'memory-service' });
+    const second = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'cacheata',
+      limit: 5,
+      offset: 0,
+    });
+
+    expect(first[0]?.content).toBe('Memoria cacheata sintetica');
+    expect(second[0]?.content).toBe('Memoria cacheata sintetica');
   });
 });

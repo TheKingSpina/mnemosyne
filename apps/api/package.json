@@ -12,6 +12,7 @@
     "@mnemosyne/core": "0.0.0",
     "@mnemosyne/postgres": "0.0.0",
     "pg": "^8.23.0",
+    "redis": "^6.2.1",
     "zod": "4.6.5"
   }
 }

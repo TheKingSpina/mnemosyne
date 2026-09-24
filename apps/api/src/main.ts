@@ -2,6 +2,7 @@ import {
   CoreMemoryService,
   DeterministicEmbeddingProvider,
   createAccessPolicy,
+  type CorpusCache,
 } from '@mnemosyne/core';
 import {
   PostgresIdempotencyStore,
@@ -10,6 +11,7 @@ import {
 } from '@mnemosyne/postgres';
 import { Pool } from 'pg';
 import { createApiServer } from './app.js';
+import { RedisCorpusCache } from './redis-cache.js';
 
 const connectionString = process.env.DATABASE_URL;
 const forgetSecret = process.env.MNEMOSYNE_FORGET_SECRET;
@@ -28,10 +30,20 @@ const semanticSearchIndex = new PostgresSemanticSearchIndex(pool, {
   profile: embeddingProvider.profile,
   dimensions: embeddingProvider.dimensions,
 });
+let corpusCache: CorpusCache | undefined;
+const redisUrl = process.env.REDIS_URL;
+if (redisUrl) {
+  try {
+    corpusCache = await RedisCorpusCache.connect(redisUrl);
+  } catch {
+    corpusCache = undefined;
+  }
+}
 const service = new CoreMemoryService(repository, {
   forgetSecret,
   embeddingProvider,
   semanticSearchIndex,
+  corpusCache,
 });
 const host = process.env.API_HOST ?? '127.0.0.1';
 const port = Number(process.env.API_PORT ?? 3000);

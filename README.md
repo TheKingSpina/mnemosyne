@@ -24,6 +24,7 @@ The first vertical slice provides:
 - an owner-triggered balanced retention policy with persistent last-run status;
 - a guarded empty-database restore path that re-applies the forget ledger;
 - a conservative session-consolidation job and scheduled balanced retention in the worker;
+- a derived Redis cache with revision validation and lexical/semantic fallback;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -89,6 +90,10 @@ Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different rando
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
 
 The owner web console is available in Compose at `http://127.0.0.1:8080` by default. Enter the owner API origin and `MNEMOSYNE_OWNER_TOKEN` in the console; the token is kept only in the browser's session storage. The console proxies browser API calls server-side, so the API is not exposed to the browser as a directly exposed cross-origin service. The console is a local administration surface, not a replacement for HTTPS on a remote deployment.
+
+Redis is a rebuildable derived cache. If it is unavailable, retrieval continues
+from PostgreSQL and lexical/semantic fallback; cached search results are accepted
+only when their corpus revision still matches the authoritative store.
 
 To start it directly from the repository after building, run `npm run web:dev`; set `WEB_API_ORIGIN` when the API is not on `127.0.0.1:3000`.
 

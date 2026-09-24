@@ -54,6 +54,7 @@ import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import type { EmbeddingProvider, SemanticSearchIndex } from './semantic-search.js';
+import type { CorpusCache } from './corpus-cache.js';
 import type {
   ConflictRecord,
   CorpusRevision,
@@ -70,6 +71,8 @@ export interface CoreMemoryServiceOptions {
   now?: () => Date;
   embeddingProvider?: EmbeddingProvider;
   semanticSearchIndex?: SemanticSearchIndex;
+  corpusCache?: CorpusCache;
+  corpusCacheTtlSeconds?: number;
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -92,7 +95,7 @@ export class CoreMemoryService implements MemoryService {
         openRouterConfigured: false,
       },
       projections: {
-        redis: false,
+        redis: this.options.corpusCache !== undefined,
         neo4j: false,
         semanticSearch:
           this.options.embeddingProvider !== undefined &&
@@ -289,6 +292,10 @@ export class CoreMemoryService implements MemoryService {
     const validated = searchMemoriesInputSchema.parse(input);
     const session = await this.repository.findSession(validated.sessionId);
     if (!session) throw new Error('session_not_found');
+    const revision = await this.repository.getCorpusRevision();
+    const cacheKey = this.corpusCacheKey('search', validated.sessionId, validated.query);
+    const cached = await this.cachedCorpusResult(cacheKey, revision);
+    if (cached) return cached as MemoryRevision[];
     const scopes = await this.listScopesForSession(validated.sessionId);
     const memories = await this.repository.listCurrentMemories();
     const terms = validated.query.toLocaleLowerCase().split(/\s+/u).filter(Boolean);
@@ -304,7 +311,12 @@ export class CoreMemoryService implements MemoryService {
       const memory = eligible.find((value) => value.memoryId === hit.memoryId);
       if (memory && !ordered.has(hit.memoryId)) ordered.set(hit.memoryId, memory);
     }
-    return [...ordered.values()].slice(validated.offset, validated.offset + validated.limit);
+    const result = [...ordered.values()].slice(
+      validated.offset,
+      validated.offset + validated.limit,
+    );
+    await this.cacheCorpusResult(cacheKey, result, revision);
+    return result;
   }
 
   async resolveContext(input: ContextInput): Promise<ContextOutput> {
@@ -730,6 +742,46 @@ export class CoreMemoryService implements MemoryService {
       return await index.search({ embedding: await provider.embed(query), limit });
     } catch {
       return [];
+    }
+  }
+
+  private corpusCacheKey(kind: string, sessionId: string, query: string): string {
+    const digest = createHmac('sha256', 'corpus-cache')
+      .update(`${sessionId}:${query}`)
+      .digest('base64url');
+    return `mnemosyne:${kind}:${digest}`;
+  }
+
+  private async cachedCorpusResult(key: string, revision: CorpusRevision): Promise<unknown> {
+    const cache = this.options.corpusCache;
+    if (!cache) return null;
+    try {
+      const value = await cache.get(key);
+      if (value === null) return null;
+      const parsed = JSON.parse(value) as { revision?: unknown; result?: unknown };
+      return parsed.revision === `${revision.epoch}:${revision.revision}`
+        ? (parsed.result ?? null)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async cacheCorpusResult(
+    key: string,
+    result: unknown,
+    revision: CorpusRevision,
+  ): Promise<void> {
+    const cache = this.options.corpusCache;
+    if (!cache) return;
+    try {
+      await cache.set(
+        key,
+        JSON.stringify({ revision: `${revision.epoch}:${revision.revision}`, result }),
+        this.options.corpusCacheTtlSeconds ?? 300,
+      );
+    } catch {
+      return;
     }
   }
 
