@@ -35,9 +35,13 @@ export class Neo4jProjection {
 
   async runOnce(): Promise<number> {
     const events = await this.repository.claimOutboxEvents(this.batchSize);
-    for (const event of events) await this.apply(event);
-    await this.repository.markOutboxProcessed(events.map((event) => event.id));
-    return events.length;
+    const processed: number[] = [];
+    for (const event of events) {
+      await this.apply(event);
+      processed.push(event.id);
+    }
+    await this.repository.markOutboxProcessed(processed);
+    return processed.length;
   }
 
   async rebuild(): Promise<void> {
@@ -72,6 +76,8 @@ export class Neo4jProjection {
         );
       }
       for (const conflict of conflicts) {
+        if (conflict.status !== 'open') continue;
+        if (conflict.memoryIds.length < 2) continue;
         await session.executeWrite((tx) =>
           tx.run(
             `MATCH (a:Memory {id: $first}), (b:Memory {id: $second})
@@ -100,8 +106,37 @@ export class Neo4jProjection {
         );
         return;
       }
+      if (event.eventType === 'memory.conflict.created') {
+        const conflict = await this.repository.getConflict(event.aggregateId);
+        if (!conflict) return;
+        if (conflict.memoryIds.length < 2) return;
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MATCH (a:Memory {id: $first}), (b:Memory {id: $second})
+             MERGE (a)-[:CONFLICTS {id: $id, type: $type, status: $status}]->(b)`,
+            {
+              id: conflict.id,
+              type: conflict.type,
+              status: conflict.status,
+              first: conflict.memoryIds[0],
+              second: conflict.memoryIds[1],
+            },
+          ),
+        );
+        return;
+      }
+      if (event.eventType === 'memory.conflict.resolved') {
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MATCH (a)-[r:CONFLICTS {id: $id}]->(b)
+             SET r.status = 'resolved'`,
+            { id: event.aggregateId },
+          ),
+        );
+        return;
+      }
       const memory = await this.repository.getMemory(event.aggregateId);
-      if (!memory || memory.record.lifecycle !== 'accepted') return;
+      if (!memory) return;
       const current = memory.current;
       await session.executeWrite((tx) =>
         tx.run(

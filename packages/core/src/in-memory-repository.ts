@@ -185,6 +185,7 @@ export class InMemoryRepository implements MemoryRepository {
     this.memories.set(id, record);
     this.revisions.set(id, new Map([[1, this.revisionFromInput(id, input)]]));
     this.revisionTimestamps.set(id, new Map([[1, now]]));
+    this.enqueueOutbox('memory.proposed', id);
     return record;
   }
 
@@ -221,6 +222,7 @@ export class InMemoryRepository implements MemoryRepository {
     };
     this.memories.set(id, updated);
     this.corpusRevision += 1n;
+    this.enqueueOutbox('memory.sources.merged', id, nextVersion);
     return updated;
   }
 
@@ -268,6 +270,7 @@ export class InMemoryRepository implements MemoryRepository {
     };
     this.memories.set(id, updated);
     this.corpusRevision += 1n;
+    this.enqueueOutbox('memory.revision.created', id, revision.version);
     return updated;
   }
 
@@ -277,6 +280,7 @@ export class InMemoryRepository implements MemoryRepository {
     const updated = { ...record, lifecycle, updatedAt: this.now().toISOString() };
     this.memories.set(id, updated);
     if (lifecycle === 'accepted') this.corpusRevision += 1n;
+    this.enqueueOutbox(lifecycle === 'accepted' ? 'memory.accepted' : `memory.${lifecycle}`, id);
     return updated;
   }
 
@@ -286,6 +290,7 @@ export class InMemoryRepository implements MemoryRepository {
     this.revisionTimestamps.delete(id);
     this.forgetLedger.set(id, this.now().toISOString());
     this.corpusRevision += 1n;
+    this.enqueueOutbox('memory.forgotten', id);
   }
 
   async runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts> {
@@ -411,6 +416,10 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.conflicts.values()].filter((conflict) => conflict.memoryIds.includes(memoryId));
   }
 
+  async getConflict(id: string): Promise<ConflictRecord | null> {
+    return this.conflicts.get(id) ?? null;
+  }
+
   async listAllConflicts(): Promise<ConflictRecord[]> {
     return [...this.conflicts.values()];
   }
@@ -428,7 +437,10 @@ export class InMemoryRepository implements MemoryRepository {
         conflict.memoryIds.length === uniqueMemoryIds.length &&
         uniqueMemoryIds.every((memoryId) => conflict.memoryIds.includes(memoryId)),
     );
-    if (existing) return existing;
+    if (existing) {
+      this.enqueueOutbox('memory.conflict.created', existing.id);
+      return existing;
+    }
     const conflict: ConflictRecord = {
       id: `conf_${randomUUID()}`,
       type,
@@ -436,6 +448,7 @@ export class InMemoryRepository implements MemoryRepository {
       status: 'open',
     };
     this.conflicts.set(conflict.id, conflict);
+    this.enqueueOutbox('memory.conflict.created', conflict.id);
     return conflict;
   }
 
@@ -444,6 +457,7 @@ export class InMemoryRepository implements MemoryRepository {
     if (!conflict) throw new Error('conflict_not_found');
     const resolved = { ...conflict, status: 'resolved' as const };
     this.conflicts.set(id, resolved);
+    this.enqueueOutbox('memory.conflict.resolved', id);
     return resolved;
   }
 
@@ -699,5 +713,16 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.memories.values()]
       .filter((memory) => memory.lifecycle === lifecycle && memory.updatedAt < cutoff)
       .map((memory) => memory.id);
+  }
+
+  private enqueueOutbox(eventType: string, aggregateId: string, version?: number): void {
+    this.outbox.push({
+      id: this.outbox.length + 1,
+      eventType,
+      aggregateId,
+      storeRevision: this.corpusRevision,
+      payload:
+        version === undefined ? { memoryId: aggregateId } : { memoryId: aggregateId, version },
+    });
   }
 }

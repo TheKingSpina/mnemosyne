@@ -701,6 +701,14 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows.map((row) => this.conflictFromRow(row));
   }
 
+  async getConflict(id: string): Promise<ConflictRecord | null> {
+    const result = await this.database.query<ConflictRow>(
+      'SELECT id, type, memory_ids, status FROM conflicts WHERE id = $1',
+      [id],
+    );
+    return result.rows[0] ? this.conflictFromRow(result.rows[0]) : null;
+  }
+
   async listAllConflicts(): Promise<ConflictRecord[]> {
     const result = await this.database.query<ConflictRow>(
       'SELECT id, type, memory_ids, status FROM conflicts ORDER BY detected_at DESC',
@@ -733,6 +741,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       );
       const existingRow = existing.rows[0];
       if (existingRow) {
+        await this.bumpCorpus(client, 'memory.conflict.created', existingRow.id);
         await client.query('COMMIT');
         return this.conflictFromRow(existingRow);
       }
@@ -744,6 +753,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       );
       const row = result.rows[0];
       if (!row) throw new Error('conflict_create_failed');
+      await this.bumpCorpus(client, 'memory.conflict.created', row.id);
       await client.query('COMMIT');
       return this.conflictFromRow(row);
     } catch (error) {
@@ -755,16 +765,27 @@ export class PostgresMemoryRepository implements MemoryRepository {
   }
 
   async resolveConflict(id: string): Promise<ConflictRecord> {
-    const result = await this.database.query<ConflictRow>(
-      `UPDATE conflicts
-       SET status = 'resolved'
-       WHERE id = $1
-       RETURNING id, type, memory_ids, status`,
-      [id],
-    );
-    const row = result.rows[0];
-    if (!row) throw new Error('conflict_not_found');
-    return this.conflictFromRow(row);
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<ConflictRow>(
+        `UPDATE conflicts
+         SET status = 'resolved'
+         WHERE id = $1
+         RETURNING id, type, memory_ids, status`,
+        [id],
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error('conflict_not_found');
+      await this.bumpCorpus(client, 'memory.conflict.resolved', id);
+      await client.query('COMMIT');
+      return this.conflictFromRow(row);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {

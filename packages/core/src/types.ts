@@ -183,6 +183,7 @@ export interface MemoryRepository {
   listMemoryViews(): Promise<MemoryWithCurrent[]>;
   listRevisions(id: string): Promise<MemoryRevision[]>;
   findConflicts(memoryId: string): Promise<ConflictRecord[]>;
+  getConflict(id: string): Promise<ConflictRecord | null>;
   listAllConflicts(): Promise<ConflictRecord[]>;
   createConflict(memoryIds: string[], type?: ConflictRecord['type']): Promise<ConflictRecord>;
   resolveConflict(id: string): Promise<ConflictRecord>;
