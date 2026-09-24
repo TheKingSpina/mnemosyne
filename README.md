@@ -161,7 +161,11 @@ Harness tools currently include:
 - `memory_close_session`
 - `memory_get_job`
 
-The owner profile adds administrative tools such as correction, retraction, and confirmed forget. Administrative tools are never exposed in the harness tool list, and authorization must be enforced by the server rather than by client-side tool visibility.
+The owner profile adds administrative tools for overview, memory/session/job
+inspection, proposal review, correction, retraction, confirmed forget, and
+conflict resolution. Administrative tools are never exposed in the harness tool
+list, and authorization must be enforced by the server rather than by
+client-side tool visibility.
 
 ## Project layout
 

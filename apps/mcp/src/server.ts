@@ -8,6 +8,9 @@ import {
 import {
   contextInputSchema,
   listPendingProposalsInputSchema,
+  listAdminMemoriesInputSchema,
+  listAdminJobsInputSchema,
+  listAdminSessionsInputSchema,
   ownerProposalSubmissionSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
@@ -22,6 +25,9 @@ const proposeShape = shape(proposeMemoryInputSchema);
 const contextShape = shape(contextInputSchema);
 const searchShape = shape(searchMemoriesInputSchema);
 const pendingShape = shape(listPendingProposalsInputSchema);
+const adminMemoriesShape = shape(listAdminMemoriesInputSchema);
+const adminJobsShape = shape(listAdminJobsInputSchema);
+const adminSessionsShape = shape(listAdminSessionsInputSchema);
 
 async function authorized<T>(
   profile: 'harness' | 'owner',
@@ -126,6 +132,76 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
   );
 
   if (profile === 'owner') {
+    server.registerTool(
+      'memory_admin_overview',
+      {
+        description: 'Read aggregate owner administration metrics.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(await authorized(profile, 'proposal.review', () => service.getAdminOverview())),
+    );
+
+    server.registerTool(
+      'memory_admin_memories',
+      {
+        description: 'List owner memory views with lifecycle, kind, and scope filters.',
+        inputSchema: adminMemoriesShape,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async (input) =>
+        result(
+          await authorized(profile, 'proposal.review', () => service.listAdminMemories(input)),
+        ),
+    );
+
+    server.registerTool(
+      'memory_admin_sessions',
+      {
+        description: 'List owner session administration views.',
+        inputSchema: adminSessionsShape,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async (input) =>
+        result(
+          await authorized(profile, 'proposal.review', () => service.listAdminSessions(input)),
+        ),
+    );
+
+    server.registerTool(
+      'memory_admin_jobs',
+      {
+        description: 'List owner background job administration views.',
+        inputSchema: adminJobsShape,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async (input) =>
+        result(await authorized(profile, 'proposal.review', () => service.listAdminJobs(input))),
+    );
+
+    server.registerTool(
+      'memory_list_conflicts',
+      {
+        description: 'List owner conflict records.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(await authorized(profile, 'proposal.review', () => service.listConflicts())),
+    );
+
+    server.registerTool(
+      'memory_resolve_conflict',
+      {
+        description: 'Mark a memory conflict as resolved.',
+        inputSchema: { conflictId: z.string().min(1) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async ({ conflictId }) =>
+        result(
+          await authorized(profile, 'proposal.review', () => service.resolveConflict(conflictId)),
+        ),
+    );
+
     server.registerTool(
       'memory_pending_review',
       {
