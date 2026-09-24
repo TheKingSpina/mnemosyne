@@ -276,7 +276,7 @@
           <input
             id="api-origin"
             aria-label="API origin"
-            placeholder="http://127.0.0.1:3000"
+            placeholder="/api/backend"
             style="max-width: 240px"
           />
           <input
@@ -407,7 +407,7 @@
     <script>
       const state = { view: 'overview', overview: null, memories: [], selected: null };
       const $ = (id) => document.getElementById(id);
-      const apiOrigin = () => $('api-origin').value.trim().replace(/\/$/, '');
+      const apiOrigin = () => $('api-origin').value.trim().replace(/\/$/, '') || '/api/backend';
       const token = () => $('owner-token').value.trim();
       const showMessage = (text, error = false) => {
         const el = $('message');
@@ -677,10 +677,12 @@
           })
           .catch((error) => showMessage(error.message, true));
       $('connect').onclick = () => {
-        localStorage.setItem('mnemosyne-owner-token', token());
-        localStorage.setItem('mnemosyne-api-origin', apiOrigin());
+        sessionStorage.setItem('mnemosyne-owner-token', token());
+        sessionStorage.setItem('mnemosyne-api-origin', apiOrigin());
         loadOverview();
       };
+      $('owner-token').value = sessionStorage.getItem('mnemosyne-owner-token') || '';
+      $('api-origin').value = sessionStorage.getItem('mnemosyne-api-origin') || '/api/backend';
       $('memory-search').onclick = loadMemories;
       $('review-load').onclick = loadReview;
       $('context-resolve').onclick = async () => {
@@ -702,9 +704,6 @@
       document
         .querySelectorAll('#nav button')
         .forEach((button) => (button.onclick = () => setView(button.dataset.view)));
-      $('owner-token').value = localStorage.getItem('mnemosyne-owner-token') || '';
-      $('api-origin').value =
-        localStorage.getItem('mnemosyne-api-origin') || 'http://127.0.0.1:3000';
       setView('overview');
     </script>
   </body>

@@ -20,7 +20,7 @@ Do not include real credentials, conversations, memory contents, or backup files
 - Use authenticated private networking and TLS for remote access.
 - REST and Streamable HTTP use separate `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` credentials; do not run either interface unauthenticated.
 - Administrative operations are authorized server-side; hiding a tool from a client is not treated as access control.
-- The owner web console is an administrative surface; keep it local or behind the same private network and HTTPS controls as the API.
+- The owner web console is an administrative surface; keep it local or behind the same private network and HTTPS controls as the API. It proxies API calls server-side and keeps the owner token in browser session storage, not local storage.
 - Keep provider keys and forget secrets outside the repository and database.
 - Use synthetic data in tests and reports.
 - Back up PostgreSQL securely and test restoration regularly.
