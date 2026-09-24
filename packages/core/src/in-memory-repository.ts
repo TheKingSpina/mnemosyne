@@ -22,6 +22,8 @@ import type {
   CorpusRestore,
   CorpusRestoreCounts,
   OutboxEvent,
+  MemoryFeedbackInput,
+  MemoryFeedbackOutput,
   SessionRecord,
 } from './types.js';
 import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
@@ -40,6 +42,7 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly forgetLedger = new Map<string, string>();
   private retentionState: RetentionState = {};
   private outbox: OutboxEvent[] = [];
+  private readonly feedback = new Map<string, MemoryFeedbackOutput[]>();
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
@@ -636,6 +639,18 @@ export class InMemoryRepository implements MemoryRepository {
   async markOutboxProcessed(ids: number[]): Promise<void> {
     const processed = new Set(ids);
     this.outbox = this.outbox.filter((event) => !processed.has(event.id));
+  }
+
+  async createFeedback(
+    input: MemoryFeedbackInput & { id: string; createdAt: string },
+  ): Promise<MemoryFeedbackOutput> {
+    const record: MemoryFeedbackOutput = { ...input };
+    this.feedback.set(input.memoryId, [...(this.feedback.get(input.memoryId) ?? []), record]);
+    return record;
+  }
+
+  async listFeedback(memoryId: string): Promise<MemoryFeedbackOutput[]> {
+    return [...(this.feedback.get(memoryId) ?? [])];
   }
 
   private revisionFromInput(id: string, input: ProposeMemoryInput): MemoryRevision {

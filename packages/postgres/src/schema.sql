@@ -170,3 +170,16 @@ CREATE TABLE IF NOT EXISTS conflicts (
 ALTER TABLE conflicts ADD COLUMN IF NOT EXISTS type text NOT NULL DEFAULT 'direct_contradiction';
 
 CREATE INDEX IF NOT EXISTS conflicts_memory_ids_idx ON conflicts USING gin (memory_ids);
+
+CREATE TABLE IF NOT EXISTS memory_feedback (
+  id text PRIMARY KEY,
+  memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  session_id text NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  kind text NOT NULL CHECK (kind IN ('useful', 'not_useful', 'outdated', 'incorrect', 'scope_mismatch')),
+  comment text,
+  observed_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS memory_feedback_memory_idx
+  ON memory_feedback(memory_id, created_at DESC);

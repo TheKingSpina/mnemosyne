@@ -22,6 +22,8 @@ import type {
   CorpusRestore,
   CorpusRestoreCounts,
   OutboxEvent,
+  MemoryFeedbackInput,
+  MemoryFeedbackOutput,
   SessionRecord,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
@@ -112,6 +114,16 @@ interface OutboxRow extends QueryResultRow {
   aggregate_id: string;
   store_revision: string;
   payload: Record<string, unknown>;
+}
+
+interface MemoryFeedbackRow extends QueryResultRow {
+  id: string;
+  memory_id: string;
+  session_id: string;
+  kind: MemoryFeedbackOutput['kind'];
+  comment: string | null;
+  observed_at: Date;
+  created_at: Date;
 }
 
 export class PostgresMemoryRepository implements MemoryRepository {
@@ -986,6 +998,35 @@ export class PostgresMemoryRepository implements MemoryRepository {
     );
   }
 
+  async createFeedback(
+    input: MemoryFeedbackInput & { id: string; createdAt: string },
+  ): Promise<MemoryFeedbackOutput> {
+    const result = await this.database.query<MemoryFeedbackRow>(
+      `INSERT INTO memory_feedback
+         (id, memory_id, session_id, kind, comment, observed_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [
+        input.id,
+        input.memoryId,
+        input.sessionId,
+        input.kind,
+        input.comment ?? null,
+        input.observedAt,
+        input.createdAt,
+      ],
+    );
+    return this.feedbackFromRow(result.rows[0]);
+  }
+
+  async listFeedback(memoryId: string): Promise<MemoryFeedbackOutput[]> {
+    const result = await this.database.query<MemoryFeedbackRow>(
+      'SELECT * FROM memory_feedback WHERE memory_id = $1 ORDER BY created_at DESC, id',
+      [memoryId],
+    );
+    return result.rows.map((row) => this.feedbackFromRow(row));
+  }
+
   private async forgetLedgerIds(
     client: Pick<PoolClient, 'query'>,
     memoryIds: string[],
@@ -1172,6 +1213,18 @@ export class PostgresMemoryRepository implements MemoryRepository {
       type: row.type,
       memoryIds: row.memory_ids,
       status: row.status,
+    };
+  }
+
+  private feedbackFromRow(row: MemoryFeedbackRow): MemoryFeedbackOutput {
+    return {
+      id: row.id,
+      memoryId: row.memory_id,
+      sessionId: row.session_id,
+      kind: row.kind,
+      comment: row.comment ?? undefined,
+      observedAt: row.observed_at.toISOString(),
+      createdAt: row.created_at.toISOString(),
     };
   }
 }

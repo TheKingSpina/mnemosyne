@@ -590,3 +590,4 @@ export const adminCapabilitiesOutputSchema = z.object({
 export type AdminCapabilitiesOutput = z.infer<typeof adminCapabilitiesOutputSchema>;
 
 export * from './openrouter.js';
+export * from './feedback.js';

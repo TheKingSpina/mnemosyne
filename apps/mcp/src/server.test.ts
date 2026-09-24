@@ -57,6 +57,7 @@ describe('Mnemosyne MCP tool profiles', () => {
     expect(tools.map((tool) => tool.name)).toContain('memory_restore');
     expect(tools.map((tool) => tool.name)).toContain('memory_retention_status');
     expect(tools.map((tool) => tool.name)).toContain('memory_run_retention');
+    expect(tools.map((tool) => tool.name)).toContain('memory_feedback');
   });
 
   it('resolves a conflict through the owner MCP tool', async () => {

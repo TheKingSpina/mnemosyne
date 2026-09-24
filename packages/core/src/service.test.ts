@@ -878,4 +878,40 @@ describe('CoreMemoryService', () => {
     expect(first[0]?.content).toBe('Memoria cacheata sintetica');
     expect(second[0]?.content).toBe('Memoria cacheata sintetica');
   });
+
+  it('records non-destructive feedback without changing memory lifecycle', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => new Date('2026-09-24T12:00:00.000Z'),
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria con feedback sintetico',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const feedback = await service.submitFeedback({
+      memoryId: proposed.memoryId!,
+      sessionId: session.sessionId,
+      kind: 'useful',
+      observedAt: '2026-09-24T12:00:00.000Z',
+    });
+    const current = await service.getMemoryAdminView(proposed.memoryId!);
+    const listed = await service.listFeedback(proposed.memoryId!);
+
+    expect(feedback).toMatchObject({ memoryId: proposed.memoryId, kind: 'useful' });
+    expect(current?.memory.lifecycle).toBe('accepted');
+    expect(listed.items).toEqual([feedback]);
+  });
 });

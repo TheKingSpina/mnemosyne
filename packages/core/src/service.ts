@@ -12,6 +12,7 @@ import {
   searchMemoriesInputSchema,
   listAdminJobsInputSchema,
   listAdminSessionsInputSchema,
+  memoryFeedbackSchema,
   memoryRevisionSchema,
   type ContextInput,
   type ContextOutput,
@@ -46,11 +47,14 @@ import {
   type ReviewProposalOutput,
   type RetentionRunOutput,
   type RetentionStatusOutput,
+  type ListMemoryFeedbackOutput,
+  type MemoryFeedbackInput,
+  type MemoryFeedbackOutput,
   type SessionConsolidationOutput,
   type Scope,
   type SearchMemoriesInput,
 } from '@mnemosyne/contracts';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
@@ -180,6 +184,23 @@ export class CoreMemoryService implements MemoryService {
       corpusRevision: await this.getCorpusRevision(),
       ...counts,
     };
+  }
+
+  async submitFeedback(input: MemoryFeedbackInput): Promise<MemoryFeedbackOutput> {
+    const validated = memoryFeedbackSchema.parse(input);
+    const memory = await this.repository.getMemory(validated.memoryId);
+    if (!memory) throw new Error('memory_not_found');
+    const session = await this.repository.findSession(validated.sessionId);
+    if (!session) throw new Error('session_not_found');
+    return this.repository.createFeedback({
+      ...validated,
+      id: `feedback_${randomUUID()}`,
+      createdAt: this.now().toISOString(),
+    });
+  }
+
+  async listFeedback(memoryId: string): Promise<ListMemoryFeedbackOutput> {
+    return { items: await this.repository.listFeedback(memoryId) };
   }
 
   async openSession(input: OpenSessionInput): Promise<OpenSessionOutput> {

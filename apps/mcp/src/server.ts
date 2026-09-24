@@ -12,6 +12,7 @@ import {
   listAdminJobsInputSchema,
   listAdminSessionsInputSchema,
   corpusExportSchema,
+  memoryFeedbackSchema,
   ownerProposalSubmissionSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
@@ -180,6 +181,17 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       },
       async () =>
         result(await authorized(profile, 'proposal.review', () => service.runRetention())),
+    );
+
+    server.registerTool(
+      'memory_feedback',
+      {
+        description: 'Record non-destructive owner feedback about a memory.',
+        inputSchema: shape(memoryFeedbackSchema),
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      async (input) =>
+        result(await authorized(profile, 'proposal.review', () => service.submitFeedback(input))),
     );
 
     server.registerTool(

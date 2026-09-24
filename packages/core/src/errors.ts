@@ -27,6 +27,7 @@ export function toDomainError(error: unknown): DomainError {
       restore_requires_empty_corpus: ['Corpus restore requires an empty corpus', 409],
       restore_invalid_export: ['Corpus export is not internally consistent', 400],
       session_not_closed: ['Session must be closed before consolidation', 409],
+      memory_id_required: ['memoryId is required', 400],
       conflict_not_found: ['Conflict not found', 404],
       scope_not_available: ['Scope is not available in this session', 403],
       harness_cannot_issue_owner_directive: ['Harness cannot issue an owner directive', 403],

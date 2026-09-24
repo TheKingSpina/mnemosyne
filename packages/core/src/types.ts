@@ -18,6 +18,9 @@ import type {
   ListAdminMemoriesInput,
   ListAdminJobsInput,
   ListAdminSessionsInput,
+  ListMemoryFeedbackOutput,
+  MemoryFeedbackInput,
+  MemoryFeedbackOutput,
   MemoryActor,
   MemoryLifecycle,
   MemoryRevision,
@@ -40,6 +43,8 @@ import type {
   SearchMemoriesInput,
   SessionConsolidationOutput,
 } from '@mnemosyne/contracts';
+
+export type { MemoryFeedbackInput, MemoryFeedbackOutput } from '@mnemosyne/contracts';
 
 export interface SessionRecord {
   id: string;
@@ -114,6 +119,8 @@ export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
   listCorpusExport(): Promise<CorpusExport>;
   restoreCorpus(input: CorpusExport): Promise<CorpusRestoreResult>;
+  submitFeedback(input: MemoryFeedbackInput): Promise<MemoryFeedbackOutput>;
+  listFeedback(memoryId: string): Promise<ListMemoryFeedbackOutput>;
   openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
   recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
@@ -203,6 +210,10 @@ export interface MemoryRepository {
   recordRetentionRun(lastRunAt: string): Promise<void>;
   claimOutboxEvents(limit: number): Promise<OutboxEvent[]>;
   markOutboxProcessed(ids: number[]): Promise<void>;
+  createFeedback(
+    input: MemoryFeedbackInput & { id: string; createdAt: string },
+  ): Promise<MemoryFeedbackOutput>;
+  listFeedback(memoryId: string): Promise<MemoryFeedbackOutput[]>;
   getCorpusRevision(): Promise<CorpusRevision>;
 }
 

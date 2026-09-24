@@ -1,5 +1,7 @@
 import {
   corpusExportSchema,
+  listMemoryFeedbackOutputSchema,
+  memoryFeedbackSchema,
   contextInputSchema,
   correctMemoryInputSchema,
   openSessionInputSchema,
@@ -305,6 +307,24 @@ async function handleAuthorizedRequestUnchecked(
   if (request.method === 'POST' && url.pathname === '/v1/admin/retention/run') {
     bodylessSchema.parse(await readJson(request, maxRequestBodyBytes));
     sendJson(response, 200, await service.runRetention());
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/memories/feedback') {
+    const body = memoryFeedbackSchema.parse(await readJson(request, maxRequestBodyBytes));
+    sendJson(response, 201, await service.submitFeedback(body));
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/memories/feedback') {
+    const memoryId = url.searchParams.get('memoryId');
+    if (!memoryId) {
+      sendJson(response, 400, { code: 'memory_id_required', message: 'memoryId is required' });
+      return;
+    }
+    sendJson(
+      response,
+      200,
+      listMemoryFeedbackOutputSchema.parse(await service.listFeedback(memoryId)),
+    );
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/admin/exports/corpus') {

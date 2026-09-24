@@ -462,6 +462,47 @@ describe('Mnemosyne API authorization', () => {
     expect(result.restored.sessions).toBe(0);
   });
 
+  it('records feedback through the owner API and keeps the memory active', async () => {
+    const { service, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria con feedback sintetico',
+        kind: 'fact',
+        scope: { type: 'project', id: 'synthetic-project' },
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const response = await fetch(`${baseUrl}/v1/memories/feedback`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'feedback-1',
+      },
+      body: JSON.stringify({
+        memoryId: proposed.memoryId,
+        sessionId: session.sessionId,
+        kind: 'useful',
+        observedAt: '2026-09-24T12:00:00.000Z',
+      }),
+    });
+    const feedback = (await response.json()) as { kind: string };
+    const memory = await service.getMemoryAdminView(proposed.memoryId!);
+
+    expect(response.status).toBe(201);
+    expect(feedback.kind).toBe('useful');
+    expect(memory?.memory.lifecycle).toBe('accepted');
+  });
+
   it('filters owner memories by exact scope identifier', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);
