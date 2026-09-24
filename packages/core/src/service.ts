@@ -98,7 +98,7 @@ export class CoreMemoryService implements MemoryService {
       },
       projections: {
         redis: this.options.corpusCache !== undefined,
-        neo4j: this.options.neo4jConfigured === true,
+        neo4j: false,
         semanticSearch:
           this.options.embeddingProvider !== undefined &&
           this.options.semanticSearchIndex !== undefined,

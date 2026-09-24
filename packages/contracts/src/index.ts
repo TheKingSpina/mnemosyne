@@ -578,7 +578,7 @@ export const adminCapabilitiesOutputSchema = z.object({
   }),
   projections: z.object({
     redis: z.boolean(),
-    neo4j: z.boolean(),
+    neo4j: z.literal(false),
     semanticSearch: z.boolean(),
   }),
   operations: z.object({
