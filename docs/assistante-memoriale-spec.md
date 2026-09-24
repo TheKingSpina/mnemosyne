@@ -103,25 +103,25 @@ Il worker esegue estrazione, classificazione, consolidamento e aggiornamento del
 
 ## 5. Decisioni architetturali confermate
 
-| Area | Decisione |
-|---|---|
-| Utente | Monoutente |
-| Host principale | Mac mini M1 |
-| Orchestrazione | Docker Compose |
-| Fonte autorevole | PostgreSQL |
-| Ricerca semantica | PostgreSQL con `pgvector` |
-| Grafo | Modello relazionale canonico in PostgreSQL; Neo4j come proiezione derivata |
-| Cache | Redis, volatile e ricostruibile |
-| Trasporto per l'harness | MCP `stdio` o Streamable HTTP |
-| Accesso remoto | Canale privato e autenticato; Tailscale prima implementazione |
-| Protezione del traffico | HTTPS |
-| API | REST `/v1`, documentata con OpenAPI |
-| Amministrazione | CLI iniziale, UI successiva opzionale |
-| Provider principale | OpenRouter, con adapter multiprovider |
-| Estrazione | Incrementale, con consolidamento a fine sessione |
-| Promozione | Ibrida: automatica conservativa e revisione esplicita |
-| Contesto | Esclusivamente memorie approvate e compatibili con scope e sensibilità |
-| Modalità distruttive | Esclusivamente owner, con conferma esplicita |
+| Area                    | Decisione                                                                  |
+| ----------------------- | -------------------------------------------------------------------------- |
+| Utente                  | Monoutente                                                                 |
+| Host principale         | Mac mini M1                                                                |
+| Orchestrazione          | Docker Compose                                                             |
+| Fonte autorevole        | PostgreSQL                                                                 |
+| Ricerca semantica       | PostgreSQL con `pgvector`                                                  |
+| Grafo                   | Modello relazionale canonico in PostgreSQL; Neo4j come proiezione derivata |
+| Cache                   | Redis, volatile e ricostruibile                                            |
+| Trasporto per l'harness | MCP `stdio` o Streamable HTTP                                              |
+| Accesso remoto          | Canale privato e autenticato; Tailscale prima implementazione              |
+| Protezione del traffico | HTTPS                                                                      |
+| API                     | REST `/v1`, documentata con OpenAPI                                        |
+| Amministrazione         | CLI iniziale, UI successiva opzionale                                      |
+| Provider principale     | OpenRouter, con adapter multiprovider                                      |
+| Estrazione              | Incrementale, con consolidamento a fine sessione                           |
+| Promozione              | Ibrida: automatica conservativa e revisione esplicita                      |
+| Contesto                | Esclusivamente memorie approvate e compatibili con scope e sensibilità     |
+| Modalità distruttive    | Esclusivamente owner, con conferma esplicita                               |
 
 ## 6. Architettura complessiva
 
@@ -239,17 +239,17 @@ Una correzione non modifica una revisione esistente: crea una nuova revisione e 
 
 ### 8.3 Tipi iniziali
 
-| Tipo | Significato |
-|---|---|
-| `fact` | Affermazione su un oggetto o una situazione |
-| `preference` | Preferenza personale |
-| `instruction` | Regola operativa per l'assistente |
-| `decision` | Scelta compiuta |
-| `convention` | Prassi o convenzione ricorrente |
-| `constraint` | Requisito o limite |
-| `goal` | Obiettivo desiderato |
-| `hypothesis` | Spiegazione o previsione non confermata |
-| `episode` | Evento o interazione utile come contesto |
+| Tipo          | Significato                                 |
+| ------------- | ------------------------------------------- |
+| `fact`        | Affermazione su un oggetto o una situazione |
+| `preference`  | Preferenza personale                        |
+| `instruction` | Regola operativa per l'assistente           |
+| `decision`    | Scelta compiuta                             |
+| `convention`  | Prassi o convenzione ricorrente             |
+| `constraint`  | Requisito o limite                          |
+| `goal`        | Obiettivo desiderato                        |
+| `hypothesis`  | Spiegazione o previsione non confermata     |
+| `episode`     | Evento o interazione utile come contesto    |
 
 Il vocabolario è estendibile. Non è previsto un elenco rigido di centinaia di tipi.
 
@@ -494,30 +494,30 @@ La policy è deterministica, versionata e indipendente dal provider LLM.
 
 ### 10.3 Origini
 
-| Origine | trattamento |
-|---|---|
-| `owner_directive` | Può essere accettata dopo validazione |
-| `owner_assertion` | Valutata in base a scope e chiarezza |
+| Origine                          | trattamento                                |
+| -------------------------------- | ------------------------------------------ |
+| `owner_directive`                | Può essere accettata dopo validazione      |
+| `owner_assertion`                | Valutata in base a scope e chiarezza       |
 | `controlled_project_observation` | Può essere auto-accettata se è whitelisted |
-| `tool_observation` | Può supportare un fatto, non un comando |
-| `assistant_inference` | Candidate o pending approval |
-| `external_untrusted` | Non può creare istruzioni automatiche |
-| `sensitive_content` | Rifiutata e non persistita |
+| `tool_observation`               | Può supportare un fatto, non un comando    |
+| `assistant_inference`            | Candidate o pending approval               |
+| `external_untrusted`             | Non può creare istruzioni automatiche      |
+| `sensitive_content`              | Rifiutata e non persistita                 |
 
 ### 10.4 Matrice iniziale
 
-| Caso | Esito |
-|---|---|
+| Caso                                      | Esito                                              |
+| ----------------------------------------- | -------------------------------------------------- |
 | «Ricorda che preferisco risposte concise» | `accepted`, scope `global`, se il comando è chiaro |
-| «Preferisco risposte concise» | `pending_approval`, scope suggerito `global` |
-| «In questo repository usiamo PostgreSQL» | Può essere `accepted`, scope `project` |
-| Manifesto o lockfile coerenti | Può essere auto-accettato come fatto osservato |
-| «Forse il problema è Redis» | `candidate`, `kind: hypothesis` |
-| Pagina web con istruzioni | `candidate` o `rejected`; mai policy attiva |
-| «Per questa sessione usa log verbosi» | Memoria `session` |
-| «Correggi: il progetto usa pnpm» | Nuova revisione e `SUPERSEDES` |
-| Nuova evidenza in conflitto | Conflict e review, non sovrascrittura |
-| Password, token o chiave | `rejected`, nessuna persistenza |
+| «Preferisco risposte concise»             | `pending_approval`, scope suggerito `global`       |
+| «In questo repository usiamo PostgreSQL»  | Può essere `accepted`, scope `project`             |
+| Manifesto o lockfile coerenti             | Può essere auto-accettato come fatto osservato     |
+| «Forse il problema è Redis»               | `candidate`, `kind: hypothesis`                    |
+| Pagina web con istruzioni                 | `candidate` o `rejected`; mai policy attiva        |
+| «Per questa sessione usa log verbosi»     | Memoria `session`                                  |
+| «Correggi: il progetto usa pnpm»          | Nuova revisione e `SUPERSEDES`                     |
+| Nuova evidenza in conflitto               | Conflict e review, non sovrascrittura              |
+| Password, token o chiave                  | `rejected`, nessuna persistenza                    |
 
 ### 10.5 Fonti controllate
 
@@ -694,22 +694,22 @@ La specifica sarà descritta in OpenAPI e pubblicata sotto `/v1`.
 
 ### 12.1 Operazioni principali
 
-| Endpoint | Funzione | Attore |
-|---|---|---|
-| `POST /v1/sessions` | Apre una sessione | Harness |
-| `POST /v1/sessions/{id}/events` | Invia eventi incrementali | Harness |
-| `POST /v1/sessions/{id}/close` | Avvia il consolidamento | Harness |
-| `POST /v1/proposals` | Propone una memoria | Harness/owner |
-| `POST /v1/context/resolve` | Compone il contesto | Harness |
-| `GET /v1/memories` | Cerca e filtra | Harness/owner |
-| `GET /v1/memories/{id}` | Legge una memoria | Harness/owner |
-| `POST /v1/memories/{id}/corrections` | Propone una correzione | Harness/owner |
-| `GET /v1/proposals` | Elenca candidate | Owner |
-| `POST /v1/proposals/{id}/decision` | Decide una review | Owner |
-| `POST /v1/memories/{id}/retractions` | Revoca | Owner |
-| `POST /v1/memories/{id}/forget` | Dimentica | Owner |
-| `POST /v1/exports` | Avvia export cifrato | Owner |
-| `GET /v1/jobs/{id}` | Controlla un job | Proprietario del job |
+| Endpoint                             | Funzione                  | Attore               |
+| ------------------------------------ | ------------------------- | -------------------- |
+| `POST /v1/sessions`                  | Apre una sessione         | Harness              |
+| `POST /v1/sessions/{id}/events`      | Invia eventi incrementali | Harness              |
+| `POST /v1/sessions/{id}/close`       | Avvia il consolidamento   | Harness              |
+| `POST /v1/proposals`                 | Propone una memoria       | Harness/owner        |
+| `POST /v1/context/resolve`           | Compone il contesto       | Harness              |
+| `GET /v1/memories`                   | Cerca e filtra            | Harness/owner        |
+| `GET /v1/memories/{id}`              | Legge una memoria         | Harness/owner        |
+| `POST /v1/memories/{id}/corrections` | Propone una correzione    | Harness/owner        |
+| `GET /v1/proposals`                  | Elenca candidate          | Owner                |
+| `POST /v1/proposals/{id}/decision`   | Decide una review         | Owner                |
+| `POST /v1/memories/{id}/retractions` | Revoca                    | Owner                |
+| `POST /v1/memories/{id}/forget`      | Dimentica                 | Owner                |
+| `POST /v1/exports`                   | Avvia export cifrato      | Owner                |
+| `GET /v1/jobs/{id}`                  | Controlla un job          | Proprietario del job |
 
 ### 12.2 Idempotenza
 
@@ -882,16 +882,16 @@ Il Memory Core non conosce i nomi concreti dei modelli.
 
 ### 14.1 Ruoli logici
 
-| Ruolo | Funzione |
-|---|---|
-| `memory_extractor` | Estrae candidate atomiche |
-| `memory_classifier` | Classifica tipo, scope, base epistemica e sensibilità |
-| `memory_consolidator` | Unisce candidate e gestisce il consolidamento |
-| `memory_embedder` | Genera embedding della memoria |
-| `query_embedder` | Genera embedding della query |
-| `context_reranker` | Riordina un insieme filtrato, opzionale |
-| `review_assistant` | Aiuta la revisione |
-| `assistant_primary` | Risposte dell'assistente |
+| Ruolo                 | Funzione                                              |
+| --------------------- | ----------------------------------------------------- |
+| `memory_extractor`    | Estrae candidate atomiche                             |
+| `memory_classifier`   | Classifica tipo, scope, base epistemica e sensibilità |
+| `memory_consolidator` | Unisce candidate e gestisce il consolidamento         |
+| `memory_embedder`     | Genera embedding della memoria                        |
+| `query_embedder`      | Genera embedding della query                          |
+| `context_reranker`    | Riordina un insieme filtrato, opzionale               |
+| `review_assistant`    | Aiuta la revisione                                    |
+| `assistant_primary`   | Risposte dell'assistente                              |
 
 ### 14.2 Adapter e capacità
 
@@ -948,14 +948,14 @@ Le chiavi dei provider stanno fuori dal database, dal repository e dai backup ap
 
 ### 15.1 Revisioni
 
-| Identificatore | Scopo |
-|---|---|
-| `store_revision` | Ogni modifica canonica |
-| `corpus_revision` | Modifiche al corpus utilizzabile |
-| `projection_revision` | Stato di una proiezione |
-| `schema_version` | Forma dello schema e degli eventi |
-| `corpus_id` | Identità dell'archivio |
-| `corpus_epoch` | Nuova epoch dopo restore distruttivo |
+| Identificatore        | Scopo                                |
+| --------------------- | ------------------------------------ |
+| `store_revision`      | Ogni modifica canonica               |
+| `corpus_revision`     | Modifiche al corpus utilizzabile     |
+| `projection_revision` | Stato di una proiezione              |
+| `schema_version`      | Forma dello schema e degli eventi    |
+| `corpus_id`           | Identità dell'archivio               |
+| `corpus_epoch`        | Nuova epoch dopo restore distruttivo |
 
 Una modifica canonica e il relativo evento outbox sono scritti nella stessa transazione.
 
@@ -965,13 +965,13 @@ La consegna è almeno una volta. I consumer sono idempotenti. L'evento contiene 
 
 ### 15.3 Proiezioni
 
-| Proiezione | Ritardo consentito |
-|---|---|
-| Neo4j | Retrieval parziale |
-| Embedding | Si usa la ricerca lessicale |
-| Redis | Retrieval senza cache |
-| Sintesi sessione | Job recuperabile |
-| Statistiche | Dati storici parziali |
+| Proiezione       | Ritardo consentito          |
+| ---------------- | --------------------------- |
+| Neo4j            | Retrieval parziale          |
+| Embedding        | Si usa la ricerca lessicale |
+| Redis            | Retrieval senza cache       |
+| Sintesi sessione | Job recuperabile            |
+| Statistiche      | Dati storici parziali       |
 
 Una proiezione in ritardo non può reintrodurre una memoria dimenticata o superata.
 
@@ -1049,19 +1049,19 @@ La cancellazione deve rimuovere il contenuto da tutte le copie derivate. Il forg
 
 I valori esatti sono configurabili. Una baseline iniziale è:
 
-| Dato | Retention iniziale proposta |
-|---|---:|
-| Eventi grezzi | 30 giorni dalla chiusione |
-| Snapshot completi delle fonti | 30–90 giorni |
-| Candidate in attesa | 30 giorni |
-| Candidate rifiutate | 7 giorni per il contenuto |
-| Ipotesi non approvate | 30 giorni o validità più breve |
-| Memorie approvate | Fino a forget o revoca |
-| Revisioni superate | 90 giorni per il contenuto |
-| Memorie ritrattate | 30 giorni per il contenuto |
-| Cache Redis | Minuti o poche ore |
-| Log applicativi | 7–14 giorni |
-| Audit amministrativo | Lungo periodo, senza contenuto |
+| Dato                          |    Retention iniziale proposta |
+| ----------------------------- | -----------------------------: |
+| Eventi grezzi                 |      30 giorni dalla chiusione |
+| Snapshot completi delle fonti |                   30–90 giorni |
+| Candidate in attesa           |                      30 giorni |
+| Candidate rifiutate           |      7 giorni per il contenuto |
+| Ipotesi non approvate         | 30 giorni o validità più breve |
+| Memorie approvate             |         Fino a forget o revoca |
+| Revisioni superate            |     90 giorni per il contenuto |
+| Memorie ritrattate            |     30 giorni per il contenuto |
+| Cache Redis                   |             Minuti o poche ore |
+| Log applicativi               |                    7–14 giorni |
+| Audit amministrativo          | Lungo periodo, senza contenuto |
 
 Sono previsti almeno due profili:
 
@@ -1154,17 +1154,17 @@ GET /v1/capabilities
 
 ### 19.4 Degradazione
 
-| Componente non disponibile | Comportamento |
-|---|---|
-| PostgreSQL | Nessuna nuova scrittura e nessun contesto remoto autorevole |
-| Redis | Retrieval senza cache |
-| Neo4j | Retrieval parziale senza relazioni |
-| Indice semantico | Retrieval lessicale |
-| Provider LLM | Estrazione in coda; memoria esplicita ancora disponibile |
-| Embedding provider | Ricerca semantica sospesa |
-| Worker | Job recuperati dopo restart |
-| Disco pieno | Fallimento chiuso, senza confermare scritture |
-| Configurazione di sicurezza invalida | Rifiuto delle operazioni protette |
+| Componente non disponibile           | Comportamento                                               |
+| ------------------------------------ | ----------------------------------------------------------- |
+| PostgreSQL                           | Nessuna nuova scrittura e nessun contesto remoto autorevole |
+| Redis                                | Retrieval senza cache                                       |
+| Neo4j                                | Retrieval parziale senza relazioni                          |
+| Indice semantico                     | Retrieval lessicale                                         |
+| Provider LLM                         | Estrazione in coda; memoria esplicita ancora disponibile    |
+| Embedding provider                   | Ricerca semantica sospesa                                   |
+| Worker                               | Job recuperati dopo restart                                 |
+| Disco pieno                          | Fallimento chiuso, senza confermare scritture               |
+| Configurazione di sicurezza invalida | Rifiuto delle operazioni protette                           |
 
 ## 20. Interfaccia di revisione e gestione personale
 
@@ -1377,27 +1377,27 @@ Metriche:
 
 Le seguenti scelte sono raccomandazioni, non decisioni già confermate:
 
-| Decisione | Default proposto | Stato |
-|---|---|---|
-| Linguaggio applicativo | TypeScript/Node.js LTS | Da verificare |
-| Framework | Da scegliere dopo verifica librerie | Aperto |
-| Embedding | Provider locale iniziale | Da benchmarkare |
-| Modelli | Ruoli logici configurabili | Confermato; ID aperti |
-| Progetto e aree | Registry con UUID stabili | Da definire |
-| Backup | Tool versionato come restic o equivalente | Da scegliere |
-| Storage esterno | NAS, USB o object storage | Aperto |
-| Accesso remoto | Tailscale + HTTPS | Tailscale confermato come prima implementazione |
-| Alternative remote | WireGuard o tunnel HTTPS | Alternative valide |
-| Retention | Profilo `balanced` iniziale | Valori configurabili |
-| UI | CLI, web successiva | Confermato per MVP |
-| Lingue del corpus | Italiano e inglese, con casi multilingue | Proposta |
-| Provider LLM | OpenRouter più adapter futuri | Confermato |
-| Cifratura applicativa envelope | Hardening successivo | Facoltativa |
-| Repository e hosting | GitHub | Confermato |
-| Licenza | AGPL-3.0 | Confermato |
-| Nome del progetto | **Mnemosyne** | Confermato |
-| Descrizione breve | An open-source, self-hosted memory layer for LLM harnesses | Confermato |
-| Telemetria | Disattivata per impostazione predefinita | Confermato per la specifica |
+| Decisione                      | Default proposto                                           | Stato                                           |
+| ------------------------------ | ---------------------------------------------------------- | ----------------------------------------------- |
+| Linguaggio applicativo         | TypeScript/Node.js LTS                                     | Da verificare                                   |
+| Framework                      | Da scegliere dopo verifica librerie                        | Aperto                                          |
+| Embedding                      | Provider locale iniziale                                   | Da benchmarkare                                 |
+| Modelli                        | Ruoli logici configurabili                                 | Confermato; ID aperti                           |
+| Progetto e aree                | Registry con UUID stabili                                  | Da definire                                     |
+| Backup                         | Tool versionato come restic o equivalente                  | Da scegliere                                    |
+| Storage esterno                | NAS, USB o object storage                                  | Aperto                                          |
+| Accesso remoto                 | Tailscale + HTTPS                                          | Tailscale confermato come prima implementazione |
+| Alternative remote             | WireGuard o tunnel HTTPS                                   | Alternative valide                              |
+| Retention                      | Profilo `balanced` iniziale                                | Valori configurabili                            |
+| UI                             | CLI, web successiva                                        | Confermato per MVP                              |
+| Lingue del corpus              | Italiano e inglese, con casi multilingue                   | Proposta                                        |
+| Provider LLM                   | OpenRouter più adapter futuri                              | Confermato                                      |
+| Cifratura applicativa envelope | Hardening successivo                                       | Facoltativa                                     |
+| Repository e hosting           | GitHub                                                     | Confermato                                      |
+| Licenza                        | AGPL-3.0                                                   | Confermato                                      |
+| Nome del progetto              | **Mnemosyne**                                              | Confermato                                      |
+| Descrizione breve              | An open-source, self-hosted memory layer for LLM harnesses | Confermato                                      |
+| Telemetria                     | Disattivata per impostazione predefinita                   | Confermato per la specifica                     |
 
 ## 24. Criteri di accettazione del sistema
 

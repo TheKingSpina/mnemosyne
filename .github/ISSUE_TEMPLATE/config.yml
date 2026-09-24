@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/TheKingSpina/mnemosyne/security/advisories/new
+    about: Report vulnerabilities privately. Do not create a public issue.
+  - name: Project specification
+    url: https://github.com/TheKingSpina/mnemosyne/blob/main/docs/assistante-memoriale-spec.md
+    about: Read the architecture and current scope before proposing changes.

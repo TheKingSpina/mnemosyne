@@ -1,0 +1,21 @@
+{
+  "name": "@mnemosyne/postgres",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "check": "tsc --build --pretty false"
+  },
+  "dependencies": {
+    "@mnemosyne/contracts": "0.0.0",
+    "@mnemosyne/core": "0.0.0",
+    "pg": "^8.23.0"
+  }
+}

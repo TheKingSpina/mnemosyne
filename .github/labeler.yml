@@ -1,0 +1,25 @@
+area:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/api/**'
+    labels: ['area: api']
+
+  - changed-files:
+      - any-glob-to-any-file: 'apps/mcp/**'
+    labels: ['area: mcp']
+
+  - changed-files:
+      - any-glob-to-any-file: 'packages/core/**'
+    labels: ['area: core']
+
+  - changed-files:
+      - any-glob-to-any-file: 'packages/postgres/**'
+    labels: ['area: storage']
+
+  - changed-files:
+      - any-glob-to-any-file: 'docs/**'
+    labels: ['documentation']
+
+kind:
+  - changed-files:
+      - any-glob-to-any-file: '**/*.test.ts'
+    labels: ['tests']

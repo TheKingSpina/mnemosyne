@@ -1,0 +1,19 @@
+{
+  "name": "@mnemosyne/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "check": "tsc --build --pretty false"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  }
+}

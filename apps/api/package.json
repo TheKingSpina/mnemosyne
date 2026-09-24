@@ -1,0 +1,16 @@
+{
+  "name": "@mnemosyne/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@mnemosyne/contracts": "0.0.0",
+    "@mnemosyne/core": "0.0.0",
+    "@mnemosyne/postgres": "0.0.0",
+    "zod": "4.6.5"
+  }
+}
