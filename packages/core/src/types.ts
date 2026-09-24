@@ -7,8 +7,10 @@ import type {
   MemoryLifecycle,
   MemoryRevision,
   MemoryView,
+  ListPendingProposalsInput,
   OpenSessionInput,
   OpenSessionOutput,
+  PendingProposalsOutput,
   PrepareForgetOutput,
   ProposalResult,
   ProposeMemoryInput,
@@ -75,6 +77,25 @@ export interface ProposalContext {
   explicitDirective: boolean;
 }
 
+export interface MemoryService {
+  openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
+  recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
+  proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
+  searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]>;
+  resolveContext(input: ContextInput): Promise<ContextOutput>;
+  closeSession(sessionId: string): Promise<{ jobId: string }>;
+  getMemory(id: string): Promise<MemoryRevision | null>;
+  reviewProposal(input: ReviewProposalInput): Promise<ReviewProposalOutput>;
+  correctMemory(input: CorrectMemoryInput): Promise<CorrectMemoryOutput>;
+  retractMemory(memoryId: string, reason: string): Promise<MemoryView>;
+  prepareForget(memoryId: string): Promise<PrepareForgetOutput>;
+  forgetMemory(memoryId: string, confirmationToken: string): Promise<void>;
+  getJob(id: string): Promise<JobRecord | null>;
+  listPendingProposals(input: ListPendingProposalsInput): Promise<PendingProposalsOutput>;
+  listScopesForSession(sessionId: string): Promise<Scope[]>;
+  getCorpusRevision(): Promise<string>;
+}
+
 export interface MemoryRepository {
   createSession(input: OpenSessionInput): Promise<SessionRecord>;
   findSession(id: string): Promise<SessionRecord | null>;
@@ -91,26 +112,9 @@ export interface MemoryRepository {
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
+  listPendingMemories(): Promise<MemoryRecord[]>;
   findConflicts(memoryId: string): Promise<ConflictRecord[]>;
   createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord>;
   getJob(id: string): Promise<JobRecord | null>;
   getCorpusRevision(): Promise<CorpusRevision>;
-}
-
-export interface MemoryService {
-  openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
-  recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
-  proposeMemory(input: ProposeMemoryInput, context: ProposalContext): Promise<ProposalResult>;
-  searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]>;
-  resolveContext(input: ContextInput): Promise<ContextOutput>;
-  closeSession(sessionId: string): Promise<{ jobId: string }>;
-  getMemory(id: string): Promise<MemoryRevision | null>;
-  reviewProposal(input: ReviewProposalInput): Promise<ReviewProposalOutput>;
-  correctMemory(input: CorrectMemoryInput): Promise<CorrectMemoryOutput>;
-  retractMemory(memoryId: string, reason: string): Promise<MemoryView>;
-  prepareForget(memoryId: string): Promise<PrepareForgetOutput>;
-  forgetMemory(memoryId: string, confirmationToken: string): Promise<void>;
-  getJob(id: string): Promise<JobRecord | null>;
-  listScopesForSession(sessionId: string): Promise<Scope[]>;
-  getCorpusRevision(): Promise<string>;
 }

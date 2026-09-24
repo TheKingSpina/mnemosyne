@@ -63,7 +63,7 @@ MNEMOSYNE_FORGET_SECRET='a-secret-at-least-32-characters-long' \
 npm run mcp:dev
 ```
 
-For remote Streamable HTTP, set `MCP_TRANSPORT=http` and a non-empty `MCP_BEARER_TOKEN`; the HTTP transport refuses to start without authentication. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
+Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
 
@@ -72,7 +72,11 @@ The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remot
 Open a session:
 
 ```bash
+export HARNESS_TOKEN='your-harness-token'
+export OWNER_TOKEN='your-owner-token'
+
 SESSION_ID=$(curl -fsS http://127.0.0.1:3000/v1/sessions \
+  -H "authorization: Bearer $HARNESS_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"projectId":"my-project","areaIds":["software"]}' \
   | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).sessionId))")
@@ -82,6 +86,7 @@ Submit a proposal:
 
 ```bash
 curl -fsS http://127.0.0.1:3000/v1/proposals \
+  -H "authorization: Bearer $HARNESS_TOKEN" \
   -H 'content-type: application/json' \
   -d "{
     \"sessionId\": \"$SESSION_ID\",
@@ -97,7 +102,7 @@ curl -fsS http://127.0.0.1:3000/v1/proposals \
   }"
 ```
 
-Harness proposals remain pending until the governing policy accepts them. The MCP owner profile is the administrative path for explicit owner decisions; the current API deliberately does not expose an unauthenticated owner shortcut.
+Harness proposals remain pending until the governing policy accepts them. Owner-only REST operations, including proposal review, correction, retraction, and forget, require `Bearer $OWNER_TOKEN`; a harness token receives `403 Forbidden` for those operations. The same access policy is applied inside the MCP adapter.
 
 ## Local development
 

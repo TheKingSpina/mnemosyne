@@ -170,6 +170,12 @@ export class InMemoryRepository implements MemoryRepository {
       .filter((revision): revision is MemoryRevision => revision !== undefined);
   }
 
+  async listPendingMemories(): Promise<MemoryRecord[]> {
+    return [...this.memories.values()]
+      .filter((memory) => memory.lifecycle === 'pending_approval')
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
   async findConflicts(memoryId: string): Promise<ConflictRecord[]> {
     return [...this.conflicts.values()].filter((conflict) => conflict.memoryIds.includes(memoryId));
   }

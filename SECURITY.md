@@ -18,7 +18,8 @@ Do not include real credentials, conversations, memory contents, or backup files
 - The software is self-hosted; the operator is responsible for host and network security.
 - Do not expose the development API or MCP server directly to the Internet.
 - Use authenticated private networking and TLS for remote access.
-- Streamable HTTP requires `MCP_BEARER_TOKEN`; do not run it unauthenticated.
+- REST and Streamable HTTP use separate `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` credentials; do not run either interface unauthenticated.
+- Administrative operations are authorized server-side; hiding a tool from a client is not treated as access control.
 - Keep provider keys and forget secrets outside the repository and database.
 - Use synthetic data in tests and reports.
 - Back up PostgreSQL securely and test restoration regularly.

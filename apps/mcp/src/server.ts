@@ -1,7 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { toDomainError, type MemoryService } from '@mnemosyne/core';
+import {
+  assertMemoryPermission,
+  toDomainError,
+  type MemoryPermission,
+  type MemoryService,
+} from '@mnemosyne/core';
 import {
   contextInputSchema,
+  listPendingProposalsInputSchema,
   ownerProposalSubmissionSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
@@ -15,6 +21,16 @@ const recordEventsShape = shape(recordEventsInputSchema);
 const proposeShape = shape(proposeMemoryInputSchema);
 const contextShape = shape(contextInputSchema);
 const searchShape = shape(searchMemoriesInputSchema);
+const pendingShape = shape(listPendingProposalsInputSchema);
+
+async function authorized<T>(
+  profile: 'harness' | 'owner',
+  permission: MemoryPermission,
+  operation: () => Promise<T>,
+): Promise<T> {
+  assertMemoryPermission(profile, permission);
+  return operation();
+}
 
 export function createMcpServer(service: MemoryService, profile: 'harness' | 'owner'): McpServer {
   const server = new McpServer(
@@ -29,7 +45,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: openSessionShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (input) => result(await service.openSession(input)),
+    async (input) =>
+      result(await authorized(profile, 'session.manage', () => service.openSession(input))),
   );
 
   server.registerTool(
@@ -39,7 +56,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: recordEventsShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async (input) => result(await service.recordEvents(input)),
+    async (input) =>
+      result(await authorized(profile, 'events.write', () => service.recordEvents(input))),
   );
 
   server.registerTool(
@@ -49,7 +67,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: contextShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async (input) => result(await service.resolveContext(input)),
+    async (input) =>
+      result(await authorized(profile, 'context.resolve', () => service.resolveContext(input))),
   );
 
   server.registerTool(
@@ -59,7 +78,12 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: searchShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async (input) => result({ items: await service.searchMemories(input) }),
+    async (input) =>
+      result(
+        await authorized(profile, 'memory.read', async () => ({
+          items: await service.searchMemories(input),
+        })),
+      ),
   );
 
   server.registerTool(
@@ -70,7 +94,11 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (input) =>
-      result(await service.proposeMemory(input, { actor: 'harness', explicitDirective: false })),
+      result(
+        await authorized(profile, 'memory.propose', () =>
+          service.proposeMemory(input, { actor: 'harness', explicitDirective: false }),
+        ),
+      ),
   );
 
   server.registerTool(
@@ -80,7 +108,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: { sessionId: z.string().min(1) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ sessionId }) => result(await service.closeSession(sessionId)),
+    async ({ sessionId }) =>
+      result(await authorized(profile, 'session.manage', () => service.closeSession(sessionId))),
   );
 
   server.registerTool(
@@ -91,12 +120,51 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ jobId }) => {
-      const value = await service.getJob(jobId);
+      const value = await authorized(profile, 'job.read', () => service.getJob(jobId));
       return result(value ?? { error: 'job_not_found' });
     },
   );
 
   if (profile === 'owner') {
+    server.registerTool(
+      'memory_pending_review',
+      {
+        description: 'List pending memory proposals visible to the current session.',
+        inputSchema: pendingShape,
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async (input) => {
+        try {
+          assertMemoryPermission(profile, 'proposal.review');
+          return result(await service.listPendingProposals(input));
+        } catch (error) {
+          return mcpError(error);
+        }
+      },
+    );
+
+    server.registerTool(
+      'memory_review_decision',
+      {
+        description: 'Accept, reject, or amend a pending memory proposal.',
+        inputSchema: {
+          memoryId: z.string().min(1),
+          expectedVersion: z.number().int().positive(),
+          decision: z.enum(['accept', 'reject']),
+          finalContent: z.string().min(1).max(10_000).optional(),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      async (input) => {
+        try {
+          assertMemoryPermission(profile, 'proposal.review');
+          return result(await service.reviewProposal(input));
+        } catch (error) {
+          return mcpError(error);
+        }
+      },
+    );
+
     server.registerTool(
       'memory_propose_owner',
       {
@@ -104,13 +172,19 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: shape(ownerProposalSubmissionSchema),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
-      async (input) =>
-        result(
-          await service.proposeMemory(input, {
-            actor: 'owner',
-            explicitDirective: input.explicitDirective,
-          }),
-        ),
+      async (input) => {
+        try {
+          assertMemoryPermission(profile, 'proposal.owner');
+          return result(
+            await service.proposeMemory(input, {
+              actor: 'owner',
+              explicitDirective: input.explicitDirective,
+            }),
+          );
+        } catch (error) {
+          return mcpError(error);
+        }
+      },
     );
 
     server.registerTool(
@@ -124,7 +198,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
-      async (input) => result(await service.correctMemory(input)),
+      async (input) =>
+        result(await authorized(profile, 'memory.correct', () => service.correctMemory(input))),
     );
 
     server.registerTool(
@@ -134,7 +209,12 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: { memoryId: z.string().min(1), reason: z.string().min(1).max(2_000) },
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       },
-      async (input) => result(await service.retractMemory(input.memoryId, input.reason)),
+      async (input) =>
+        result(
+          await authorized(profile, 'memory.retract', () =>
+            service.retractMemory(input.memoryId, input.reason),
+          ),
+        ),
     );
 
     server.registerTool(
@@ -144,7 +224,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: { memoryId: z.string().min(1) },
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
       },
-      async ({ memoryId }) => result(await service.prepareForget(memoryId)),
+      async ({ memoryId }) =>
+        result(await authorized(profile, 'memory.forget', () => service.prepareForget(memoryId))),
     );
 
     server.registerTool(
@@ -155,7 +236,9 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       },
       async ({ memoryId, confirmationToken }) => {
-        await service.forgetMemory(memoryId, confirmationToken);
+        await authorized(profile, 'memory.forget', () =>
+          service.forgetMemory(memoryId, confirmationToken),
+        );
         return result({ forgotten: true });
       },
     );

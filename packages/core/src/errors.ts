@@ -21,10 +21,13 @@ export function toDomainError(error: unknown): DomainError {
       proposal_not_pending: ['Proposal is not pending', 409],
       memory_version_conflict: ['Memory version is stale', 409],
       scope_not_available: ['Scope is not available in this session', 403],
+      harness_cannot_issue_owner_directive: ['Harness cannot issue an owner directive', 403],
       invalid_confirmation_token: ['Invalid confirmation token', 400],
       invalid_reason: ['Invalid reason', 400],
       sensitive_content: ['Sensitive content was rejected', 400],
       invalid_object_body: ['Request body must be an object', 400],
+      request_body_too_large: ['Request body is too large', 413],
+      invalid_json: ['Request body must be valid JSON', 400],
       forget_secret_too_short: ['Forget secret is too short', 500],
     };
     const found = messages[error.message];

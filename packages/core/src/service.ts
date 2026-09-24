@@ -1,6 +1,7 @@
 import {
   contextInputSchema,
   correctMemoryInputSchema,
+  listPendingProposalsInputSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
   recordEventsInputSchema,
@@ -10,11 +11,13 @@ import {
   type ContextOutput,
   type CorrectMemoryInput,
   type CorrectMemoryOutput,
+  type ListPendingProposalsInput,
   type MemoryPatch,
   type MemoryRevision,
   type MemoryView,
   type OpenSessionInput,
   type OpenSessionOutput,
+  type PendingProposalsOutput,
   type PrepareForgetOutput,
   type ProposalResult,
   type ProposeMemoryInput,
@@ -31,6 +34,7 @@ import { estimateMemoryTokens } from './token-estimator.js';
 import type {
   CorpusRevision,
   JobRecord,
+  MemoryRecord,
   MemoryRepository,
   MemoryService,
   ProposalContext,
@@ -95,6 +99,9 @@ export class CoreMemoryService implements MemoryService {
     input: ProposeMemoryInput,
     context: ProposalContext = { actor: 'harness', explicitDirective: false },
   ): Promise<ProposalResult> {
+    if (context.actor === 'harness' && context.explicitDirective) {
+      throw new Error('harness_cannot_issue_owner_directive');
+    }
     const validated = proposeMemoryInputSchema.parse(input);
     const session = await this.repository.findSession(validated.sessionId);
     if (!session || session.status !== 'open') throw new Error('session_not_open');
@@ -290,6 +297,28 @@ export class CoreMemoryService implements MemoryService {
     return this.repository.getJob(id);
   }
 
+  async listPendingProposals(input: ListPendingProposalsInput): Promise<PendingProposalsOutput> {
+    const validated = listPendingProposalsInputSchema.parse(input);
+    const session = await this.repository.findSession(validated.sessionId);
+    if (!session) throw new Error('session_not_found');
+    const records = await this.repository.listPendingMemories();
+    const visible = await Promise.all(
+      records.map(async (record) => {
+        const memory = await this.repository.getMemory(record.id);
+        if (!memory) return null;
+        return this.viewFromRepository(memory.record, memory.current);
+      }),
+    );
+    const items = visible
+      .filter((memory): memory is MemoryView => memory !== null)
+      .filter((memory) => this.belongsToSession(memory.scope, session));
+    return {
+      items: items.slice(validated.offset, validated.offset + validated.limit),
+      limit: validated.limit,
+      offset: validated.offset,
+    };
+  }
+
   async listScopesForSession(sessionId: string): Promise<Scope[]> {
     const session = await this.repository.findSession(sessionId);
     if (!session) throw new Error('session_not_found');
@@ -315,12 +344,16 @@ export class CoreMemoryService implements MemoryService {
   private async view(memoryId: string): Promise<MemoryView> {
     const result = await this.repository.getMemory(memoryId);
     if (!result) throw new Error('memory_not_found');
+    return this.viewFromRepository(result.record, result.current);
+  }
+
+  private viewFromRepository(record: MemoryRecord, revision: MemoryRevision): MemoryView {
     return {
-      ...result.current,
-      lifecycle: result.record.lifecycle,
-      currentVersion: result.record.currentVersion,
-      createdAt: result.record.createdAt,
-      updatedAt: result.record.updatedAt,
+      ...revision,
+      lifecycle: record.lifecycle,
+      currentVersion: record.currentVersion,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
     };
   }
 

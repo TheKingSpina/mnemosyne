@@ -313,6 +313,15 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows.map((row) => this.revisionFromRow(row));
   }
 
+  async listPendingMemories(): Promise<MemoryRecord[]> {
+    const result = await this.database.query<MemoryRow>(
+      `SELECT * FROM memories
+       WHERE lifecycle = 'pending_approval'
+       ORDER BY updated_at DESC`,
+    );
+    return result.rows.map((row) => this.memoryFromRow(row));
+  }
+
   async findConflicts(memoryId: string): Promise<ConflictRecord[]> {
     const result = await this.database.query<{
       id: string;

@@ -220,4 +220,27 @@ describe('CoreMemoryService', () => {
 
     expect(result.status).toBe('pending_approval');
   });
+
+  it('rejects an owner directive context supplied by a harness', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+
+    await expect(
+      service.proposeMemory(
+        {
+          sessionId: session.sessionId,
+          content: 'Il progetto usa pnpm',
+          kind: 'convention',
+          scope: projectScope,
+          epistemicBasis: 'observed',
+          assessment: 'uncontested',
+          confidence: 1,
+          sensitivity: 'normal',
+          activation: 'on_demand',
+          sourceEventIds: [],
+        },
+        { actor: 'harness', explicitDirective: true },
+      ),
+    ).rejects.toThrow('harness_cannot_issue_owner_directive');
+  });
 });

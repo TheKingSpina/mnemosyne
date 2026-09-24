@@ -107,6 +107,20 @@ export const openSessionOutputSchema = z.object({
 });
 export type OpenSessionOutput = z.infer<typeof openSessionOutputSchema>;
 
+export const listPendingProposalsInputSchema = z.object({
+  sessionId: z.string().min(1),
+  limit: z.number().int().min(1).max(100).default(20),
+  offset: z.number().int().min(0).default(0),
+});
+export type ListPendingProposalsInput = z.infer<typeof listPendingProposalsInputSchema>;
+
+export const pendingProposalsOutputSchema = z.object({
+  items: z.array(memoryViewSchema),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type PendingProposalsOutput = z.infer<typeof pendingProposalsOutputSchema>;
+
 export const recordEventSchema = z.object({
   eventId: z.string().min(1),
   type: z.literal('message'),

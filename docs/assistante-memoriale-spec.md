@@ -818,6 +818,8 @@ memory_projection_status
 
 Le autorizzazioni sono verificate dal server, non dalle sole annotazioni MCP o dall'elenco dei tool.
 
+Le credenziali `MNEMOSYNE_OWNER_TOKEN` e `MNEMOSYNE_HARNESS_TOKEN` sono distinte e obbligatorie per REST e Streamable HTTP. Il profilo `harness` può usare sessioni, eventi, contesto, ricerca e proposte, ma non può eseguire review, correzioni, revoca o forget. Il profilo `owner` può eseguire anche le operazioni amministrative. La visibilità dei tool è solo una misura di ergonomia: la policy viene verificata nel callback del tool.
+
 ### 13.3 Esempi di tool
 
 `memory_context` restituisce solo memorie approvate e autorizzate:
@@ -1011,7 +1013,7 @@ Tailscale non sostituisce HTTPS, autenticazione o autorizzazione applicativa.
 
 - Nessuna porta pubblica diretta per API, database o MCP remoto, salvo necessità esplicita e protetta.
 - HTTPS sulle comunicazioni remote.
-- Credenziali distinte per owner e harness.
+- Credenziali distinte per owner e harness, con autorizzazione verificata dal server per ogni operazione.
 - Profili MCP autorizzati lato server.
 - Database, Neo4j e Redis solo sulla rete Docker interna.
 - SSH o tunnel analogo per amministrazione occasionale, se necessario.
