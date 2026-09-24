@@ -1,5 +1,13 @@
-import { CoreMemoryService, createAccessPolicy } from '@mnemosyne/core';
-import { PostgresIdempotencyStore, PostgresMemoryRepository } from '@mnemosyne/postgres';
+import {
+  CoreMemoryService,
+  DeterministicEmbeddingProvider,
+  createAccessPolicy,
+} from '@mnemosyne/core';
+import {
+  PostgresIdempotencyStore,
+  PostgresMemoryRepository,
+  PostgresSemanticSearchIndex,
+} from '@mnemosyne/postgres';
 import { Pool } from 'pg';
 import { createApiServer } from './app.js';
 
@@ -15,7 +23,16 @@ if (!connectionString || !forgetSecret || !ownerToken || !harnessToken) {
 
 const pool = new Pool({ connectionString });
 const repository = await PostgresMemoryRepository.fromPool(pool);
-const service = new CoreMemoryService(repository, { forgetSecret });
+const embeddingProvider = new DeterministicEmbeddingProvider();
+const semanticSearchIndex = new PostgresSemanticSearchIndex(pool, {
+  profile: embeddingProvider.profile,
+  dimensions: embeddingProvider.dimensions,
+});
+const service = new CoreMemoryService(repository, {
+  forgetSecret,
+  embeddingProvider,
+  semanticSearchIndex,
+});
 const host = process.env.API_HOST ?? '127.0.0.1';
 const port = Number(process.env.API_PORT ?? 3000);
 const server = createApiServer(service, {

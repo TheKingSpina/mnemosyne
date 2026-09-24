@@ -31,6 +31,7 @@ export {
   reserveIdempotencyKey,
 } from './idempotency-store.js';
 export type { IdempotencyReservation } from '@mnemosyne/core';
+export { PostgresSemanticSearchIndex } from './semantic-search-index.js';
 
 type Database = Pick<Pool, 'query' | 'connect'> | Pick<PoolClient, 'query'>;
 

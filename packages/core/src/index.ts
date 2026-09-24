@@ -9,3 +9,4 @@ export * from './extraction.js';
 export * from './conflict-detector.js';
 export * from './idempotency.js';
 export * from './provider-errors.js';
+export * from './semantic-search.js';

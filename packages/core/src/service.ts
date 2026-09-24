@@ -53,6 +53,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
+import type { EmbeddingProvider, SemanticSearchIndex } from './semantic-search.js';
 import type {
   ConflictRecord,
   CorpusRevision,
@@ -67,6 +68,8 @@ import type {
 export interface CoreMemoryServiceOptions {
   forgetSecret: string;
   now?: () => Date;
+  embeddingProvider?: EmbeddingProvider;
+  semanticSearchIndex?: SemanticSearchIndex;
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -91,7 +94,9 @@ export class CoreMemoryService implements MemoryService {
       projections: {
         redis: false,
         neo4j: false,
-        semanticSearch: false,
+        semanticSearch:
+          this.options.embeddingProvider !== undefined &&
+          this.options.semanticSearchIndex !== undefined,
       },
       operations: {
         backupVerified: false,
@@ -260,6 +265,7 @@ export class CoreMemoryService implements MemoryService {
     );
     if (contradiction) {
       const record = await this.repository.createMemory(validated);
+      await this.indexMemory(record.id, record.currentVersion, validated.content);
       await this.repository.updateMemoryLifecycle(record.id, 'pending_approval');
       const conflict = await this.repository.createConflict([contradiction.record.id, record.id]);
       return {
@@ -271,6 +277,7 @@ export class CoreMemoryService implements MemoryService {
       };
     }
     const record = await this.repository.createMemory(validated);
+    await this.indexMemory(record.id, record.currentVersion, validated.content);
     await this.repository.updateMemoryLifecycle(
       record.id,
       decision.status === 'accepted' ? 'accepted' : 'pending_approval',
@@ -285,11 +292,19 @@ export class CoreMemoryService implements MemoryService {
     const scopes = await this.listScopesForSession(validated.sessionId);
     const memories = await this.repository.listCurrentMemories();
     const terms = validated.query.toLocaleLowerCase().split(/\s+/u).filter(Boolean);
-    return memories
+    const eligible = memories
       .filter((memory) => scopes.some((scope) => this.matchesScope(memory.scope, scope)))
-      .filter((memory) => !validated.scope || this.matchesScope(memory.scope, validated.scope))
-      .filter((memory) => terms.some((term) => memory.content.toLocaleLowerCase().includes(term)))
-      .slice(validated.offset, validated.offset + validated.limit);
+      .filter((memory) => !validated.scope || this.matchesScope(memory.scope, validated.scope));
+    const lexical = eligible.filter((memory) =>
+      terms.some((term) => memory.content.toLocaleLowerCase().includes(term)),
+    );
+    const ordered = new Map(lexical.map((memory) => [memory.memoryId, memory]));
+    const semanticHits = await this.semanticHits(validated.query, eligible.length);
+    for (const hit of semanticHits) {
+      const memory = eligible.find((value) => value.memoryId === hit.memoryId);
+      if (memory && !ordered.has(hit.memoryId)) ordered.set(hit.memoryId, memory);
+    }
+    return [...ordered.values()].slice(validated.offset, validated.offset + validated.limit);
   }
 
   async resolveContext(input: ContextInput): Promise<ContextOutput> {
@@ -301,7 +316,13 @@ export class CoreMemoryService implements MemoryService {
     const queryTerms = validated.query.toLocaleLowerCase().split(/\s+/u).filter(Boolean);
     const candidates = memories
       .filter((memory) => scopes.some((scope) => this.matchesScope(memory.scope, scope)))
-      .map((memory) => ({ memory, score: this.lexicalScore(memory, queryTerms) }))
+      .map((memory) => ({ memory, score: this.lexicalScore(memory, queryTerms) }));
+    const semanticHits = await this.semanticHits(validated.query, memories.length);
+    for (const hit of semanticHits) {
+      const candidate = candidates.find((value) => value.memory.memoryId === hit.memoryId);
+      if (candidate) candidate.score = hit.score;
+    }
+    const relevantCandidates = candidates
       .filter(({ score }) => score > 0)
       .sort(
         (left, right) =>
@@ -318,7 +339,10 @@ export class CoreMemoryService implements MemoryService {
     }
     const revision = await this.repository.getCorpusRevision();
     const conflicts = await this.repository.listAllConflicts();
-    const relevantMemoryIds = new Set(candidates.map(({ memory }) => memory.memoryId));
+    const relevantMemoryIds = new Set(relevantCandidates.map(({ memory }) => memory.memoryId));
+    const semanticAvailable =
+      this.options.embeddingProvider !== undefined &&
+      this.options.semanticSearchIndex !== undefined;
     return {
       context: selected,
       conflicts: conflicts
@@ -335,10 +359,18 @@ export class CoreMemoryService implements MemoryService {
       requiredContextComplete: true,
       tokensEstimated: usedTokens,
       budgetTokens: validated.budgetTokens,
-      excludedResults: Math.max(0, candidates.length - selected.length),
-      serviceStatus: 'available',
+      excludedResults: Math.max(0, relevantCandidates.length - selected.length),
+      serviceStatus: semanticAvailable ? 'available' : 'degraded',
       corpusRevision: `${revision.epoch}:${revision.revision}`,
-      degradations: [],
+      degradations: semanticAvailable
+        ? []
+        : [
+            {
+              component: 'embedding',
+              missingCapability: 'semantic_search',
+              impact: 'lexical_retrieval',
+            },
+          ],
     };
   }
 
@@ -387,7 +419,7 @@ export class CoreMemoryService implements MemoryService {
       patch.content ?? result.current.content,
       patch.sensitivity ?? result.current.sensitivity,
     );
-    await this.repository.createRevision({
+    const record = await this.repository.createRevision({
       memoryId: validated.memoryId,
       expectedVersion: validated.expectedVersion,
       content: patch.content ?? result.current.content,
@@ -399,6 +431,11 @@ export class CoreMemoryService implements MemoryService {
       sensitivity: patch.sensitivity,
       activation: patch.activation,
     });
+    await this.indexMemory(
+      record.id,
+      record.currentVersion,
+      patch.content ?? result.current.content,
+    );
     return { memory: await this.view(validated.memoryId) };
   }
 
@@ -408,7 +445,8 @@ export class CoreMemoryService implements MemoryService {
     if (!result) throw new Error('memory_not_found');
     if (result.record.lifecycle !== 'accepted') throw new Error('memory_not_active');
     this.assertNotSecret(validated.content, validated.sensitivity ?? result.current.sensitivity);
-    await this.repository.createRevision(validated);
+    const record = await this.repository.createRevision(validated);
+    await this.indexMemory(record.id, record.currentVersion, validated.content);
     return { memory: await this.view(validated.memoryId) };
   }
 
@@ -464,6 +502,7 @@ export class CoreMemoryService implements MemoryService {
     ) {
       throw new Error('invalid_confirmation_token');
     }
+    await this.options.semanticSearchIndex?.remove(memoryId);
     await this.repository.removeMemory(memoryId);
   }
 
@@ -670,6 +709,27 @@ export class CoreMemoryService implements MemoryService {
   private assertNotSecret(content: string, sensitivity: string): void {
     if (sensitivity === 'secret' || containsSecret(content)) {
       throw new Error('sensitive_content');
+    }
+  }
+
+  private async indexMemory(memoryId: string, revision: number, content: string): Promise<void> {
+    const provider = this.options.embeddingProvider;
+    const index = this.options.semanticSearchIndex;
+    if (!provider || !index) return;
+    if (provider.profile !== index.profile || provider.dimensions !== index.dimensions) {
+      throw new Error('semantic_search_profile_mismatch');
+    }
+    await index.upsert({ memoryId, revision, embedding: await provider.embed(content) });
+  }
+
+  private async semanticHits(query: string, limit: number) {
+    const provider = this.options.embeddingProvider;
+    const index = this.options.semanticSearchIndex;
+    if (!provider || !index || limit < 1) return [];
+    try {
+      return await index.search({ embedding: await provider.embed(query), limit });
+    } catch {
+      return [];
     }
   }
 

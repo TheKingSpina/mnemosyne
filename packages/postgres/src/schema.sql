@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS corpus_state (
   id text PRIMARY KEY,
@@ -74,6 +75,21 @@ CREATE INDEX IF NOT EXISTS memory_revisions_current_content_idx
   ON memory_revisions USING gin (to_tsvector('simple', content));
 
 CREATE INDEX IF NOT EXISTS memories_lifecycle_idx ON memories(lifecycle);
+
+CREATE TABLE IF NOT EXISTS memory_embeddings (
+  memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  revision integer NOT NULL,
+  profile text NOT NULL,
+  dimensions integer NOT NULL,
+  embedding vector(64) NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (memory_id, profile)
+);
+
+CREATE INDEX IF NOT EXISTS memory_embeddings_cosine_idx
+  ON memory_embeddings
+  USING hnsw (embedding vector_cosine_ops)
+  WHERE profile = 'deterministic-v1';
 
 CREATE TABLE IF NOT EXISTS jobs (
   id text PRIMARY KEY,

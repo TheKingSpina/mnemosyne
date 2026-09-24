@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CoreMemoryService, InMemoryRepository } from './index.js';
+import {
+  CoreMemoryService,
+  DeterministicEmbeddingProvider,
+  InMemoryRepository,
+  InMemorySemanticSearchIndex,
+} from './index.js';
 
 const projectScope = { type: 'project' as const, id: 'memory-service' };
 const globalScope = { type: 'global' as const, id: 'personal' };
@@ -743,5 +748,92 @@ describe('CoreMemoryService', () => {
     expect((await targetService.getMemory(retained.memoryId!))?.content).toBe(
       'Memoria da ripristinare',
     );
+  });
+
+  it('uses the semantic index when available and removes forgotten entries', async () => {
+    const provider = new DeterministicEmbeddingProvider(32);
+    const index = new InMemorySemanticSearchIndex({ dimensions: 32 });
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      embeddingProvider: provider,
+      semanticSearchIndex: index,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm per i test sintetici',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const found = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'pnpm sintetici',
+      limit: 5,
+      offset: 0,
+    });
+    const prepared = await service.prepareForget(proposed.memoryId!);
+    await service.forgetMemory(proposed.memoryId!, prepared.confirmationToken);
+    const afterForget = await index.search({
+      embedding: await provider.embed(found[0]?.content ?? ''),
+      limit: 5,
+    });
+
+    expect(found[0]?.content).toBe('Il progetto usa pnpm per i test sintetici');
+    expect(afterForget).toEqual([]);
+  });
+
+  it('falls back to lexical retrieval when the semantic index is unavailable', async () => {
+    const provider = new DeterministicEmbeddingProvider(32);
+    const repository = new InMemoryRepository();
+    const unavailableIndex = {
+      profile: provider.profile,
+      dimensions: provider.dimensions,
+      upsert: async () => undefined,
+      remove: async () => undefined,
+      search: async () => {
+        throw new Error('semantic_index_unavailable');
+      },
+    };
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      embeddingProvider: provider,
+      semanticSearchIndex: unavailableIndex,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm per i test sintetici',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const found = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'pnpm',
+      limit: 5,
+      offset: 0,
+    });
+
+    expect(found[0]?.content).toBe('Il progetto usa pnpm per i test sintetici');
   });
 });
