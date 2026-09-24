@@ -209,8 +209,12 @@ export interface MemoryRepository {
   getJob(id: string): Promise<JobRecord | null>;
   getRetentionState(): Promise<RetentionState>;
   recordRetentionRun(lastRunAt: string): Promise<void>;
-  claimOutboxEvents(limit: number): Promise<OutboxEvent[]>;
-  markOutboxProcessed(ids: number[]): Promise<void>;
+  claimOutboxEvents(
+    limit: number,
+    consumerId: string,
+    leaseMs: number,
+  ): Promise<OutboxClaim | null>;
+  markOutboxProcessed(claim: OutboxClaim): Promise<void>;
   createFeedback(
     input: MemoryFeedbackInput & { id: string; createdAt: string },
   ): Promise<MemoryFeedbackOutput>;
@@ -245,6 +249,12 @@ export interface OutboxEvent {
   aggregateId: string;
   storeRevision: bigint;
   payload: Record<string, unknown>;
+}
+
+export interface OutboxClaim {
+  token: string;
+  consumerId: string;
+  events: OutboxEvent[];
 }
 
 export interface CorpusRestore {

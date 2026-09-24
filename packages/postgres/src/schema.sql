@@ -143,11 +143,21 @@ CREATE TABLE IF NOT EXISTS corpus_outbox (
   store_revision bigint NOT NULL,
   payload jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now(),
-  processed_at timestamptz
+  processed_at timestamptz,
+  claim_token uuid,
+  consumer_id text,
+  lease_expires_at timestamptz
 );
+
+ALTER TABLE corpus_outbox ADD COLUMN IF NOT EXISTS claim_token uuid;
+ALTER TABLE corpus_outbox ADD COLUMN IF NOT EXISTS consumer_id text;
+ALTER TABLE corpus_outbox ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;
 
 CREATE INDEX IF NOT EXISTS corpus_outbox_unprocessed_idx
   ON corpus_outbox(id) WHERE processed_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS corpus_outbox_lease_idx
+  ON corpus_outbox(lease_expires_at, id) WHERE processed_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   key text PRIMARY KEY,

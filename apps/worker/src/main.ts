@@ -42,6 +42,7 @@ const worker = new ExtractionWorker({
 const neo4jUri = process.env.NEO4J_URI;
 const neo4jUsername = process.env.NEO4J_USERNAME;
 const neo4jPassword = process.env.NEO4J_PASSWORD;
+const neo4jOutboxLeaseMs = integerOption(process.env.NEO4J_OUTBOX_LEASE_MS ?? '30000', 1000);
 const neo4jProjection =
   neo4jUri && neo4jUsername && neo4jPassword
     ? new Neo4jProjection(repository, {
@@ -50,6 +51,8 @@ const neo4jProjection =
         password: neo4jPassword,
         database: process.env.NEO4J_DATABASE,
         batchSize: integerOption(process.env.NEO4J_BATCH_SIZE ?? '100', 1),
+        consumerId: workerId,
+        leaseMs: neo4jOutboxLeaseMs,
       })
     : undefined;
 const projectionSupervisor = neo4jProjection

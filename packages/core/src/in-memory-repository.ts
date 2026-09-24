@@ -21,6 +21,7 @@ import type {
   RetentionState,
   CorpusRestore,
   CorpusRestoreCounts,
+  OutboxClaim,
   OutboxEvent,
   MemoryFeedbackInput,
   MemoryFeedbackOutput,
@@ -42,6 +43,10 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly forgetLedger = new Map<string, string>();
   private retentionState: RetentionState = {};
   private outbox: OutboxEvent[] = [];
+  private readonly outboxClaims = new Map<
+    number,
+    { token: string; consumerId: string; expiresAt: number }
+  >();
   private nextOutboxId = 1;
   private readonly feedback = new Map<string, MemoryFeedbackOutput[]>();
   private corpusRevision: bigint = 1n;
@@ -93,6 +98,7 @@ export class InMemoryRepository implements MemoryRepository {
     for (const entry of input.forgetLedger)
       this.forgetLedger.set(entry.memoryId, entry.forgottenAt);
     this.outbox = [];
+    this.outboxClaims.clear();
     this.nextOutboxId = 1;
     this.feedback.clear();
     this.corpusRevision = 1n;
@@ -670,15 +676,48 @@ export class InMemoryRepository implements MemoryRepository {
     this.retentionState = { lastRunAt };
   }
 
-  async claimOutboxEvents(limit: number): Promise<OutboxEvent[]> {
-    return this.outbox
-      .slice(0, limit)
-      .map((event) => ({ ...event, payload: { ...event.payload } }));
+  async claimOutboxEvents(
+    limit: number,
+    consumerId: string,
+    leaseMs: number,
+  ): Promise<OutboxClaim | null> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+      throw new Error('outbox_batch_size_invalid');
+    }
+    if (consumerId.trim().length === 0) throw new Error('outbox_consumer_id_required');
+    if (!Number.isSafeInteger(leaseMs) || leaseMs < 1) {
+      throw new Error('outbox_lease_invalid');
+    }
+    const now = this.now().getTime();
+    const events = this.outbox
+      .filter((event) => {
+        const claim = this.outboxClaims.get(event.id);
+        return claim === undefined || claim.expiresAt <= now;
+      })
+      .slice(0, limit);
+    if (events.length === 0) return null;
+    const token = randomUUID();
+    const expiresAt = now + leaseMs;
+    for (const event of events) {
+      this.outboxClaims.set(event.id, { token, consumerId, expiresAt });
+    }
+    return {
+      token,
+      consumerId,
+      events: events.map((event) => ({ ...event, payload: { ...event.payload } })),
+    };
   }
 
-  async markOutboxProcessed(ids: number[]): Promise<void> {
-    const processed = new Set(ids);
+  async markOutboxProcessed(claim: OutboxClaim): Promise<void> {
+    for (const event of claim.events) {
+      const current = this.outboxClaims.get(event.id);
+      if (current?.token !== claim.token || current.consumerId !== claim.consumerId) {
+        throw new Error('outbox_claim_lost');
+      }
+    }
+    const processed = new Set(claim.events.map((event) => event.id));
     this.outbox = this.outbox.filter((event) => !processed.has(event.id));
+    for (const id of processed) this.outboxClaims.delete(id);
   }
 
   async createFeedback(

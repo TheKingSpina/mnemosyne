@@ -21,7 +21,7 @@ import type {
   RetentionState,
   CorpusRestore,
   CorpusRestoreCounts,
-  OutboxEvent,
+  OutboxClaim,
   MemoryFeedbackInput,
   MemoryFeedbackOutput,
   SessionRecord,
@@ -1014,33 +1014,78 @@ export class PostgresMemoryRepository implements MemoryRepository {
     );
   }
 
-  async claimOutboxEvents(limit: number): Promise<OutboxEvent[]> {
+  async claimOutboxEvents(
+    limit: number,
+    consumerId: string,
+    leaseMs: number,
+  ): Promise<OutboxClaim | null> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
       throw new Error('outbox_batch_size_invalid');
     }
-    const result = await this.database.query<OutboxRow>(
-      `SELECT id, event_type, aggregate_id, store_revision, payload
-       FROM corpus_outbox
-       WHERE processed_at IS NULL
-       ORDER BY id
-       LIMIT $1`,
-      [limit],
-    );
-    return result.rows.map((row) => ({
-      id: Number(row.id),
-      eventType: row.event_type,
-      aggregateId: row.aggregate_id,
-      storeRevision: BigInt(row.store_revision),
-      payload: row.payload,
-    }));
+    if (consumerId.trim().length === 0) throw new Error('outbox_consumer_id_required');
+    if (!Number.isSafeInteger(leaseMs) || leaseMs < 1) {
+      throw new Error('outbox_lease_invalid');
+    }
+    const token = randomUUID();
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<OutboxRow>(
+        `WITH claimable AS (
+           SELECT id
+           FROM corpus_outbox
+           WHERE processed_at IS NULL
+             AND (lease_expires_at IS NULL OR lease_expires_at <= now())
+           ORDER BY id
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED
+         )
+         UPDATE corpus_outbox o
+         SET claim_token = $2::uuid,
+             consumer_id = $3,
+             lease_expires_at = now() + ($4::integer * interval '1 millisecond')
+         FROM claimable
+         WHERE o.id = claimable.id
+         RETURNING o.id, o.event_type, o.aggregate_id, o.store_revision, o.payload`,
+        [limit, token, consumerId, leaseMs],
+      );
+      if (result.rows.length === 0) {
+        await client.query('COMMIT');
+        return null;
+      }
+      await client.query('COMMIT');
+      return {
+        token,
+        consumerId,
+        events: result.rows.map((row) => ({
+          id: Number(row.id),
+          eventType: row.event_type,
+          aggregateId: row.aggregate_id,
+          storeRevision: BigInt(row.store_revision),
+          payload: row.payload,
+        })),
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
-  async markOutboxProcessed(ids: number[]): Promise<void> {
-    if (ids.length === 0) return;
-    await this.database.query(
-      'UPDATE corpus_outbox SET processed_at = now() WHERE id = ANY($1::bigint[]) AND processed_at IS NULL',
-      [ids],
+  async markOutboxProcessed(claim: OutboxClaim): Promise<void> {
+    if (claim.events.length === 0) return;
+    const ids = claim.events.map((event) => event.id);
+    const result = await this.database.query(
+      `UPDATE corpus_outbox
+       SET processed_at = now(), claim_token = NULL, consumer_id = NULL, lease_expires_at = NULL
+       WHERE id = ANY($1::bigint[])
+         AND claim_token = $2::uuid
+         AND consumer_id = $3
+         AND processed_at IS NULL`,
+      [ids, claim.token, claim.consumerId],
     );
+    if (result.rowCount !== claim.events.length) throw new Error('outbox_claim_lost');
   }
 
   async createFeedback(

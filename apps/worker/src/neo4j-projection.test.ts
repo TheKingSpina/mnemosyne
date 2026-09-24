@@ -28,4 +28,28 @@ describe('Neo4jProjection', () => {
     const projection = createProjection(repository);
     expect(projection).toBeInstanceOf(Neo4jProjection);
   });
+
+  it('rejects an empty outbox consumer id', () => {
+    expect(
+      () =>
+        new Neo4jProjection(new InMemoryRepository(), {
+          uri: 'bolt://127.0.0.1:7687',
+          username: 'synthetic-user',
+          password: 'synthetic-password',
+          consumerId: '',
+        }),
+    ).toThrow('neo4j_consumer_id_required');
+  });
+
+  it('rejects an invalid outbox lease', () => {
+    expect(
+      () =>
+        new Neo4jProjection(new InMemoryRepository(), {
+          uri: 'bolt://127.0.0.1:7687',
+          username: 'synthetic-user',
+          password: 'synthetic-password',
+          leaseMs: 0,
+        }),
+    ).toThrow('neo4j_outbox_lease_invalid');
+  });
 });

@@ -115,7 +115,9 @@ namespace, while a cache outage never blocks the authoritative tombstone.
 
 Neo4j is also derived. The worker consumes the PostgreSQL outbox, projects
 accepted memories, scopes, conflicts, and forget events, and can rebuild the
-graph from canonical data with `NEO4J_REBUILD_ON_START=true`. PostgreSQL remains
+graph from canonical data with `NEO4J_REBUILD_ON_START=true`. Outbox delivery
+uses short-lived consumer leases and PostgreSQL `SKIP LOCKED`, so concurrent
+workers do not process the same unexpired event. PostgreSQL remains
 authoritative.
 
 To start it directly from the repository after building, run `npm run web:dev`; set `WEB_API_ORIGIN` when the API is not on `127.0.0.1:3000`.

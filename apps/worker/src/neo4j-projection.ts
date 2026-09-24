@@ -1,4 +1,5 @@
 import neo4j, { type Driver } from 'neo4j-driver';
+import { randomUUID } from 'node:crypto';
 import type { MemoryRepository, OutboxEvent } from '@mnemosyne/core';
 
 export interface Neo4jProjectionOptions {
@@ -7,12 +8,16 @@ export interface Neo4jProjectionOptions {
   password: string;
   database?: string;
   batchSize?: number;
+  consumerId?: string;
+  leaseMs?: number;
 }
 
 export class Neo4jProjection {
   private readonly driver: Driver;
   private readonly database?: string;
   private readonly batchSize: number;
+  private readonly consumerId: string;
+  private readonly leaseMs: number;
 
   constructor(
     private readonly repository: MemoryRepository,
@@ -24,8 +29,14 @@ export class Neo4jProjection {
     this.driver = neo4j.driver(options.uri, neo4j.auth.basic(options.username, options.password));
     this.database = options.database;
     this.batchSize = options.batchSize ?? 100;
+    this.consumerId = options.consumerId ?? `neo4j-${process.pid}-${randomUUID()}`;
+    this.leaseMs = options.leaseMs ?? 30_000;
     if (!Number.isSafeInteger(this.batchSize) || this.batchSize < 1 || this.batchSize > 1_000) {
       throw new Error('neo4j_batch_size_invalid');
+    }
+    if (this.consumerId.trim().length === 0) throw new Error('neo4j_consumer_id_required');
+    if (!Number.isSafeInteger(this.leaseMs) || this.leaseMs < 1) {
+      throw new Error('neo4j_outbox_lease_invalid');
     }
   }
 
@@ -34,14 +45,15 @@ export class Neo4jProjection {
   }
 
   async runOnce(): Promise<number> {
-    const events = await this.repository.claimOutboxEvents(this.batchSize);
-    const processed: number[] = [];
-    for (const event of events) {
-      await this.apply(event);
-      processed.push(event.id);
-    }
-    await this.repository.markOutboxProcessed(processed);
-    return processed.length;
+    const claim = await this.repository.claimOutboxEvents(
+      this.batchSize,
+      this.consumerId,
+      this.leaseMs,
+    );
+    if (!claim) return 0;
+    for (const event of claim.events) await this.apply(event);
+    await this.repository.markOutboxProcessed(claim);
+    return claim.events.length;
   }
 
   async rebuild(): Promise<void> {

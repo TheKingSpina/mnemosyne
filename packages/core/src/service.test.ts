@@ -1042,4 +1042,44 @@ describe('CoreMemoryService', () => {
     expect(current?.memory.lifecycle).toBe('accepted');
     expect(listed.items).toEqual([feedback]);
   });
+
+  it('does not claim the same outbox event before its lease expires', async () => {
+    let now = new Date('2026-01-20T10:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria con evento derivato',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const first = await repository.claimOutboxEvents(10, 'projection-a', 1_000);
+    const second = await repository.claimOutboxEvents(10, 'projection-b', 1_000);
+    now = new Date('2026-01-20T10:00:01.001Z');
+    const afterExpiry = await repository.claimOutboxEvents(10, 'projection-b', 1_000);
+
+    expect(first?.events).toHaveLength(2);
+    expect(second).toBeNull();
+    expect(afterExpiry?.consumerId).toBe('projection-b');
+    expect(afterExpiry?.events.map((event) => event.id)).toEqual(
+      first?.events.map((event) => event.id),
+    );
+    await expect(repository.markOutboxProcessed(first!)).rejects.toThrow('outbox_claim_lost');
+    await repository.markOutboxProcessed(afterExpiry!);
+    expect(await repository.claimOutboxEvents(10, 'projection-c', 1_000)).toBeNull();
+  });
 });
