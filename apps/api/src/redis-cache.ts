@@ -27,11 +27,11 @@ export class RedisCorpusCache implements CorpusCache {
   }
 
   async clear(): Promise<void> {
-    for await (const key of this.client.scanIterator({
+    for await (const keys of this.client.scanIterator({
       MATCH: `${corpusCacheKeyPrefix}*`,
       COUNT: 100,
     })) {
-      await this.client.del(key);
+      for (const key of keys) await this.client.del(key);
     }
   }
 }

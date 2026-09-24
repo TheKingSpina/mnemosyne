@@ -19,7 +19,7 @@ const leaseMs = integerOption(process.env.WORKER_LEASE_MS ?? '30000', 1000);
 const maxAttempts = integerOption(process.env.WORKER_MAX_ATTEMPTS ?? '3', 1);
 const backoffMs = integerOption(process.env.WORKER_BACKOFF_MS ?? '1000', 0);
 const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?? '30000', 1000);
-const workerId = process.env.WORKER_ID ?? `${hostname()}:${process.pid}:${randomUUID()}`;
+const workerId = process.env.WORKER_ID || `${hostname()}:${process.pid}:${randomUUID()}`;
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
 const service = new CoreMemoryService(repository, {
   forgetSecret,

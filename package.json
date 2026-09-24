@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "openapi:generate": "npm run build && node scripts/generate-openapi.mjs",
     "openapi:check": "npm run build && node scripts/generate-openapi.mjs && git diff --exit-code -- docs/openapi.yaml",
+    "e2e:synthetic": "npm run build && node scripts/e2e-synthetic.mjs",
     "verify": "npm run format:check && npm run lint && npm run check && npm run test",
     "api:dev": "npm run dev --workspace @mnemosyne/api",
     "cli:dev": "npm run dev --workspace @mnemosyne/cli",
