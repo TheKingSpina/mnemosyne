@@ -310,6 +310,55 @@ describe('Mnemosyne API authorization', () => {
     expect(await jobs.json()).toMatchObject({ total: 1 });
   });
 
+  it('allows only the owner to resolve a conflict', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: { type: 'project', id: 'synthetic-project' },
+        epistemicBasis: 'observed',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const contradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto non usa pnpm',
+      kind: 'convention',
+      scope: { type: 'project', id: 'synthetic-project' },
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    });
+    const path = `/v1/admin/conflicts/${contradiction.conflictId}/resolution`;
+
+    const harnessResponse = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${harnessToken}`, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const ownerResponse = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' },
+      body: '{}',
+    });
+
+    expect(harnessResponse.status).toBe(403);
+    expect(ownerResponse.status).toBe(200);
+    expect(await ownerResponse.json()).toMatchObject({ status: 'resolved' });
+  });
+
   it('exposes job attempts only to the owner and returns a 404 for an unknown job', async () => {
     const { service, repository, server } = createTestServer();
     const baseUrl = await listen(server);

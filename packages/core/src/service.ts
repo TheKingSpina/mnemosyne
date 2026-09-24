@@ -46,6 +46,7 @@ import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import type {
+  ConflictRecord,
   CorpusRevision,
   JobRecord,
   MemoryRecord,
@@ -426,6 +427,10 @@ export class CoreMemoryService implements MemoryService {
 
   async listConflicts(): Promise<ConflictListOutput> {
     return { items: await this.repository.listAllConflicts() };
+  }
+
+  async resolveConflict(id: string): Promise<ConflictRecord> {
+    return this.repository.resolveConflict(id);
   }
 
   async getAdminOverview(): Promise<AdminOverviewOutput> {

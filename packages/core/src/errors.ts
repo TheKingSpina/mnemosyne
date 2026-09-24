@@ -20,6 +20,7 @@ export function toDomainError(error: unknown): DomainError {
       memory_not_active: ['Memory is not active', 409],
       proposal_not_pending: ['Proposal is not pending', 409],
       memory_version_conflict: ['Memory version is stale', 409],
+      conflict_not_found: ['Conflict not found', 404],
       scope_not_available: ['Scope is not available in this session', 403],
       harness_cannot_issue_owner_directive: ['Harness cannot issue an owner directive', 403],
       invalid_confirmation_token: ['Invalid confirmation token', 400],

@@ -122,6 +122,7 @@ export interface MemoryService {
   listAdminMemories(input: ListAdminMemoriesInput): Promise<AdminMemoriesOutput>;
   getMemoryAdminView(id: string): Promise<MemoryAdminView | null>;
   listConflicts(): Promise<ConflictListOutput>;
+  resolveConflict(id: string): Promise<ConflictRecord>;
   getAdminOverview(): Promise<AdminOverviewOutput>;
   listAdminSessions(input: ListAdminSessionsInput): Promise<AdminSessionsOutput>;
   getAdminSessionDetail(sessionId: string): Promise<AdminSessionDetailOutput>;
@@ -158,6 +159,7 @@ export interface MemoryRepository {
   findConflicts(memoryId: string): Promise<ConflictRecord[]>;
   listAllConflicts(): Promise<ConflictRecord[]>;
   createConflict(memoryIds: string[], type?: ConflictRecord['type']): Promise<ConflictRecord>;
+  resolveConflict(id: string): Promise<ConflictRecord>;
   listSessions(): Promise<SessionRecord[]>;
   listEvents(sessionId: string): Promise<EventRecord[]>;
   listJobs(sessionId?: string): Promise<JobRecord[]>;

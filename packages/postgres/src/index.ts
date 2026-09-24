@@ -470,6 +470,19 @@ export class PostgresMemoryRepository implements MemoryRepository {
     }
   }
 
+  async resolveConflict(id: string): Promise<ConflictRecord> {
+    const result = await this.database.query<ConflictRow>(
+      `UPDATE conflicts
+       SET status = 'resolved'
+       WHERE id = $1
+       RETURNING id, type, memory_ids, status`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('conflict_not_found');
+    return this.conflictFromRow(row);
+  }
+
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
     const result = await this.database.query<JobRow>(
       'INSERT INTO jobs (id, operation, status, session_id) VALUES ($1, $2, $3, $4) RETURNING *',

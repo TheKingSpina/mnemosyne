@@ -689,11 +689,31 @@
               const panel = document.createElement('div');
               panel.className = 'panel';
               panel.innerHTML = `<strong>${conflict.id}</strong> <span class="tag">${conflict.status}</span> <span class="tag">${conflict.type}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div>`;
+              if (conflict.status === 'open') {
+                const button = document.createElement('button');
+                button.className = 'button';
+                button.textContent = 'Risolvi';
+                button.onclick = () => resolveConflict(conflict);
+                panel.append(button);
+              }
               return panel;
             }),
           );
           $('conflict-empty').classList.toggle('hidden', data.items.length > 0);
           clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const resolveConflict = async (conflict) => {
+        if (!confirm('Vuoi segnare questo conflitto come risolto?')) return;
+        try {
+          await request(`/v1/admin/conflicts/${encodeURIComponent(conflict.id)}/resolution`, {
+            method: 'POST',
+            body: {},
+          });
+          showMessage('Conflitto risolto.');
+          loadConflicts();
         } catch (error) {
           showMessage(error.message, true);
         }

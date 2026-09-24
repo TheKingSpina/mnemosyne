@@ -167,6 +167,9 @@ export const conflictListOutputSchema = z.object({
 });
 export type ConflictListOutput = z.infer<typeof conflictListOutputSchema>;
 
+export const resolveConflictOutputSchema = conflictViewSchema;
+export type ResolveConflictOutput = z.infer<typeof resolveConflictOutputSchema>;
+
 export const adminOverviewOutputSchema = z.object({
   total: z.number().int().nonnegative(),
   accepted: z.number().int().nonnegative(),

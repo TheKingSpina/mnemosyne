@@ -254,6 +254,14 @@ export class InMemoryRepository implements MemoryRepository {
     return conflict;
   }
 
+  async resolveConflict(id: string): Promise<ConflictRecord> {
+    const conflict = this.conflicts.get(id);
+    if (!conflict) throw new Error('conflict_not_found');
+    const resolved = { ...conflict, status: 'resolved' as const };
+    this.conflicts.set(id, resolved);
+    return resolved;
+  }
+
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
     const createdAt = new Date().toISOString();
     const record: JobRecord = {

@@ -201,6 +201,15 @@ async function handleAuthorizedRequest(
     sendJson(response, 200, await service.listConflicts());
     return;
   }
+  const adminConflictResolution = url.pathname.match(
+    /^\/v1\/admin\/conflicts\/([^/]+)\/resolution$/u,
+  );
+  if (request.method === 'POST' && adminConflictResolution) {
+    const { id } = paramsSchema.parse({ id: adminConflictResolution[1] });
+    bodylessSchema.parse(await readJson(request, maxRequestBodyBytes));
+    sendJson(response, 200, await service.resolveConflict(id));
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/overview') {
     sendJson(response, 200, await service.getAdminOverview());
     return;
