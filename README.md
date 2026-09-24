@@ -148,6 +148,21 @@ DATABASE_URL='postgresql://mnemosyne:your-local-password@127.0.0.1:5432/mnemosyn
 npm run api:dev
 ```
 
+## CLI
+
+The owner CLI uses the same authenticated REST API and accepts the owner token
+through `MNEMOSYNE_OWNER_TOKEN`. During local development, run it with:
+
+```bash
+npm run cli:dev -- status
+npm run cli:dev -- memories
+npm run cli:dev -- export ./mnemosyne-corpus-export.json
+```
+
+Set `MNEMOSYNE_API_URL` when the API is not at `http://127.0.0.1:3000`. The CLI
+does not implement a second policy engine: it only calls owner endpoints and
+validates returned data against the shared contracts.
+
 ## MCP
 
 The MCP adapter is a first-class interface. It shares the same Memory Core and policy engine as REST.
@@ -174,6 +189,7 @@ client-side tool visibility.
 ```text
 apps/
   api/       REST adapter
+  cli/       owner CLI adapter
   mcp/       MCP adapter
 packages/
   contracts/ Zod schemas and shared types

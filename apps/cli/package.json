@@ -1,0 +1,16 @@
+{
+  "name": "@mnemosyne/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mnemosyne": "dist/main.js"
+  },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@mnemosyne/contracts": "0.0.0"
+  }
+}
