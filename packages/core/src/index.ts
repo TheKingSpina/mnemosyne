@@ -7,3 +7,4 @@ export * from './in-memory-repository.js';
 export * from './service.js';
 export * from './extraction.js';
 export * from './conflict-detector.js';
+export * from './idempotency.js';
