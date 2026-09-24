@@ -131,7 +131,17 @@ export class OpenRouterExtractor implements Extractor {
       throw new Error('extraction_provider_unavailable');
     }
     if (!response.ok) throw new Error('extraction_provider_http_error');
-    return response.json() as Promise<unknown>;
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error('extraction_provider_invalid_response', { cause: error });
+    }
+    try {
+      return openRouterResponseSchema.parse(payload);
+    } catch (error) {
+      throw new Error('extraction_provider_invalid_response', { cause: error });
+    }
   }
 }
 

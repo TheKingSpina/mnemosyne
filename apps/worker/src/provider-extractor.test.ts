@@ -164,4 +164,12 @@ describe('OpenRouterExtractor', () => {
       'extraction_provider_http_error',
     );
   });
+
+  it('quarantines malformed provider envelopes', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await expect(createExtractor(fetchImpl).extract({ session, events: [event] })).rejects.toThrow(
+      'extraction_provider_invalid_response',
+    );
+  });
 });
