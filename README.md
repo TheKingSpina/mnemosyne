@@ -18,6 +18,7 @@ The first vertical slice provides:
 - a REST API;
 - an MCP server over `stdio` and Streamable HTTP with bearer authentication;
 - a local owner web console for overview, search, review, history, conflicts, and context preview;
+- a recoverable extraction worker with leases, retries, and quarantine;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -44,10 +45,10 @@ openssl rand -base64 48
 
 Set its value as `MNEMOSYNE_FORGET_SECRET` in `.env`.
 
-Start PostgreSQL and the API:
+Start PostgreSQL, the API, and the extraction worker:
 
 ```bash
-docker compose up --build -d postgres api
+docker compose up --build -d postgres api worker
 ```
 
 Check readiness:
@@ -63,6 +64,12 @@ DATABASE_URL='postgresql://mnemosyne:your-local-password@127.0.0.1:5432/mnemosyn
 MNEMOSYNE_FORGET_SECRET='a-secret-at-least-32-characters-long' \
 npm run mcp:dev
 ```
+
+To run the extraction worker directly instead, set `DATABASE_URL` and
+`MNEMOSYNE_FORGET_SECRET`, then run `npm run worker:dev`. The initial worker is
+deliberately conservative: it recognizes explicit `Ricorda ...` commands in
+synthetic, user-marked events and creates pending candidates. It does not call a
+remote model and does not automatically accept a candidate.
 
 Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
 

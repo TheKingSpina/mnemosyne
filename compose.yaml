@@ -87,5 +87,24 @@ services:
       api:
         condition: service_healthy
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mnemosyne}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mnemosyne}
+      MNEMOSYNE_FORGET_SECRET: ${MNEMOSYNE_FORGET_SECRET:?MNEMOSYNE_FORGET_SECRET is required}
+      WORKER_ID: ${WORKER_ID:-}
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-1000}
+      WORKER_LEASE_MS: ${WORKER_LEASE_MS:-30000}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+      WORKER_BACKOFF_MS: ${WORKER_BACKOFF_MS:-1000}
+      WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
