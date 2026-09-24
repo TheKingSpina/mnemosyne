@@ -263,7 +263,7 @@ describe('CoreMemoryService', () => {
       proposalId: first.memoryId,
       reason: 'duplicate',
     });
-    expect(merged?.memory.currentVersion).toBe(1);
+    expect(merged?.memory.currentVersion).toBe(2);
     expect(merged?.revisions[0]?.sourceEventIds).toEqual(['event-1', 'event-2']);
   });
 

@@ -241,13 +241,15 @@ export class PostgresMemoryRepository implements MemoryRepository {
       const row = current.rows[0];
       if (!row) throw new Error('memory_not_found');
       if (row.current_version !== expectedVersion) throw new Error('memory_version_conflict');
-      await client.query(
-        'UPDATE memory_revisions SET source_event_ids = $3 WHERE memory_id = $1 AND version = $2',
-        [id, expectedVersion, [...new Set([...row.source_event_ids, ...sourceEventIds])]],
-      );
+      const revision = this.revisionFromRow(row);
+      await this.insertRevision(client, id, {
+        ...revision,
+        version: expectedVersion + 1,
+        sourceEventIds: [...new Set([...row.source_event_ids, ...sourceEventIds])],
+      });
       const result = await client.query<MemoryRow>(
-        'UPDATE memories SET updated_at = now() WHERE id = $1 RETURNING *',
-        [id],
+        'UPDATE memories SET current_version = $2, updated_at = now() WHERE id = $1 RETURNING *',
+        [id, expectedVersion + 1],
       );
       await this.bumpCorpus(client, 'memory.sources.merged', id, expectedVersion);
       await client.query('COMMIT');

@@ -120,11 +120,17 @@ export class InMemoryRepository implements MemoryRepository {
     const versions = this.revisions.get(id);
     const current = versions?.get(expectedVersion);
     if (!versions || !current) throw new Error('memory_revision_not_found');
-    versions.set(expectedVersion, {
+    const nextVersion = expectedVersion + 1;
+    versions.set(nextVersion, {
       ...current,
+      version: nextVersion,
       sourceEventIds: [...new Set([...current.sourceEventIds, ...sourceEventIds])],
     });
-    const updated = { ...record, updatedAt: new Date().toISOString() };
+    const updated = {
+      ...record,
+      currentVersion: nextVersion,
+      updatedAt: new Date().toISOString(),
+    };
     this.memories.set(id, updated);
     this.corpusRevision += 1n;
     return updated;
