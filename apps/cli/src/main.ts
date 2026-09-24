@@ -16,10 +16,6 @@ import {
 } from '@mnemosyne/contracts';
 import { z } from 'zod';
 
-const baseUrl = option('api') ?? process.env.MNEMOSYNE_API_URL ?? 'http://127.0.0.1:3000';
-const ownerToken = option('token') ?? process.env.MNEMOSYNE_OWNER_TOKEN;
-if (!ownerToken) throw new Error('MNEMOSYNE_OWNER_TOKEN or --token is required');
-
 const [command, ...args] = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
   printHelp();
@@ -29,6 +25,9 @@ if (command === undefined || command === 'help') {
   printHelp();
   process.exit(0);
 }
+const baseUrl = option('api') ?? process.env.MNEMOSYNE_API_URL ?? 'http://127.0.0.1:3000';
+const ownerToken = option('token') ?? process.env.MNEMOSYNE_OWNER_TOKEN;
+if (!ownerToken) throw new Error('MNEMOSYNE_OWNER_TOKEN or --token is required');
 try {
   await run(command ?? 'help', args);
 } catch (error) {
