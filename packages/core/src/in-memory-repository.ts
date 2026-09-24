@@ -210,6 +210,12 @@ export class InMemoryRepository implements MemoryRepository {
     );
   }
 
+  async listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>> {
+    return [...this.revisions.entries()].flatMap(([memoryId, revisions]) =>
+      [...revisions.values()].map((revision) => ({ memoryId, revision })),
+    );
+  }
+
   async listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>> {
     return [...this.forgetLedger.entries()].map(([memoryId, forgottenAt]) => ({
       memoryId,

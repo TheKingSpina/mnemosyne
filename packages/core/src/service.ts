@@ -99,23 +99,9 @@ export class CoreMemoryService implements MemoryService {
   async listCorpusExport(): Promise<CorpusExport> {
     const revision = await this.repository.getCorpusRevision();
     const sessions = await this.repository.listSessions();
-    const events = (
-      await Promise.all(sessions.map((session) => this.repository.listEvents(session.id)))
-    )
-      .flat()
-      .sort(
-        (left, right) =>
-          left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence,
-      );
+    const events = await this.repository.listAllEvents();
     const memories = await this.repository.listMemoryViews();
-    const revisions = (
-      await Promise.all(memories.map((memory) => this.repository.listRevisions(memory.record.id)))
-    ).flatMap((revisionsForMemory, index) =>
-      revisionsForMemory.map((revision) => ({
-        memoryId: memories[index]?.record.id ?? '',
-        revision,
-      })),
-    );
+    const revisions = await this.repository.listAllMemoryRevisions();
     const forgetLedger = await this.repository.listForgetLedger();
     return corpusExportSchema.parse({
       schemaVersion: 1,
