@@ -71,5 +71,21 @@ services:
       postgres:
         condition: service_healthy
 
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8080
+      WEB_API_ORIGIN: http://api:3000
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data:

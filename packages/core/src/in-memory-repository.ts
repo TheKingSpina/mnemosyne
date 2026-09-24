@@ -14,6 +14,7 @@ import type {
   JobRecord,
   MemoryRecord,
   MemoryRepository,
+  MemoryWithCurrent,
   SessionRecord,
 } from './types.js';
 
@@ -176,8 +177,27 @@ export class InMemoryRepository implements MemoryRepository {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
+  async listMemoryViews(): Promise<MemoryWithCurrent[]> {
+    return [...this.memories.values()]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .flatMap((record) => {
+        const current = this.revisions.get(record.id)?.get(record.currentVersion);
+        return current ? [{ record, current }] : [];
+      });
+  }
+
+  async listRevisions(id: string): Promise<MemoryRevision[]> {
+    return [...(this.revisions.get(id)?.values() ?? [])].sort(
+      (left, right) => right.version - left.version,
+    );
+  }
+
   async findConflicts(memoryId: string): Promise<ConflictRecord[]> {
     return [...this.conflicts.values()].filter((conflict) => conflict.memoryIds.includes(memoryId));
+  }
+
+  async listAllConflicts(): Promise<ConflictRecord[]> {
+    return [...this.conflicts.values()];
   }
 
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord> {

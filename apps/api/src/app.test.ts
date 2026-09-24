@@ -186,6 +186,42 @@ describe('Mnemosyne API authorization', () => {
     expect(await response.json()).toMatchObject({ memory: { lifecycle: 'accepted' } });
   });
 
+  it('allows the owner to inspect the admin overview and memory history', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa npm',
+        kind: 'convention',
+        scope: { type: 'project', id: 'synthetic-project' },
+        epistemicBasis: 'observed',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const memoryId = proposed.memoryId!;
+    await service.correctMemory({ memoryId, expectedVersion: 1, content: 'Il progetto usa pnpm' });
+
+    const overview = await fetch(`${baseUrl}/v1/admin/overview`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const detail = await fetch(`${baseUrl}/v1/admin/memories/${memoryId}`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(overview.status).toBe(200);
+    expect(await overview.json()).toMatchObject({ total: 1, accepted: 1, pendingApproval: 0 });
+    expect(detail.status).toBe(200);
+    const detailBody = (await detail.json()) as { revisions: Array<{ version: number }> };
+    expect(detailBody.revisions.map((revision) => revision.version)).toEqual([2, 1]);
+  });
+
   it('returns a validation error for an oversized body without persisting it', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

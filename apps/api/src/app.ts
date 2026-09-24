@@ -7,6 +7,7 @@ import {
   reviewProposalInputSchema,
   searchMemoriesInputSchema,
   listPendingProposalsInputSchema,
+  listAdminMemoriesInputSchema,
 } from '@mnemosyne/contracts';
 import {
   DomainError,
@@ -170,9 +171,49 @@ async function handleAuthorizedRequest(
     sendJson(response, 200, await service.listPendingProposals(input));
     return;
   }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/memories') {
+    const query = listAdminMemoriesInputSchema.parse({
+      q: url.searchParams.get('q') ?? '',
+      lifecycle: url.searchParams.get('lifecycle') || undefined,
+      kind: url.searchParams.get('kind') || undefined,
+      scopeType: url.searchParams.get('scopeType') || undefined,
+      limit: url.searchParams.get('limit') ?? undefined,
+      offset: url.searchParams.get('offset') ?? undefined,
+    });
+    sendJson(response, 200, await service.listAdminMemories(query));
+    return;
+  }
+  const adminMemory = url.pathname.match(/^\/v1\/admin\/memories\/([^/]+)$/u);
+  if (request.method === 'GET' && adminMemory) {
+    const { id } = paramsSchema.parse({ id: adminMemory[1] });
+    const value = await service.getMemoryAdminView(id);
+    if (!value) {
+      sendJson(response, 404, { code: 'memory_not_found', message: 'Memory not found' });
+      return;
+    }
+    sendJson(response, 200, value);
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/conflicts') {
+    sendJson(response, 200, await service.listConflicts());
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/overview') {
+    sendJson(response, 200, await service.getAdminOverview());
+    return;
+  }
   const memory = url.pathname.match(/^\/v1\/memories\/([^/]+)$/u);
   if (request.method === 'GET' && memory) {
     const { id } = paramsSchema.parse({ id: memory[1] });
+    if (actor === 'owner') {
+      const value = await service.getMemoryAdminView(id);
+      if (!value) {
+        sendJson(response, 404, { code: 'memory_not_found', message: 'Memory not found' });
+        return;
+      }
+      sendJson(response, 200, value);
+      return;
+    }
     const value = await service.getMemory(id);
     if (!value) {
       sendJson(response, 404, { code: 'memory_not_found', message: 'Memory not found' });
@@ -243,6 +284,7 @@ async function handleAuthorizedRequest(
 function permissionForPath(pathname: string, method: string | undefined): MemoryPermission {
   if (pathname === '/v1/proposals' && method === 'GET') return 'proposal.review';
   if (pathname === '/v1/proposals' && method === 'POST') return 'memory.propose';
+  if (pathname.startsWith('/v1/admin/')) return 'proposal.review';
   if (pathname.includes('/decision')) return 'proposal.review';
   if (pathname.includes('/corrections')) return 'memory.correct';
   if (pathname.includes('/retractions')) return 'memory.retract';

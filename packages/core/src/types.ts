@@ -1,12 +1,17 @@
 import type {
   ContextInput,
   ContextOutput,
+  AdminMemoriesOutput,
+  AdminOverviewOutput,
+  ConflictListOutput,
   CorrectMemoryInput,
   CorrectMemoryOutput,
+  ListAdminMemoriesInput,
   MemoryActor,
   MemoryLifecycle,
   MemoryRevision,
   MemoryView,
+  MemoryAdminView,
   ListPendingProposalsInput,
   OpenSessionInput,
   OpenSessionOutput,
@@ -52,6 +57,11 @@ export interface MemoryRecord {
   updatedAt: string;
 }
 
+export interface MemoryWithCurrent {
+  record: MemoryRecord;
+  current: MemoryRevision;
+}
+
 export interface ConflictRecord {
   id: string;
   memoryIds: string[];
@@ -92,6 +102,10 @@ export interface MemoryService {
   forgetMemory(memoryId: string, confirmationToken: string): Promise<void>;
   getJob(id: string): Promise<JobRecord | null>;
   listPendingProposals(input: ListPendingProposalsInput): Promise<PendingProposalsOutput>;
+  listAdminMemories(input: ListAdminMemoriesInput): Promise<AdminMemoriesOutput>;
+  getMemoryAdminView(id: string): Promise<MemoryAdminView | null>;
+  listConflicts(): Promise<ConflictListOutput>;
+  getAdminOverview(): Promise<AdminOverviewOutput>;
   listScopesForSession(sessionId: string): Promise<Scope[]>;
   getCorpusRevision(): Promise<string>;
 }
@@ -106,14 +120,17 @@ export interface MemoryRepository {
   }>;
   findEvents(sessionId: string): Promise<EventRecord[]>;
   createMemory(input: ProposeMemoryInput): Promise<MemoryRecord>;
-  getMemory(id: string): Promise<{ record: MemoryRecord; current: MemoryRevision } | null>;
+  getMemory(id: string): Promise<MemoryWithCurrent | null>;
   createRevision(input: CorrectMemoryInput): Promise<MemoryRecord>;
   updateMemoryRevision(id: string, revision: MemoryRevision): Promise<MemoryRecord>;
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
   listPendingMemories(): Promise<MemoryRecord[]>;
+  listMemoryViews(): Promise<MemoryWithCurrent[]>;
+  listRevisions(id: string): Promise<MemoryRevision[]>;
   findConflicts(memoryId: string): Promise<ConflictRecord[]>;
+  listAllConflicts(): Promise<ConflictRecord[]>;
   createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord>;
   getJob(id: string): Promise<JobRecord | null>;
   getCorpusRevision(): Promise<CorpusRevision>;

@@ -863,6 +863,8 @@ memory://jobs/{job_id}
 
 Non viene esposta una risorsa con tutte le candidate, tutte le memorie o prompt che iniettino memorie come istruzioni.
 
+La Web UI owner è un adapter amministrativo locale per la stessa API e non duplica le policy. Deve richiedere il token owner, non deve salvare il token in log e deve usare HTTPS quando il servizio viene pubblicato tramite rete privata.
+
 ### 13.5 Docker
 
 Una composizione possibile prevede:

@@ -121,6 +121,53 @@ export const pendingProposalsOutputSchema = z.object({
 });
 export type PendingProposalsOutput = z.infer<typeof pendingProposalsOutputSchema>;
 
+export const listAdminMemoriesInputSchema = z.object({
+  q: z.string().max(2_000).default(''),
+  lifecycle: memoryLifecycleSchema.optional(),
+  kind: memoryKindSchema.optional(),
+  scopeType: scopeTypeSchema.optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+export type ListAdminMemoriesInput = z.infer<typeof listAdminMemoriesInputSchema>;
+
+export const adminMemoriesOutputSchema = z.object({
+  items: z.array(memoryViewSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type AdminMemoriesOutput = z.infer<typeof adminMemoriesOutputSchema>;
+
+export const memoryAdminViewSchema = z.object({
+  memory: memoryViewSchema,
+  revisions: z.array(memoryRevisionSchema),
+});
+export type MemoryAdminView = z.infer<typeof memoryAdminViewSchema>;
+
+export const conflictViewSchema = z.object({
+  id: z.string().min(1),
+  memoryIds: z.array(z.string().min(1)).min(2),
+  status: z.enum(['open', 'resolved']),
+});
+export type ConflictView = z.infer<typeof conflictViewSchema>;
+
+export const conflictListOutputSchema = z.object({
+  items: z.array(conflictViewSchema),
+});
+export type ConflictListOutput = z.infer<typeof conflictListOutputSchema>;
+
+export const adminOverviewOutputSchema = z.object({
+  total: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  pendingApproval: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  retracted: z.number().int().nonnegative(),
+  conflicts: z.number().int().nonnegative(),
+  corpusRevision: z.string().min(1),
+});
+export type AdminOverviewOutput = z.infer<typeof adminOverviewOutputSchema>;
+
 export const recordEventSchema = z.object({
   eventId: z.string().min(1),
   type: z.literal('message'),

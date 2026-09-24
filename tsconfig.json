@@ -6,6 +6,7 @@
     { "path": "./packages/core" },
     { "path": "./packages/postgres" },
     { "path": "./apps/api" },
-    { "path": "./apps/mcp" }
+    { "path": "./apps/mcp" },
+    { "path": "./apps/web" }
   ]
 }

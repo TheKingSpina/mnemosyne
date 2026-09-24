@@ -14,6 +14,7 @@ import type {
   JobRecord,
   MemoryRecord,
   MemoryRepository,
+  MemoryWithCurrent,
   SessionRecord,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
@@ -322,12 +323,47 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows.map((row) => this.memoryFromRow(row));
   }
 
+  async listMemoryViews(): Promise<MemoryWithCurrent[]> {
+    const result = await this.database.query<MemoryRow & MemoryRevisionRow>(
+      `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+              r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation, r.source_event_ids
+       FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+       ORDER BY m.updated_at DESC`,
+    );
+    return result.rows.map((row) => ({
+      record: this.memoryFromRow(row),
+      current: this.revisionFromRow(row),
+    }));
+  }
+
+  async listRevisions(id: string): Promise<MemoryRevision[]> {
+    const result = await this.database.query<MemoryRevisionRow>(
+      'SELECT * FROM memory_revisions WHERE memory_id = $1 ORDER BY version DESC',
+      [id],
+    );
+    return result.rows.map((row) => this.revisionFromRow(row));
+  }
+
   async findConflicts(memoryId: string): Promise<ConflictRecord[]> {
     const result = await this.database.query<{
       id: string;
       memory_ids: string[];
       status: 'open' | 'resolved';
     }>('SELECT id, memory_ids, status FROM conflicts WHERE $1 = ANY(memory_ids)', [memoryId]);
+    return result.rows.map((row) => ({
+      id: row.id,
+      memoryIds: row.memory_ids,
+      status: row.status,
+    }));
+  }
+
+  async listAllConflicts(): Promise<ConflictRecord[]> {
+    const result = await this.database.query<{
+      id: string;
+      memory_ids: string[];
+      status: 'open' | 'resolved';
+    }>('SELECT id, memory_ids, status FROM conflicts ORDER BY detected_at DESC');
     return result.rows.map((row) => ({
       id: row.id,
       memoryIds: row.memory_ids,

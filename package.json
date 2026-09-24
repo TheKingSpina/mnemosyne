@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "verify": "npm run format:check && npm run lint && npm run check && npm run test",
     "api:dev": "npm run dev --workspace @mnemosyne/api",
-    "mcp:dev": "npm run dev --workspace @mnemosyne/mcp"
+    "mcp:dev": "npm run dev --workspace @mnemosyne/mcp",
+    "web:dev": "npm run dev --workspace @mnemosyne/web"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

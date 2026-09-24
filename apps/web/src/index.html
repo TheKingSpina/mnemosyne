@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mnemosyne · Memoria</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #10121a;
+        --panel: #191c27;
+        --panel-2: #222735;
+        --line: #30374a;
+        --text: #f2f4f8;
+        --muted: #a8b0c0;
+        --accent: #8ea8ff;
+        --good: #72d4a0;
+        --warn: #f0c674;
+        --bad: #ff8f9c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      header {
+        border-bottom: 1px solid var(--line);
+        padding: 20px 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 21px;
+        letter-spacing: 0.02em;
+      }
+      h2 {
+        margin: 0 0 14px;
+        font-size: 16px;
+      }
+      h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .sub {
+        color: var(--muted);
+      }
+      nav {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      nav button,
+      .button {
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 12px;
+      }
+      nav button.active {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      main {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 24px 28px 60px;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+      .auth {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        background: #11141d;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 9px 10px;
+      }
+      textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+      .cards {
+        grid-template-columns: repeat(5, 1fr);
+      }
+      .two {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .metric {
+        font-size: 28px;
+        font-weight: 700;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .toolbar > * {
+        flex: 1 1 150px;
+      }
+      .toolbar .button {
+        flex: 0 0 auto;
+      }
+      .table-wrap {
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 11px 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      tr.clickable {
+        cursor: pointer;
+      }
+      tr.clickable:hover {
+        background: var(--panel-2);
+      }
+      .tag {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 2px 8px;
+        background: var(--panel-2);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .good {
+        color: var(--good);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      .row-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .row-actions button {
+        padding: 5px 8px;
+        font-size: 12px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .message {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin-bottom: 14px;
+      }
+      .message.error {
+        border-color: var(--bad);
+        color: var(--bad);
+      }
+      .empty {
+        color: var(--muted);
+        padding: 24px 0;
+      }
+      .content {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        gap: 14px;
+      }
+      .stack {
+        display: grid;
+        gap: 14px;
+      }
+      .form-grid {
+        display: grid;
+        gap: 10px;
+      }
+      .form-grid label {
+        display: grid;
+        gap: 5px;
+        color: var(--muted);
+      }
+      .revision {
+        border-left: 2px solid var(--line);
+        padding-left: 12px;
+      }
+      .danger {
+        border-color: var(--bad);
+        color: var(--bad);
+      }
+      @media (max-width: 900px) {
+        .cards,
+        .two,
+        .split {
+          grid-template-columns: 1fr;
+        }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Mnemosyne</h1>
+        <div class="sub">Governed memory · owner console</div>
+      </div>
+      <nav id="nav">
+        <button data-view="overview" class="active">Panoramica</button>
+        <button data-view="memories">Memorie</button>
+        <button data-view="review">Revisione</button>
+        <button data-view="conflicts">Conflitti</button>
+        <button data-view="context">Contesto</button>
+      </nav>
+    </header>
+    <main>
+      <div class="topbar">
+        <div id="page-title" class="sub"></div>
+        <div class="auth">
+          <input
+            id="api-origin"
+            aria-label="API origin"
+            placeholder="http://127.0.0.1:3000"
+            style="max-width: 240px"
+          />
+          <input
+            id="owner-token"
+            aria-label="Owner token"
+            type="password"
+            placeholder="Owner token"
+            style="max-width: 260px"
+          />
+          <button class="button" id="connect">Connetti</button>
+        </div>
+      </div>
+      <div id="message" class="message hidden"></div>
+      <section id="overview" class="view">
+        <div id="metrics" class="grid cards"></div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Stato corpus</h2>
+          <div id="corpus-state" class="sub"></div>
+        </div>
+      </section>
+      <section id="memories" class="view hidden">
+        <div class="panel">
+          <div class="toolbar">
+            <input id="memory-query" placeholder="Cerca nel contenuto" />
+            <select id="memory-lifecycle">
+              <option value="">Tutti gli stati</option>
+              <option value="accepted">Accepted</option>
+              <option value="pending_approval">Pending approval</option>
+              <option value="rejected">Rejected</option>
+              <option value="retracted">Retracted</option>
+              <option value="forgotten">Forgotten</option>
+            </select>
+            <select id="memory-kind">
+              <option value="">Tutti i tipi</option>
+              <option value="fact">Fact</option>
+              <option value="preference">Preference</option>
+              <option value="instruction">Instruction</option>
+              <option value="decision">Decision</option>
+              <option value="convention">Convention</option>
+              <option value="constraint">Constraint</option>
+              <option value="goal">Goal</option>
+              <option value="hypothesis">Hypothesis</option>
+              <option value="episode">Episode</option>
+            </select>
+            <select id="memory-scope">
+              <option value="">Tutti gli scope</option>
+              <option value="session">Session</option>
+              <option value="project">Project</option>
+              <option value="area">Area</option>
+              <option value="global">Global</option>
+            </select>
+            <button class="button" id="memory-search">Cerca</button>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Contenuto</th>
+                  <th>Tipo</th>
+                  <th>Scope</th>
+                  <th>Stato</th>
+                  <th>Aggiornata</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="memory-rows"></tbody>
+            </table>
+          </div>
+          <div id="memory-empty" class="empty hidden">Nessuna memoria trovata.</div>
+        </div>
+      </section>
+      <section id="review" class="view hidden">
+        <div class="panel">
+          <div class="toolbar">
+            <input id="review-session" placeholder="Session ID" /><button
+              class="button"
+              id="review-load"
+            >
+              Carica coda
+            </button>
+          </div>
+          <div id="review-empty" class="empty hidden">Nessuna candidate in attesa.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Contenuto</th>
+                  <th>Scope</th>
+                  <th>Stato</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody id="review-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      <section id="conflicts" class="view hidden">
+        <div class="panel">
+          <h2>Conflitti registrati</h2>
+          <div id="conflict-list" class="stack"></div>
+          <div id="conflict-empty" class="empty hidden">Nessun conflitto registrato.</div>
+        </div>
+      </section>
+      <section id="context" class="view hidden">
+        <div class="panel form-grid">
+          <h2>Anteprima contesto</h2>
+          <label>Sessione<input id="context-session" placeholder="Session ID" /></label>
+          <label>Query<input id="context-query" value="package manager" /></label>
+          <label
+            >Budget token<input
+              id="context-budget"
+              type="number"
+              value="1200"
+              min="100"
+              max="100000"
+          /></label>
+          <button class="button" id="context-resolve">Calcola contesto</button>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Memorie selezionate</h2>
+          <pre id="context-output" class="content">—</pre>
+        </div>
+      </section>
+    </main>
+    <script>
+      const state = { view: 'overview', overview: null, memories: [], selected: null };
+      const $ = (id) => document.getElementById(id);
+      const apiOrigin = () => $('api-origin').value.trim().replace(/\/$/, '');
+      const token = () => $('owner-token').value.trim();
+      const showMessage = (text, error = false) => {
+        const el = $('message');
+        el.textContent = text;
+        el.className = `message${error ? ' error' : ''}`;
+      };
+      const clearMessage = () => {
+        $('message').className = 'message hidden';
+      };
+      const request = async (path, options = {}) => {
+        const headers = {
+          ...(options.body ? { 'content-type': 'application/json' } : {}),
+          ...(token() ? { authorization: `Bearer ${token()}` } : {}),
+          ...(options.headers || {}),
+        };
+        const response = await fetch(`${apiOrigin()}${path}`, {
+          ...options,
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+        });
+        const text = await response.text();
+        let data;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = { raw: text };
+        }
+        if (!response.ok)
+          throw new Error(data?.title || data?.message || `HTTP ${response.status}`);
+        return data;
+      };
+      const text = (value) => document.createTextNode(String(value));
+      const td = (value, className = '') => {
+        const cell = document.createElement('td');
+        if (className) cell.className = className;
+        if (value instanceof Node) cell.append(value);
+        else cell.textContent = value ?? '';
+        return cell;
+      };
+      const lifecycleClass = (value) =>
+        value === 'accepted' ? 'good' : value === 'pending_approval' ? 'warn' : 'bad';
+      const formatDate = (value) => (value ? new Date(value).toLocaleString('it') : '—');
+      const setView = (view) => {
+        state.view = view;
+        document
+          .querySelectorAll('.view')
+          .forEach((el) => el.classList.toggle('hidden', el.id !== view));
+        document
+          .querySelectorAll('#nav button')
+          .forEach((el) => el.classList.toggle('active', el.dataset.view === view));
+        $('page-title').textContent = {
+          overview: 'Panoramica del corpus',
+          memories: 'Esplora memorie',
+          review: 'Coda di revisione',
+          conflicts: 'Conflitti',
+          context: 'Composizione contesto',
+        }[view];
+        if (view === 'overview') loadOverview();
+        if (view === 'memories') loadMemories();
+        if (view === 'conflicts') loadConflicts();
+      };
+      const loadOverview = async () => {
+        try {
+          state.overview = await request('/v1/admin/overview');
+          const data = state.overview;
+          const entries = [
+            ['Memorie', data.total],
+            ['Approvate', data.accepted],
+            ['In review', data.pendingApproval],
+            ['Rifiutate', data.rejected],
+            ['Conflitti', data.conflicts],
+          ];
+          $('metrics').replaceChildren(
+            ...entries.map(([label, value]) => {
+              const panel = document.createElement('div');
+              panel.className = 'panel';
+              panel.innerHTML = `<div class="sub">${label}</div><div class="metric">${value}</div>`;
+              return panel;
+            }),
+          );
+          $('corpus-state').textContent = `Corpus revision: ${data.corpusRevision}`;
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const loadMemories = async () => {
+        try {
+          const params = new URLSearchParams({ q: $('memory-query').value, limit: '100' });
+          for (const [key, id] of [
+            ['lifecycle', 'memory-lifecycle'],
+            ['kind', 'memory-kind'],
+            ['scopeType', 'memory-scope'],
+          ])
+            if ($(id).value) params.set(key, $(id).value);
+          const data = await request(`/v1/admin/memories?${params}`);
+          state.memories = data.items;
+          $('memory-rows').replaceChildren(
+            ...state.memories.map((memory) => {
+              const row = document.createElement('tr');
+              row.className = 'clickable';
+              row.onclick = () => showMemory(memory);
+              row.append(
+                td(memory.content, 'content'),
+                td(memory.kind),
+                td(`${memory.scope.type}:${memory.scope.id}`),
+                td(memory.lifecycle, lifecycleClass(memory.lifecycle)),
+                td(formatDate(memory.updatedAt)),
+              );
+              const actions = td('', 'row-actions');
+              const button = document.createElement('button');
+              button.textContent = 'Apri';
+              button.onclick = (event) => {
+                event.stopPropagation();
+                showMemory(memory);
+              };
+              actions.append(button);
+              row.append(actions);
+              return row;
+            }),
+          );
+          $('memory-empty').classList.toggle('hidden', state.memories.length > 0);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const showMemory = async (memory) => {
+        try {
+          const data = await request(`/v1/admin/memories/${encodeURIComponent(memory.memoryId)}`);
+          const panel = document.createElement('div');
+          panel.className = 'split';
+          const main = document.createElement('div');
+          main.className = 'panel stack';
+          main.innerHTML = `<h2>${memory.memoryId}</h2><div class="content">${escapeHtml(data.memory.content)}</div><div class="sub">${data.memory.kind} · ${data.memory.scope.type}:${data.memory.scope.id} · ${data.memory.lifecycle} · v${data.memory.currentVersion}</div><div class="row-actions"><button class="button" data-action="correct">Correggi</button><button class="button" data-action="retract">Revoca</button><button class="button danger" data-action="forget">Dimentica</button></div>`;
+          const history = document.createElement('div');
+          history.className = 'panel stack';
+          history.innerHTML =
+            '<h2>Revisioni</h2>' +
+            data.revisions
+              .map(
+                (revision) =>
+                  `<div class="revision"><strong>v${revision.version}</strong><div class="content">${escapeHtml(revision.content)}</div><div class="sub">${formatDate(data.memory.updatedAt)}</div></div>`,
+              )
+              .join('');
+          main.querySelector('[data-action="correct"]').onclick = () =>
+            openEditor(memory, data.memory);
+          main.querySelector('[data-action="retract"]').onclick = () => retractMemory(memory);
+          main.querySelector('[data-action="forget"]').onclick = () => forgetMemory(memory);
+          panel.append(main, history);
+          const old = document.getElementById('memory-detail');
+          if (old) old.remove();
+          panel.id = 'memory-detail';
+          document.querySelector('#memories .panel:last-child').append(panel);
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const escapeHtml = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (char) =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char],
+        );
+      const openEditor = (memory, current) => {
+        const content = prompt('Nuovo contenuto', current.content);
+        if (content === null || !content.trim()) return;
+        request(`/v1/memories/${encodeURIComponent(memory.memoryId)}/corrections`, {
+          method: 'POST',
+          body: { expectedVersion: current.currentVersion, content },
+        })
+          .then(() => {
+            showMessage('Memoria corretta.');
+            loadMemories();
+          })
+          .catch((error) => showMessage(error.message, true));
+      };
+      const retractMemory = (memory) => {
+        const reason = prompt('Motivo della revoca');
+        if (!reason) return;
+        request(`/v1/memories/${encodeURIComponent(memory.memoryId)}/retractions`, {
+          method: 'POST',
+          body: { reason },
+        })
+          .then(() => {
+            showMessage('Memoria revocata.');
+            loadMemories();
+          })
+          .catch((error) => showMessage(error.message, true));
+      };
+      const forgetMemory = async (memory) => {
+        if (!confirm('La dimenticanza è irreversibile. Vuoi continuare?')) return;
+        try {
+          const prepared = await request(
+            `/v1/memories/${encodeURIComponent(memory.memoryId)}/forget/prepare`,
+            { method: 'POST', body: {} },
+          );
+          if (!confirm('Conferma definitivamente la dimenticanza?')) return;
+          await request(`/v1/memories/${encodeURIComponent(memory.memoryId)}/forget`, {
+            method: 'POST',
+            body: { confirmationToken: prepared.confirmationToken },
+          });
+          showMessage('Memoria dimenticata.');
+          loadMemories();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const loadConflicts = async () => {
+        try {
+          const data = await request('/v1/admin/conflicts');
+          const list = $('conflict-list');
+          list.replaceChildren(
+            ...data.items.map((conflict) => {
+              const panel = document.createElement('div');
+              panel.className = 'panel';
+              panel.innerHTML = `<strong>${conflict.id}</strong> <span class="tag">${conflict.status}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div>`;
+              return panel;
+            }),
+          );
+          $('conflict-empty').classList.toggle('hidden', data.items.length > 0);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const loadReview = async () => {
+        try {
+          const sessionId = $('review-session').value.trim();
+          if (!sessionId) throw new Error('Inserisci un Session ID.');
+          const data = await request(
+            `/v1/proposals?sessionId=${encodeURIComponent(sessionId)}&limit=100`,
+          );
+          $('review-rows').replaceChildren(
+            ...data.items.map((memory) => {
+              const row = document.createElement('tr');
+              row.append(
+                td(memory.content, 'content'),
+                td(`${memory.scope.type}:${memory.scope.id}`),
+                td(memory.lifecycle, lifecycleClass(memory.lifecycle)),
+              );
+              const actions = td('', 'row-actions');
+              for (const action of ['accept', 'reject']) {
+                const button = document.createElement('button');
+                button.textContent = action === 'accept' ? 'Approva' : 'Rifiuta';
+                button.onclick = () => review(memory, action);
+                actions.append(button);
+              }
+              row.append(actions);
+              return row;
+            }),
+          );
+          $('review-empty').classList.toggle('hidden', data.items.length > 0);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const review = (memory, decision) =>
+        request(`/v1/proposals/${encodeURIComponent(memory.memoryId)}/decision`, {
+          method: 'POST',
+          body: { expectedVersion: memory.currentVersion, decision },
+        })
+          .then(() => {
+            showMessage(decision === 'accept' ? 'Candidate approvata.' : 'Candidate rifiutata.');
+            loadReview();
+          })
+          .catch((error) => showMessage(error.message, true));
+      $('connect').onclick = () => {
+        localStorage.setItem('mnemosyne-owner-token', token());
+        localStorage.setItem('mnemosyne-api-origin', apiOrigin());
+        loadOverview();
+      };
+      $('memory-search').onclick = loadMemories;
+      $('review-load').onclick = loadReview;
+      $('context-resolve').onclick = async () => {
+        try {
+          const data = await request('/v1/context/resolve', {
+            method: 'POST',
+            body: {
+              sessionId: $('context-session').value.trim(),
+              query: $('context-query').value.trim(),
+              budgetTokens: Number($('context-budget').value),
+            },
+          });
+          $('context-output').textContent = JSON.stringify(data, null, 2);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      document
+        .querySelectorAll('#nav button')
+        .forEach((button) => (button.onclick = () => setView(button.dataset.view)));
+      $('owner-token').value = localStorage.getItem('mnemosyne-owner-token') || '';
+      $('api-origin').value =
+        localStorage.getItem('mnemosyne-api-origin') || 'http://127.0.0.1:3000';
+      setView('overview');
+    </script>
+  </body>
+</html>

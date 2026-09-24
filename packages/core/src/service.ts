@@ -1,6 +1,7 @@
 import {
   contextInputSchema,
   correctMemoryInputSchema,
+  listAdminMemoriesInputSchema,
   listPendingProposalsInputSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
@@ -9,12 +10,17 @@ import {
   searchMemoriesInputSchema,
   type ContextInput,
   type ContextOutput,
+  type AdminMemoriesOutput,
+  type AdminOverviewOutput,
+  type ConflictListOutput,
   type CorrectMemoryInput,
   type CorrectMemoryOutput,
+  type ListAdminMemoriesInput,
   type ListPendingProposalsInput,
   type MemoryPatch,
   type MemoryRevision,
   type MemoryView,
+  type MemoryAdminView,
   type OpenSessionInput,
   type OpenSessionOutput,
   type PendingProposalsOutput,
@@ -316,6 +322,51 @@ export class CoreMemoryService implements MemoryService {
       items: items.slice(validated.offset, validated.offset + validated.limit),
       limit: validated.limit,
       offset: validated.offset,
+    };
+  }
+
+  async listAdminMemories(input: ListAdminMemoriesInput): Promise<AdminMemoriesOutput> {
+    const validated = listAdminMemoriesInputSchema.parse(input);
+    const memories = (await this.repository.listMemoryViews()).map((memory) =>
+      this.viewFromRepository(memory.record, memory.current),
+    );
+    const query = validated.q.toLocaleLowerCase();
+    const filtered = memories
+      .filter((memory) => !validated.lifecycle || memory.lifecycle === validated.lifecycle)
+      .filter((memory) => !validated.kind || memory.kind === validated.kind)
+      .filter((memory) => !validated.scopeType || memory.scope.type === validated.scopeType)
+      .filter((memory) => query.length === 0 || memory.content.toLocaleLowerCase().includes(query));
+    return {
+      items: filtered.slice(validated.offset, validated.offset + validated.limit),
+      total: filtered.length,
+      limit: validated.limit,
+      offset: validated.offset,
+    };
+  }
+
+  async getMemoryAdminView(id: string): Promise<MemoryAdminView | null> {
+    const memory = await this.repository.getMemory(id);
+    if (!memory) return null;
+    return {
+      memory: this.viewFromRepository(memory.record, memory.current),
+      revisions: await this.repository.listRevisions(id),
+    };
+  }
+
+  async listConflicts(): Promise<ConflictListOutput> {
+    return { items: await this.repository.listAllConflicts() };
+  }
+
+  async getAdminOverview(): Promise<AdminOverviewOutput> {
+    const memories = (await this.repository.listMemoryViews()).map((memory) => memory.record);
+    return {
+      total: memories.length,
+      accepted: memories.filter((memory) => memory.lifecycle === 'accepted').length,
+      pendingApproval: memories.filter((memory) => memory.lifecycle === 'pending_approval').length,
+      rejected: memories.filter((memory) => memory.lifecycle === 'rejected').length,
+      retracted: memories.filter((memory) => memory.lifecycle === 'retracted').length,
+      conflicts: (await this.repository.listAllConflicts()).length,
+      corpusRevision: await this.getCorpusRevision(),
     };
   }
 

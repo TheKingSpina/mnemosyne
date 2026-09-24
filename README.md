@@ -17,6 +17,7 @@ The first vertical slice provides:
 - PostgreSQL persistence with `pgvector`-ready storage;
 - a REST API;
 - an MCP server over `stdio` and Streamable HTTP with bearer authentication;
+- a local owner web console for overview, search, review, history, conflicts, and context preview;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -66,6 +67,10 @@ npm run mcp:dev
 Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
+
+The owner web console is available in Compose at `http://127.0.0.1:8080` by default. Enter the owner API origin and `MNEMOSYNE_OWNER_TOKEN` in the console; the token is kept only in the browser's local storage. The console is a local administration surface, not a replacement for HTTPS on a remote deployment.
+
+To start it directly from the repository after building, run `npm run web:dev`; set `WEB_API_ORIGIN` when the API is not on `127.0.0.1:3000`.
 
 ## API example
 
