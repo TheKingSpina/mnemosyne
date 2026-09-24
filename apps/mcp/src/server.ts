@@ -11,6 +11,7 @@ import {
   listAdminMemoriesInputSchema,
   listAdminJobsInputSchema,
   listAdminSessionsInputSchema,
+  corpusExportSchema,
   ownerProposalSubmissionSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
@@ -132,6 +133,20 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
   );
 
   if (profile === 'owner') {
+    server.registerTool(
+      'memory_export',
+      {
+        description: 'Export the canonical corpus for owner-controlled backup and migration.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(
+          await authorized(profile, 'proposal.review', async () =>
+            corpusExportSchema.parse(await service.listCorpusExport()),
+          ),
+        ),
+    );
+
     server.registerTool(
       'memory_admin_overview',
       {

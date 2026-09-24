@@ -165,7 +165,8 @@ Harness tools currently include:
 The owner profile adds administrative tools for overview, memory/session/job
 inspection, proposal review, correction, retraction, confirmed forget, and
 conflict resolution. Administrative tools are never exposed in the harness tool
-list, and authorization must be enforced by the server rather than by
+list; the owner profile also exposes `memory_export` for a canonical corpus
+download. Authorization must be enforced by the server rather than by
 client-side tool visibility.
 
 ## Project layout
