@@ -9,9 +9,11 @@ const servers: Server[] = [];
 
 function createTestServer(options: { withoutAccessPolicy?: boolean } = {}): {
   service: CoreMemoryService;
+  repository: InMemoryRepository;
   server: Server;
 } {
-  const service = new CoreMemoryService(new InMemoryRepository(), {
+  const repository = new InMemoryRepository();
+  const service = new CoreMemoryService(repository, {
     forgetSecret: 'forget-secret-that-is-long-enough-for-tests-0123456789',
   });
   const server = createApiServer(
@@ -21,7 +23,7 @@ function createTestServer(options: { withoutAccessPolicy?: boolean } = {}): {
       : { accessPolicy: createAccessPolicy({ ownerToken, harnessToken }) },
   );
   servers.push(server);
-  return { service, server };
+  return { service, repository, server };
 }
 
 async function listen(server: Server): Promise<string> {
@@ -260,6 +262,57 @@ describe('Mnemosyne API authorization', () => {
     });
     expect(jobs.status).toBe(200);
     expect(await jobs.json()).toMatchObject({ total: 1 });
+  });
+
+  it('exposes job attempts only to the owner and returns a 404 for an unknown job', async () => {
+    const { service, repository, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    const events = await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'event-attempts-1',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: false,
+        },
+      ],
+    });
+    const jobId = events.jobIds[0];
+    const claimed = await repository.claimNextJob('test-worker', 5_000);
+    if (!claimed) throw new Error('test_job_not_claimed');
+    const attempt = await repository.createJobAttempt(
+      { jobId, attempt: 1, status: 'running' },
+      'test-worker',
+    );
+    await repository.finishJobAttempt(attempt.id, 'failed', 'test-worker', 'synthetic_error');
+    const harnessResponse = await fetch(`${baseUrl}/v1/admin/jobs/${jobId}/attempts`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+    const ownerResponse = await fetch(`${baseUrl}/v1/admin/jobs/${jobId}/attempts`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const missingResponse = await fetch(`${baseUrl}/v1/admin/jobs/job_missing/attempts`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(harnessResponse.status).toBe(403);
+    expect(ownerResponse.status).toBe(200);
+    const attempts = (await ownerResponse.json()) as { items: Record<string, unknown>[] };
+    expect(attempts.items[0]).toMatchObject({
+      id: attempt.id,
+      jobId,
+      workerId: 'test-worker',
+      attempt: 1,
+      status: 'failed',
+      errorCode: 'synthetic_error',
+    });
+    expect(typeof attempts.items[0]?.createdAt).toBe('string');
+    expect(typeof attempts.items[0]?.updatedAt).toBe('string');
+    expect(missingResponse.status).toBe(404);
   });
 
   it('returns a validation error for an oversized body without persisting it', async () => {

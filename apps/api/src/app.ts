@@ -220,6 +220,17 @@ async function handleAuthorizedRequest(
     sendJson(response, 200, await service.getAdminSessionDetail(id));
     return;
   }
+  const adminJobAttempts = url.pathname.match(/^\/v1\/admin\/jobs\/([^/]+)\/attempts$/u);
+  if (request.method === 'GET' && adminJobAttempts) {
+    const { id } = paramsSchema.parse({ id: adminJobAttempts[1] });
+    const job = await service.getJob(id);
+    if (!job) {
+      sendJson(response, 404, { code: 'job_not_found', message: 'Job not found' });
+      return;
+    }
+    sendJson(response, 200, await service.listJobAttempts(id));
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/jobs') {
     const input = listAdminJobsInputSchema.parse({
       status: url.searchParams.get('status') || undefined,
