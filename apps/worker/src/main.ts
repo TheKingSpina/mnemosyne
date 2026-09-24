@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
 import { PostgresMemoryRepository } from '@mnemosyne/postgres';
 import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
+import { OpenRouterExtractor } from './provider-extractor.js';
 
 const connectionString = process.env.DATABASE_URL;
 const forgetSecret = process.env.MNEMOSYNE_FORGET_SECRET;
@@ -18,10 +19,11 @@ const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?
 const workerId = process.env.WORKER_ID ?? `${hostname()}:${process.pid}:${randomUUID()}`;
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
 const service = new CoreMemoryService(repository, { forgetSecret });
+const extractor = createExtractor();
 const worker = new ExtractionWorker({
   repository,
   service,
-  extractor: new ExplicitRememberExtractor(),
+  extractor,
   workerId,
   leaseMs,
   maxAttempts,
@@ -67,6 +69,22 @@ function integerOption(value: string, minimum: number): number {
     throw new Error(`invalid_worker_integer:${value}`);
   }
   return parsed;
+}
+
+function createExtractor(): ExplicitRememberExtractor | OpenRouterExtractor {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const model = process.env.OPENROUTER_MODEL;
+  if (apiKey && model) {
+    return new OpenRouterExtractor({
+      apiKey,
+      model,
+      requestTimeoutMs: integerOption(process.env.OPENROUTER_TIMEOUT_MS ?? '30000', 1000),
+    });
+  }
+  if (apiKey || model) {
+    throw new Error('OPENROUTER_API_KEY and OPENROUTER_MODEL must be configured together');
+  }
+  return new ExplicitRememberExtractor();
 }
 
 async function delay(milliseconds: number): Promise<void> {

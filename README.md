@@ -71,6 +71,11 @@ deliberately conservative: it recognizes explicit `Ricorda ...` commands in
 synthetic, user-marked events and creates pending candidates. It does not call a
 remote model and does not automatically accept a candidate.
 
+To use the OpenRouter adapter instead, set `OPENROUTER_API_KEY` and
+`OPENROUTER_MODEL`; the worker then sends bounded, structured extraction requests
+to OpenRouter and still routes every candidate through the same server-side
+policy. If either provider setting is present, both are required.
+
 Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
