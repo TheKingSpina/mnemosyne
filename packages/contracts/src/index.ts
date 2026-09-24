@@ -126,6 +126,7 @@ export const listAdminMemoriesInputSchema = z.object({
   lifecycle: memoryLifecycleSchema.optional(),
   kind: memoryKindSchema.optional(),
   scopeType: scopeTypeSchema.optional(),
+  scopeId: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -138,12 +139,6 @@ export const adminMemoriesOutputSchema = z.object({
   offset: z.number().int().nonnegative(),
 });
 export type AdminMemoriesOutput = z.infer<typeof adminMemoriesOutputSchema>;
-
-export const memoryAdminViewSchema = z.object({
-  memory: memoryViewSchema,
-  revisions: z.array(memoryRevisionSchema),
-});
-export type MemoryAdminView = z.infer<typeof memoryAdminViewSchema>;
 
 export const conflictViewSchema = z.object({
   id: z.string().min(1),
@@ -159,6 +154,13 @@ export const conflictViewSchema = z.object({
 });
 export type ConflictView = z.infer<typeof conflictViewSchema>;
 export type ConflictType = ConflictView['type'];
+
+export const memoryAdminViewSchema = z.object({
+  memory: memoryViewSchema,
+  revisions: z.array(memoryRevisionSchema),
+  conflicts: z.array(conflictViewSchema).default([]),
+});
+export type MemoryAdminView = z.infer<typeof memoryAdminViewSchema>;
 
 export const conflictListOutputSchema = z.object({
   items: z.array(conflictViewSchema),

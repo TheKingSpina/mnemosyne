@@ -335,6 +335,7 @@
               <option value="area">Area</option>
               <option value="global">Global</option>
             </select>
+            <input id="memory-scope-id" placeholder="ID scope esatto" />
             <button class="button" id="memory-search">Cerca</button>
           </div>
         </div>
@@ -553,6 +554,7 @@
             ['lifecycle', 'memory-lifecycle'],
             ['kind', 'memory-kind'],
             ['scopeType', 'memory-scope'],
+            ['scopeId', 'memory-scope-id'],
           ])
             if ($(id).value) params.set(key, $(id).value);
           const data = await request(`/v1/admin/memories?${params}`);
@@ -597,6 +599,7 @@
           main.innerHTML = `<h2>${memory.memoryId}</h2><div class="content">${escapeHtml(data.memory.content)}</div><div class="sub">${data.memory.kind} · ${data.memory.scope.type}:${data.memory.scope.id} · ${data.memory.lifecycle} · v${data.memory.currentVersion}</div><div class="row-actions"><button class="button" data-action="correct">Correggi</button><button class="button" data-action="retract">Revoca</button><button class="button danger" data-action="forget">Dimentica</button></div>`;
           const history = document.createElement('div');
           history.className = 'panel stack';
+          const conflicts = data.conflicts ?? [];
           history.innerHTML =
             '<h2>Revisioni</h2>' +
             data.revisions
@@ -604,7 +607,16 @@
                 (revision) =>
                   `<div class="revision"><strong>v${revision.version}</strong><div class="content">${escapeHtml(revision.content)}</div><div class="sub">${formatDate(data.memory.updatedAt)}</div></div>`,
               )
-              .join('');
+              .join('') +
+            `<h2 style="margin-top: 14px">Conflitti</h2>` +
+            (conflicts.length === 0
+              ? '<div class="sub">Nessun conflitto registrato.</div>'
+              : conflicts
+                  .map(
+                    (conflict) =>
+                      `<div class="revision"><strong>${conflict.status}</strong> <span class="tag">${conflict.type}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div></div>`,
+                  )
+                  .join(''));
           main.querySelector('[data-action="correct"]').onclick = () =>
             openEditor(memory, data.memory);
           main.querySelector('[data-action="retract"]').onclick = () => retractMemory(memory);

@@ -404,6 +404,7 @@ export class CoreMemoryService implements MemoryService {
       .filter((memory) => !validated.lifecycle || memory.lifecycle === validated.lifecycle)
       .filter((memory) => !validated.kind || memory.kind === validated.kind)
       .filter((memory) => !validated.scopeType || memory.scope.type === validated.scopeType)
+      .filter((memory) => !validated.scopeId || memory.scope.id === validated.scopeId)
       .filter((memory) => query.length === 0 || memory.content.toLocaleLowerCase().includes(query));
     return {
       items: filtered.slice(validated.offset, validated.offset + validated.limit),
@@ -419,6 +420,7 @@ export class CoreMemoryService implements MemoryService {
     return {
       memory: this.viewFromRepository(memory.record, memory.current),
       revisions: await this.repository.listRevisions(id),
+      conflicts: await this.repository.findConflicts(id),
     };
   }
 

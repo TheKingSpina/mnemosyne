@@ -179,6 +179,7 @@ async function handleAuthorizedRequest(
       lifecycle: url.searchParams.get('lifecycle') || undefined,
       kind: url.searchParams.get('kind') || undefined,
       scopeType: url.searchParams.get('scopeType') || undefined,
+      scopeId: url.searchParams.get('scopeId') || undefined,
       limit: url.searchParams.get('limit') ?? undefined,
       offset: url.searchParams.get('offset') ?? undefined,
     });

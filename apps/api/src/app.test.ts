@@ -224,6 +224,52 @@ describe('Mnemosyne API authorization', () => {
     expect(detailBody.revisions.map((revision) => revision.version)).toEqual([2, 1]);
   });
 
+  it('filters owner memories by exact scope identifier', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: { type: 'project', id: 'synthetic-project' },
+        epistemicBasis: 'observed',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Preferisco risposte concise',
+        kind: 'preference',
+        scope: { type: 'global', id: 'personal' },
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'private',
+        activation: 'always',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const response = await fetch(
+      `${baseUrl}/v1/admin/memories?scopeType=project&scopeId=synthetic-project`,
+      { headers: { authorization: `Bearer ${ownerToken}` } },
+    );
+    const body = (await response.json()) as { items: Array<{ content: string }> };
+
+    expect(response.status).toBe(200);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]?.content).toBe('Il progetto usa pnpm');
+  });
+
   it('exposes owner session and job administration', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

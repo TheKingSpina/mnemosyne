@@ -390,6 +390,45 @@ describe('CoreMemoryService', () => {
     expect(context.conflicts[0]?.memoryIds).toContain(contradiction.memoryId);
   });
 
+  it('includes memory conflicts in the owner memory detail', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const accepted = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const contradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto non usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    });
+
+    const acceptedDetail = await service.getMemoryAdminView(accepted.memoryId!);
+    const pendingDetail = await service.getMemoryAdminView(contradiction.memoryId!);
+
+    expect(acceptedDetail?.conflicts[0]?.id).toBe(contradiction.conflictId);
+    expect(acceptedDetail?.conflicts[0]?.type).toBe('direct_contradiction');
+    expect(pendingDetail?.conflicts[0]?.memoryIds).toContain(accepted.memoryId);
+  });
+
   it('rejects an owner directive context supplied by a harness', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });
