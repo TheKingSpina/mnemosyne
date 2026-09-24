@@ -489,7 +489,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
            lease_owner = CASE WHEN $2 = 'running' THEN $3 ELSE NULL END,
            lease_expires_at = CASE WHEN $2 = 'running' THEN lease_expires_at ELSE NULL END,
            updated_at = now()
-       WHERE id = $1 AND (status <> 'running' OR lease_owner = $3)
+       WHERE id = $1 AND status = 'running' AND lease_owner = $3
        RETURNING *`,
       [id, status, workerId],
     );

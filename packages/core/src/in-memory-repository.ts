@@ -309,7 +309,7 @@ export class InMemoryRepository implements MemoryRepository {
   async updateJob(id: string, status: JobRecord['status'], workerId: string): Promise<JobRecord> {
     const job = this.jobs.get(id);
     if (!job) throw new Error('job_not_found');
-    if (job.status === 'running' && job.leaseOwner !== workerId) {
+    if (job.status !== 'running' || job.leaseOwner !== workerId) {
       throw new Error('job_lease_lost');
     }
     const updated = {

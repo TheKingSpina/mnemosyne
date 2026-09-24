@@ -33,13 +33,17 @@ export class ExtractionWorker {
     this.leaseMs = options.leaseMs ?? 30_000;
     this.maxAttempts = options.maxAttempts ?? 3;
     this.backoffMs = options.backoffMs ?? 1_000;
-    this.heartbeatMs = options.heartbeatMs ?? Math.max(1_000, Math.floor(this.leaseMs / 3));
+    this.heartbeatMs = options.heartbeatMs ?? Math.max(250, Math.floor(this.leaseMs / 3));
     if (this.leaseMs < 1_000) throw new Error('extraction_lease_too_short');
     if (!Number.isSafeInteger(this.maxAttempts) || this.maxAttempts < 1)
       throw new Error('extraction_max_attempts_invalid');
     if (!Number.isSafeInteger(this.backoffMs) || this.backoffMs < 0)
       throw new Error('extraction_backoff_invalid');
-    if (!Number.isSafeInteger(this.heartbeatMs) || this.heartbeatMs < 250)
+    if (
+      !Number.isSafeInteger(this.heartbeatMs) ||
+      this.heartbeatMs < 250 ||
+      this.heartbeatMs >= this.leaseMs
+    )
       throw new Error('extraction_heartbeat_invalid');
   }
 

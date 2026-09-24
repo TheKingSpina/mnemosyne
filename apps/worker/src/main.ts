@@ -38,6 +38,7 @@ const worker = new ExtractionWorker({
 let stopping = false;
 let shutdownTimer: NodeJS.Timeout | undefined;
 let pollTimer: NodeJS.Timeout | undefined;
+let wakePolling: (() => void) | undefined;
 process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGTERM', () => stop('SIGTERM'));
 
@@ -59,7 +60,7 @@ function stop(signal: NodeJS.Signals): void {
   if (stopping) return;
   stopping = true;
   process.stdout.write(`Mnemosyne extraction worker ${workerId} received ${signal}\n`);
-  if (pollTimer) clearTimeout(pollTimer);
+  wakePolling?.();
   shutdownTimer = setTimeout(() => {
     process.stderr.write('Mnemosyne extraction worker shutdown timed out\n');
     process.exitCode = 1;
@@ -104,5 +105,11 @@ function integerOption(value: string, minimum: number): number {
 async function delay(milliseconds: number): Promise<void> {
   await new Promise<void>((resolve) => {
     pollTimer = setTimeout(resolve, milliseconds);
+    wakePolling = () => {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = undefined;
+      wakePolling = undefined;
+      resolve();
+    };
   });
 }
