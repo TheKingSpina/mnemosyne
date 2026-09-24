@@ -6,6 +6,8 @@ import {
 } from '@mnemosyne/contracts';
 import {
   containsSecret,
+  ExtractionProviderError,
+  providerHttpErrorCode,
   type EventRecord,
   type Extractor,
   type SessionRecord,
@@ -50,14 +52,16 @@ export class OpenRouterExtractor implements Extractor {
     if (eligibleEvents.length === 0) return extractionResultSchema.parse({ candidates: [] });
     const response = await this.request({ session: input.session, events: eligibleEvents });
     const choice = openRouterResponseSchema.parse(response).choices[0];
-    if (choice?.finish_reason === 'length') throw new Error('extraction_provider_truncated');
+    if (choice?.finish_reason === 'length') {
+      throw new ExtractionProviderError('extraction_provider_truncated');
+    }
     const content = choice?.message.content;
-    if (!content) throw new Error('extraction_provider_empty_response');
+    if (!content) throw new ExtractionProviderError('extraction_provider_empty_response');
     let raw: unknown;
     try {
       raw = JSON.parse(content) as unknown;
-    } catch {
-      throw new Error('extraction_provider_invalid_json');
+    } catch (error) {
+      throw new ExtractionProviderError('extraction_provider_invalid_json', { cause: error });
     }
     const providerResult = openRouterExtractionResultSchema.parse(raw);
     const candidates = providerResult.candidates.flatMap((candidate) => {
@@ -123,24 +127,21 @@ export class OpenRouterExtractor implements Extractor {
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'TimeoutError') {
-        throw new Error('extraction_provider_timeout', { cause: error });
+        throw new ExtractionProviderError('extraction_provider_timeout', { cause: error });
       }
-      throw new Error('extraction_provider_unavailable', { cause: error });
+      throw new ExtractionProviderError('extraction_provider_unavailable', { cause: error });
     }
-    if (response.status === 429 || response.status >= 500) {
-      throw new Error('extraction_provider_unavailable');
-    }
-    if (!response.ok) throw new Error('extraction_provider_http_error');
+    if (!response.ok) throw new ExtractionProviderError(providerHttpErrorCode(response.status));
     let payload: unknown;
     try {
       payload = await response.json();
     } catch (error) {
-      throw new Error('extraction_provider_invalid_response', { cause: error });
+      throw new ExtractionProviderError('extraction_provider_invalid_response', { cause: error });
     }
     try {
       return openRouterResponseSchema.parse(payload);
     } catch (error) {
-      throw new Error('extraction_provider_invalid_response', { cause: error });
+      throw new ExtractionProviderError('extraction_provider_invalid_response', { cause: error });
     }
   }
 }

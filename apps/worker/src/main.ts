@@ -4,6 +4,7 @@ import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
 import { PostgresMemoryRepository } from '@mnemosyne/postgres';
 import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
 import { OpenRouterExtractor } from './provider-extractor.js';
+import { ProviderRouter } from './provider-router.js';
 
 const connectionString = process.env.DATABASE_URL;
 const forgetSecret = process.env.MNEMOSYNE_FORGET_SECRET;
@@ -80,15 +81,26 @@ function integerOption(value: string, minimum: number): number {
   return parsed;
 }
 
-function createExtractor(): ExplicitRememberExtractor | OpenRouterExtractor {
+function createExtractor(): ExplicitRememberExtractor | OpenRouterExtractor | ProviderRouter {
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = process.env.OPENROUTER_MODEL;
+  const provider = process.env.EXTRACTION_PROVIDER ?? (apiKey && model ? 'openrouter' : 'local');
+  if (!['local', 'openrouter', 'openrouter-local-fallback'].includes(provider)) {
+    throw new Error('invalid_extraction_provider');
+  }
   if (apiKey && model) {
-    return new OpenRouterExtractor({
+    const openRouter = new OpenRouterExtractor({
       apiKey,
       model,
       requestTimeoutMs: integerOption(process.env.OPENROUTER_TIMEOUT_MS ?? '30000', 1000),
     });
+    if (provider === 'openrouter-local-fallback') {
+      return new ProviderRouter([
+        { name: 'openrouter', extractor: openRouter },
+        { name: 'local', extractor: new ExplicitRememberExtractor() },
+      ]);
+    }
+    return openRouter;
   }
   if (apiKey || model) {
     throw new Error('OPENROUTER_API_KEY and OPENROUTER_MODEL must be configured together');

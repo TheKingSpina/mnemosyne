@@ -7,6 +7,7 @@ import type {
 } from '@mnemosyne/contracts';
 import { extractionResultSchema } from '@mnemosyne/contracts';
 import { containsSecret } from './policy.js';
+import { isRetryableProviderError, providerErrorCode } from './provider-errors.js';
 import type { EventRecord, MemoryRepository, MemoryService, SessionRecord } from './types.js';
 
 export interface Extractor {
@@ -32,20 +33,14 @@ export class ExtractionWorker {
   private readonly maxAttempts: number;
   private readonly backoffMs: number;
   private readonly heartbeatMs: number;
-  private readonly retryableErrorCodes: ReadonlySet<string>;
+  private readonly retryableErrorCodes: readonly string[];
 
   constructor(private readonly options: ExtractionWorkerOptions) {
     this.leaseMs = options.leaseMs ?? 30_000;
     this.maxAttempts = options.maxAttempts ?? 3;
     this.backoffMs = options.backoffMs ?? 1_000;
     this.heartbeatMs = options.heartbeatMs ?? Math.max(250, Math.floor(this.leaseMs / 3));
-    this.retryableErrorCodes = new Set(
-      options.retryableErrorCodes ?? [
-        'extraction_provider_timeout',
-        'extraction_provider_unavailable',
-        'extraction_temporarily_unavailable',
-      ],
-    );
+    this.retryableErrorCodes = options.retryableErrorCodes ?? [];
     if (this.leaseMs < 1_000) throw new Error('extraction_lease_too_short');
     if (!Number.isSafeInteger(this.maxAttempts) || this.maxAttempts < 1)
       throw new Error('extraction_max_attempts_invalid');
@@ -110,8 +105,8 @@ export class ExtractionWorker {
       await this.options.repository.updateJob(job.id, 'succeeded', this.options.workerId);
       return { candidates };
     } catch (error) {
-      const errorCode = error instanceof Error ? error.message : 'extraction_failed';
-      const retryable = this.isRetryable(errorCode);
+      const errorCode = providerErrorCode(error);
+      const retryable = isRetryableProviderError(error, this.retryableErrorCodes);
       await this.options.repository.finishJobAttempt(
         attempt.id,
         retryable ? 'failed' : 'quarantined',
@@ -174,8 +169,8 @@ export class ExtractionWorker {
       await this.options.repository.updateJob(jobId, 'succeeded', this.options.workerId);
       return result;
     } catch (error) {
-      const errorCode = error instanceof Error ? error.message : 'consolidation_failed';
-      const retryable = this.isRetryable(errorCode);
+      const errorCode = providerErrorCode(error);
+      const retryable = isRetryableProviderError(error, this.retryableErrorCodes);
       await this.options.repository.finishJobAttempt(
         attempt.id,
         retryable ? 'failed' : 'quarantined',
@@ -206,10 +201,6 @@ export class ExtractionWorker {
     } finally {
       clearInterval(heartbeat);
     }
-  }
-
-  private isRetryable(errorCode: string): boolean {
-    return this.retryableErrorCodes.has(errorCode);
   }
 
   private filterCandidates(

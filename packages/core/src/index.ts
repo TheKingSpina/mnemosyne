@@ -8,3 +8,4 @@ export * from './service.js';
 export * from './extraction.js';
 export * from './conflict-detector.js';
 export * from './idempotency.js';
+export * from './provider-errors.js';
