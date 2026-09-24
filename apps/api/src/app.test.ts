@@ -328,8 +328,66 @@ describe('Mnemosyne API authorization', () => {
     expect(await response.json()).toEqual({
       extraction: { localExtractor: true, openRouterConfigured: false },
       projections: { redis: false, neo4j: false, semanticSearch: false },
-      operations: { backupVerified: false, retentionManaged: false, exportAvailable: true },
+      operations: { backupVerified: false, retentionManaged: true, exportAvailable: true },
     });
+  });
+
+  it('exposes balanced retention status and runs retention only for the owner', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+    const harnessResponse = await fetch(`${baseUrl}/v1/admin/retention`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+    const ownerStatus = await fetch(`${baseUrl}/v1/admin/retention`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const ownerRun = await fetch(`${baseUrl}/v1/admin/retention/run`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'retention-run-1',
+      },
+      body: '{}',
+    });
+    const replay = await fetch(`${baseUrl}/v1/admin/retention/run`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'retention-run-1',
+      },
+      body: '{}',
+    });
+    const status = (await ownerStatus.json()) as {
+      profile: string;
+      policy: Record<string, number>;
+    };
+    const run = (await ownerRun.json()) as { profile: string; deleted: Record<string, number> };
+    const replayedRun = (await replay.json()) as typeof run;
+
+    expect(harnessResponse.status).toBe(403);
+    expect(ownerStatus.status).toBe(200);
+    expect(status.profile).toBe('balanced');
+    expect(status.policy).toEqual({
+      closedEventDays: 30,
+      pendingCandidateDays: 30,
+      rejectedCandidateDays: 7,
+      supersededRevisionDays: 90,
+      retractedMemoryDays: 30,
+    });
+    expect(ownerRun.status).toBe(200);
+    expect(run.profile).toBe('balanced');
+    expect(run.deleted).toEqual({
+      closedSessionEvents: 0,
+      pendingCandidates: 0,
+      rejectedCandidates: 0,
+      supersededRevisions: 0,
+      retractedMemories: 0,
+      conflicts: 0,
+    });
+    expect(replay.status).toBe(200);
+    expect(replayedRun).toEqual(run);
   });
 
   it('exports the canonical corpus with a no-store attachment response', async () => {

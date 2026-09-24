@@ -21,6 +21,7 @@ The first vertical slice provides:
 - a local owner web console for overview, search, review, history, conflicts, and context preview;
 - a recoverable extraction worker with leases, retries, and quarantine;
 - an owner-only canonical corpus export with no-store download semantics;
+- an owner-triggered balanced retention policy with persistent last-run status;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -160,11 +161,20 @@ through `MNEMOSYNE_OWNER_TOKEN`. During local development, run it with:
 npm run cli:dev -- status
 npm run cli:dev -- memories
 npm run cli:dev -- export ./mnemosyne-corpus-export.json
+npm run cli:dev -- retention
+npm run cli:dev -- retention-run --yes
 ```
 
 Set `MNEMOSYNE_API_URL` when the API is not at `http://127.0.0.1:3000`. The CLI
 does not implement a second policy engine: it only calls owner endpoints and
 validates returned data against the shared contracts.
+
+The initial `balanced` retention policy removes events from sessions closed for
+more than 30 days, pending proposals older than 30 days, rejected proposals
+older than 7 days, and retracted memories older than 30 days. Forget ledger
+entries are never removed. It is owner-triggered; it is not an automatic job
+yet. The initial implementation also reports superseded-revision retention but
+does not delete those rows until provenance snapshots are explicitly modeled.
 
 ## MCP
 
@@ -184,7 +194,8 @@ The owner profile adds administrative tools for overview, memory/session/job
 inspection, proposal review, correction, retraction, confirmed forget, and
 conflict resolution. Administrative tools are never exposed in the harness tool
 list; the owner profile also exposes `memory_export` for a canonical corpus
-download. Authorization must be enforced by the server rather than by
+download and `memory_retention_status`/`memory_run_retention` for governed
+retention. Authorization must be enforced by the server rather than by
 client-side tool visibility.
 
 ## Project layout

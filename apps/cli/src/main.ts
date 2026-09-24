@@ -13,6 +13,8 @@ import {
   corpusExportSchema,
   memoryAdminViewSchema,
   pendingProposalsOutputSchema,
+  retentionRunOutputSchema,
+  retentionStatusOutputSchema,
   searchMemoriesInputSchema,
 } from '@mnemosyne/contracts';
 import { z } from 'zod';
@@ -43,6 +45,21 @@ async function run(name: string, args: string[]): Promise<void> {
   }
   if (name === 'capabilities') {
     printJson(await request('/v1/admin/capabilities', adminCapabilitiesOutputSchema));
+    return;
+  }
+  if (name === 'retention') {
+    printJson(await request('/v1/admin/retention', retentionStatusOutputSchema));
+    return;
+  }
+  if (name === 'retention-run') {
+    if (!args.includes('--yes')) await confirm('Eseguire la retention balanced?');
+    printJson(
+      await request('/v1/admin/retention/run', retentionRunOutputSchema, {
+        method: 'POST',
+        headers: { 'idempotency-key': randomUUID() },
+        body: JSON.stringify({}),
+      }),
+    );
     return;
   }
   if (name === 'search') {
@@ -200,6 +217,8 @@ function printHelp(): void {
     [
       'mnemosyne status',
       'mnemosyne capabilities',
+      'mnemosyne retention',
+      'mnemosyne retention-run --yes',
       'mnemosyne search <session-id> <query> [limit] [offset]',
       'mnemosyne show <memory-id>',
       'mnemosyne memories [limit] [offset]',

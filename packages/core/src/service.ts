@@ -1,4 +1,5 @@
 import {
+  balancedRetentionPolicy,
   corpusExportSchema,
   contextInputSchema,
   correctMemoryInputSchema,
@@ -41,6 +42,8 @@ import {
   type RecordEventsOutput,
   type ReviewProposalInput,
   type ReviewProposalOutput,
+  type RetentionRunOutput,
+  type RetentionStatusOutput,
   type Scope,
   type SearchMemoriesInput,
 } from '@mnemosyne/contracts';
@@ -90,7 +93,7 @@ export class CoreMemoryService implements MemoryService {
       },
       operations: {
         backupVerified: false,
-        retentionManaged: false,
+        retentionManaged: true,
         exportAvailable: true,
       },
     };
@@ -532,6 +535,45 @@ export class CoreMemoryService implements MemoryService {
 
   async listJobAttempts(jobId: string) {
     return this.repository.listJobAttempts(jobId);
+  }
+
+  async getRetentionStatus(): Promise<RetentionStatusOutput> {
+    const state = await this.repository.getRetentionState();
+    return {
+      managed: true,
+      profile: balancedRetentionPolicy.profile,
+      policy: {
+        closedEventDays: balancedRetentionPolicy.closedEventDays,
+        pendingCandidateDays: balancedRetentionPolicy.pendingCandidateDays,
+        rejectedCandidateDays: balancedRetentionPolicy.rejectedCandidateDays,
+        supersededRevisionDays: balancedRetentionPolicy.supersededRevisionDays,
+        retractedMemoryDays: balancedRetentionPolicy.retractedMemoryDays,
+      },
+      lastRunAt: state.lastRunAt,
+    };
+  }
+
+  async runRetention(): Promise<RetentionRunOutput> {
+    const startedAt = this.now();
+    const days = (value: number) =>
+      new Date(startedAt.getTime() - value * 24 * 60 * 60 * 1_000).toISOString();
+    const cutoffs = {
+      closedEvents: days(balancedRetentionPolicy.closedEventDays),
+      pendingCandidates: days(balancedRetentionPolicy.pendingCandidateDays),
+      rejectedCandidates: days(balancedRetentionPolicy.rejectedCandidateDays),
+      supersededRevisions: days(balancedRetentionPolicy.supersededRevisionDays),
+      retractedMemories: days(balancedRetentionPolicy.retractedMemoryDays),
+    };
+    const deleted = await this.repository.runBalancedRetention(cutoffs);
+    const completedAt = this.now();
+    await this.repository.recordRetentionRun(completedAt.toISOString());
+    return {
+      profile: balancedRetentionPolicy.profile,
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      cutoffs,
+      deleted,
+    };
   }
 
   async listScopesForSession(sessionId: string): Promise<Scope[]> {

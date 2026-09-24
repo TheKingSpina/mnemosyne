@@ -11,6 +11,16 @@ INSERT INTO corpus_state (id)
 VALUES ('default')
 ON CONFLICT (id) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS retention_state (
+  id text PRIMARY KEY,
+  last_run_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO retention_state (id)
+VALUES ('default')
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS sessions (
   id text PRIMARY KEY,
   project_id text NOT NULL,

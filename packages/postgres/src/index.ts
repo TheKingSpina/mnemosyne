@@ -16,6 +16,9 @@ import type {
   MemoryRecord,
   MemoryRepository,
   MemoryWithCurrent,
+  BalancedRetentionCutoffs,
+  RetentionRunCounts,
+  RetentionState,
   SessionRecord,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
@@ -382,6 +385,66 @@ export class PostgresMemoryRepository implements MemoryRepository {
     }
   }
 
+  async runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const events = await client.query(
+        `DELETE FROM events e
+         USING sessions s
+         WHERE e.session_id = s.id AND s.status = 'closed' AND s.closed_at < $1::timestamptz`,
+        [cutoffs.closedEvents],
+      );
+      const pending = await client.query<{ id: string }>(
+        `DELETE FROM memories m
+         WHERE m.lifecycle = 'pending_approval'
+           AND m.updated_at < $1::timestamptz
+         RETURNING m.id`,
+        [cutoffs.pendingCandidates],
+      );
+      const rejected = await client.query<{ id: string }>(
+        `DELETE FROM memories m
+         WHERE m.lifecycle = 'rejected'
+           AND m.updated_at < $1::timestamptz
+         RETURNING m.id`,
+        [cutoffs.rejectedCandidates],
+      );
+      const retracted = await client.query<{ id: string }>(
+        `DELETE FROM memories m
+         WHERE m.lifecycle = 'retracted'
+           AND m.updated_at < $1::timestamptz
+         RETURNING m.id`,
+        [cutoffs.retractedMemories],
+      );
+      const expiredMemoryIds = [
+        ...pending.rows.map((row) => row.id),
+        ...rejected.rows.map((row) => row.id),
+        ...retracted.rows.map((row) => row.id),
+      ];
+      const conflicts = await client.query(
+        `DELETE FROM conflicts c
+         WHERE c.status = 'open'
+           AND $1::text[] <@ c.memory_ids
+           AND NOT (c.memory_ids && $2::text[])`,
+        [expiredMemoryIds, await this.forgetLedgerIds(client, expiredMemoryIds)],
+      );
+      await client.query('COMMIT');
+      return {
+        closedSessionEvents: events.rowCount ?? 0,
+        pendingCandidates: pending.rowCount ?? 0,
+        rejectedCandidates: rejected.rowCount ?? 0,
+        supersededRevisions: 0,
+        retractedMemories: retracted.rowCount ?? 0,
+        conflicts: conflicts.rowCount ?? 0,
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async listCurrentMemories(): Promise<MemoryRevision[]> {
     const result = await this.database.query<MemoryRevisionRow>(
       `SELECT r.* FROM memories m JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
@@ -729,6 +792,35 @@ export class PostgresMemoryRepository implements MemoryRepository {
     );
     const row = result.rows[0];
     return { id: row.id, epoch: row.epoch, revision: BigInt(row.revision) };
+  }
+
+  async getRetentionState(): Promise<RetentionState> {
+    const result = await this.database.query<{ last_run_at: Date | null }>(
+      'SELECT last_run_at FROM retention_state WHERE id = $1',
+      ['default'],
+    );
+    return { lastRunAt: result.rows[0]?.last_run_at?.toISOString() };
+  }
+
+  async recordRetentionRun(lastRunAt: string): Promise<void> {
+    await this.database.query(
+      `UPDATE retention_state
+       SET last_run_at = $2, updated_at = now()
+       WHERE id = $1`,
+      ['default', lastRunAt],
+    );
+  }
+
+  private async forgetLedgerIds(
+    client: Pick<PoolClient, 'query'>,
+    memoryIds: string[],
+  ): Promise<string[]> {
+    if (memoryIds.length === 0) return [];
+    const result = await client.query<{ memory_id: string }>(
+      'SELECT memory_id FROM forget_ledger WHERE memory_id = ANY($1::text[])',
+      [memoryIds],
+    );
+    return result.rows.map((row) => row.memory_id);
   }
 
   private async client(): Promise<PoolClient> {

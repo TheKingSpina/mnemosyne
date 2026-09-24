@@ -496,6 +496,51 @@ export const corpusExportSchema = z.object({
 });
 export type CorpusExport = z.infer<typeof corpusExportSchema>;
 
+export const balancedRetentionPolicy = {
+  profile: 'balanced',
+  closedEventDays: 30,
+  pendingCandidateDays: 30,
+  rejectedCandidateDays: 7,
+  supersededRevisionDays: 90,
+  retractedMemoryDays: 30,
+} as const;
+
+export const retentionStatusOutputSchema = z.object({
+  managed: z.literal(true),
+  profile: z.literal(balancedRetentionPolicy.profile),
+  policy: z.object({
+    closedEventDays: z.number().int().positive(),
+    pendingCandidateDays: z.number().int().positive(),
+    rejectedCandidateDays: z.number().int().positive(),
+    supersededRevisionDays: z.number().int().positive(),
+    retractedMemoryDays: z.number().int().positive(),
+  }),
+  lastRunAt: z.string().datetime({ offset: true }).optional(),
+});
+export type RetentionStatusOutput = z.infer<typeof retentionStatusOutputSchema>;
+
+export const retentionRunOutputSchema = z.object({
+  profile: z.literal(balancedRetentionPolicy.profile),
+  startedAt: z.string().datetime({ offset: true }),
+  completedAt: z.string().datetime({ offset: true }),
+  cutoffs: z.object({
+    closedEvents: z.string().datetime({ offset: true }),
+    pendingCandidates: z.string().datetime({ offset: true }),
+    rejectedCandidates: z.string().datetime({ offset: true }),
+    supersededRevisions: z.string().datetime({ offset: true }),
+    retractedMemories: z.string().datetime({ offset: true }),
+  }),
+  deleted: z.object({
+    closedSessionEvents: z.number().int().nonnegative(),
+    pendingCandidates: z.number().int().nonnegative(),
+    rejectedCandidates: z.number().int().nonnegative(),
+    supersededRevisions: z.number().int().nonnegative(),
+    retractedMemories: z.number().int().nonnegative(),
+    conflicts: z.number().int().nonnegative(),
+  }),
+});
+export type RetentionRunOutput = z.infer<typeof retentionRunOutputSchema>;
+
 export const adminCapabilitiesOutputSchema = z.object({
   extraction: z.object({
     localExtractor: z.boolean(),
@@ -508,7 +553,7 @@ export const adminCapabilitiesOutputSchema = z.object({
   }),
   operations: z.object({
     backupVerified: z.literal(false),
-    retentionManaged: z.literal(false),
+    retentionManaged: z.literal(true),
     exportAvailable: z.literal(true),
   }),
 });

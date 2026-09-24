@@ -148,6 +148,26 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
     );
 
     server.registerTool(
+      'memory_retention_status',
+      {
+        description: 'Read the configured retention profile and last owner run.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(await authorized(profile, 'proposal.review', () => service.getRetentionStatus())),
+    );
+
+    server.registerTool(
+      'memory_run_retention',
+      {
+        description: 'Run the governed balanced retention policy.',
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      },
+      async () =>
+        result(await authorized(profile, 'proposal.review', () => service.runRetention())),
+    );
+
+    server.registerTool(
       'memory_admin_overview',
       {
         description: 'Read aggregate owner administration metrics.',

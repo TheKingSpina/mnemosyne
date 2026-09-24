@@ -530,4 +530,114 @@ describe('CoreMemoryService', () => {
       forgetLedger: [{ memoryId: proposed.memoryId }],
     });
   });
+
+  it('runs the balanced retention policy with deterministic cutoffs', async () => {
+    let now = new Date('2026-09-01T12:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'evt_retention',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico da conservare',
+          occurredAt: now.toISOString(),
+          explicitMemoryRequest: false,
+        },
+      ],
+    });
+    await service.closeSession(session.sessionId);
+    now = new Date('2026-09-24T12:00:00.000Z');
+    const statusBefore = await service.getRetentionStatus();
+    const result = await service.runRetention();
+    const statusAfter = await service.getRetentionStatus();
+
+    expect(statusBefore.lastRunAt).toBeUndefined();
+    expect(result.profile).toBe('balanced');
+    expect(result.cutoffs.closedEvents).toBe('2026-08-25T12:00:00.000Z');
+    expect(result.deleted.closedSessionEvents).toBe(0);
+    expect(statusAfter.lastRunAt).toBe(now.toISOString());
+    expect((await repository.listAllEvents()).map((event) => event.id)).toEqual(['evt_retention']);
+    expect((await repository.listAllJobs()).length).toBe(2);
+  });
+
+  it('removes expired candidates and retracted memories while retaining the forget ledger', async () => {
+    let now = new Date('2026-01-20T12:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Preferisco risposte concise',
+        kind: 'preference',
+        scope: globalScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'private',
+        activation: 'always',
+        sourceEventIds: [],
+      },
+      { actor: 'harness', explicitDirective: false },
+    );
+    const retracted = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    await service.retractMemory(retracted.memoryId!, 'test sintetico');
+    const forgotten = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria dimenticata sintetica',
+        kind: 'fact',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const prepared = await service.prepareForget(forgotten.memoryId!);
+    await service.forgetMemory(forgotten.memoryId!, prepared.confirmationToken);
+    now = new Date('2026-09-24T12:00:00.000Z');
+    const result = await service.runRetention();
+    const memories = await service.listAdminMemories({
+      q: '',
+      limit: 100,
+      offset: 0,
+    });
+    const status = await service.getRetentionStatus();
+
+    expect(result.deleted.pendingCandidates).toBe(1);
+    expect(result.deleted.retractedMemories).toBe(1);
+    expect(memories.items).toEqual([]);
+    expect(status.lastRunAt).toBe(now.toISOString());
+    expect((await repository.listForgetLedger()).map((entry) => entry.memoryId)).toEqual([
+      forgotten.memoryId,
+    ]);
+  });
 });

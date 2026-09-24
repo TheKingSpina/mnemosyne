@@ -33,6 +33,8 @@ import type {
   RecordEventsOutput,
   ReviewProposalInput,
   ReviewProposalOutput,
+  RetentionRunOutput,
+  RetentionStatusOutput,
   Scope,
   SearchMemoriesInput,
 } from '@mnemosyne/contracts';
@@ -132,6 +134,8 @@ export interface MemoryService {
   getAdminSessionDetail(sessionId: string): Promise<AdminSessionDetailOutput>;
   listAdminJobs(input: ListAdminJobsInput): Promise<AdminJobsOutput>;
   listJobAttempts(jobId: string): Promise<ListJobAttemptsOutput>;
+  getRetentionStatus(): Promise<RetentionStatusOutput>;
+  runRetention(): Promise<RetentionRunOutput>;
   listScopesForSession(sessionId: string): Promise<Scope[]>;
   getCorpusRevision(): Promise<string>;
 }
@@ -156,6 +160,7 @@ export interface MemoryRepository {
   updateMemoryRevision(id: string, revision: MemoryRevision): Promise<MemoryRecord>;
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
+  runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
   listAllEvents(): Promise<EventRecord[]>;
   listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>>;
@@ -189,5 +194,28 @@ export interface MemoryRepository {
   ): Promise<JobAttemptRecord>;
   createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord>;
   getJob(id: string): Promise<JobRecord | null>;
+  getRetentionState(): Promise<RetentionState>;
+  recordRetentionRun(lastRunAt: string): Promise<void>;
   getCorpusRevision(): Promise<CorpusRevision>;
+}
+
+export interface BalancedRetentionCutoffs {
+  closedEvents: string;
+  pendingCandidates: string;
+  rejectedCandidates: string;
+  supersededRevisions: string;
+  retractedMemories: string;
+}
+
+export interface RetentionRunCounts {
+  closedSessionEvents: number;
+  pendingCandidates: number;
+  rejectedCandidates: number;
+  supersededRevisions: number;
+  retractedMemories: number;
+  conflicts: number;
+}
+
+export interface RetentionState {
+  lastRunAt?: string;
 }

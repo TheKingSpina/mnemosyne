@@ -54,6 +54,8 @@ describe('Mnemosyne MCP tool profiles', () => {
     );
     expect(tools.map((tool) => tool.name)).toContain('memory_admin_capabilities');
     expect(tools.map((tool) => tool.name)).toContain('memory_export');
+    expect(tools.map((tool) => tool.name)).toContain('memory_retention_status');
+    expect(tools.map((tool) => tool.name)).toContain('memory_run_retention');
   });
 
   it('resolves a conflict through the owner MCP tool', async () => {

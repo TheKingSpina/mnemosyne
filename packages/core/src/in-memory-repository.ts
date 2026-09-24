@@ -16,19 +16,26 @@ import type {
   MemoryRepository,
   MemoryWithCurrent,
   JobAttemptRecord,
+  BalancedRetentionCutoffs,
+  RetentionRunCounts,
+  RetentionState,
   SessionRecord,
 } from './types.js';
 import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
 
 export class InMemoryRepository implements MemoryRepository {
+  constructor(private readonly now: () => Date = () => new Date()) {}
+
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly events = new Map<string, EventRecord>();
   private readonly memories = new Map<string, MemoryRecord>();
   private readonly revisions = new Map<string, Map<number, MemoryRevision>>();
+  private readonly revisionTimestamps = new Map<string, Map<number, string>>();
   private readonly conflicts = new Map<string, ConflictRecord>();
   private readonly jobs = new Map<string, JobRecord>();
   private readonly jobAttempts = new Map<string, JobAttemptRecord[]>();
   private readonly forgetLedger = new Map<string, string>();
+  private retentionState: RetentionState = {};
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
@@ -41,7 +48,7 @@ export class InMemoryRepository implements MemoryRepository {
       taskTitle: input.taskTitle,
       sequence: 0,
       status: 'open',
-      createdAt: new Date().toISOString(),
+      createdAt: this.now().toISOString(),
     };
     this.sessions.set(session.id, session);
     return session;
@@ -53,7 +60,11 @@ export class InMemoryRepository implements MemoryRepository {
 
   async closeSession(id: string): Promise<SessionRecord> {
     const session = await this.requireSession(id);
-    const closed = { ...session, status: 'closed' as const, closedAt: new Date().toISOString() };
+    const closed = {
+      ...session,
+      status: 'closed' as const,
+      closedAt: this.now().toISOString(),
+    };
     this.sessions.set(id, closed);
     return closed;
   }
@@ -90,7 +101,7 @@ export class InMemoryRepository implements MemoryRepository {
 
   async createMemory(input: ProposeMemoryInput): Promise<MemoryRecord> {
     const id = `mem_${randomUUID()}`;
-    const now = new Date().toISOString();
+    const now = this.now().toISOString();
     const record: MemoryRecord = {
       id,
       currentVersion: 1,
@@ -100,6 +111,7 @@ export class InMemoryRepository implements MemoryRepository {
     };
     this.memories.set(id, record);
     this.revisions.set(id, new Map([[1, this.revisionFromInput(id, input)]]));
+    this.revisionTimestamps.set(id, new Map([[1, now]]));
     return record;
   }
 
@@ -122,15 +134,17 @@ export class InMemoryRepository implements MemoryRepository {
     const current = versions?.get(expectedVersion);
     if (!versions || !current) throw new Error('memory_revision_not_found');
     const nextVersion = expectedVersion + 1;
+    const updatedAt = this.now().toISOString();
     versions.set(nextVersion, {
       ...current,
       version: nextVersion,
       sourceEventIds: [...new Set([...current.sourceEventIds, ...sourceEventIds])],
     });
+    this.revisionTimestamps.get(id)?.set(nextVersion, updatedAt);
     const updated = {
       ...record,
       currentVersion: nextVersion,
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     };
     this.memories.set(id, updated);
     this.corpusRevision += 1n;
@@ -167,13 +181,17 @@ export class InMemoryRepository implements MemoryRepository {
     if (!options.allowSameVersion && record.currentVersion !== revision.version - 1)
       throw new Error('memory_version_conflict');
     const versions = this.revisions.get(id) ?? new Map<number, MemoryRevision>();
+    const updatedAt = this.now().toISOString();
     versions.set(revision.version, revision);
+    const timestamps = this.revisionTimestamps.get(id) ?? new Map<number, string>();
+    timestamps.set(revision.version, updatedAt);
+    this.revisionTimestamps.set(id, timestamps);
     this.revisions.set(id, versions);
     const updated: MemoryRecord = {
       ...record,
       currentVersion: revision.version,
       lifecycle: 'accepted',
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     };
     this.memories.set(id, updated);
     this.corpusRevision += 1n;
@@ -183,7 +201,7 @@ export class InMemoryRepository implements MemoryRepository {
   async updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord> {
     const record = this.memories.get(id);
     if (!record) throw new Error('memory_not_found');
-    const updated = { ...record, lifecycle, updatedAt: new Date().toISOString() };
+    const updated = { ...record, lifecycle, updatedAt: this.now().toISOString() };
     this.memories.set(id, updated);
     if (lifecycle === 'accepted') this.corpusRevision += 1n;
     return updated;
@@ -192,8 +210,52 @@ export class InMemoryRepository implements MemoryRepository {
   async removeMemory(id: string): Promise<void> {
     if (!this.memories.delete(id)) throw new Error('memory_not_found');
     this.revisions.delete(id);
-    this.forgetLedger.set(id, new Date().toISOString());
+    this.revisionTimestamps.delete(id);
+    this.forgetLedger.set(id, this.now().toISOString());
     this.corpusRevision += 1n;
+  }
+
+  async runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts> {
+    const closedEvents = [...this.events.values()].filter((event) => {
+      const session = this.sessions.get(event.sessionId);
+      return (
+        session?.status === 'closed' &&
+        session.closedAt !== undefined &&
+        session.closedAt < cutoffs.closedEvents
+      );
+    });
+    for (const event of closedEvents) this.events.delete(`${event.sessionId}:${event.id}`);
+
+    const pendingCandidates = this.memoryIdsOlderThan(
+      'pending_approval',
+      cutoffs.pendingCandidates,
+    );
+    const rejectedCandidates = this.memoryIdsOlderThan('rejected', cutoffs.rejectedCandidates);
+    const retractedMemories = this.memoryIdsOlderThan('retracted', cutoffs.retractedMemories);
+    const expiredMemoryIds = [...pendingCandidates, ...rejectedCandidates, ...retractedMemories];
+    for (const memoryId of expiredMemoryIds) {
+      this.memories.delete(memoryId);
+      this.revisions.delete(memoryId);
+      this.revisionTimestamps.delete(memoryId);
+    }
+
+    const conflicts = [...this.conflicts.values()].filter(
+      (conflict) =>
+        conflict.status === 'open' &&
+        conflict.memoryIds.every(
+          (memoryId) => expiredMemoryIds.includes(memoryId) && !this.forgetLedger.has(memoryId),
+        ),
+    );
+    for (const conflict of conflicts) this.conflicts.delete(conflict.id);
+    if (closedEvents.length + expiredMemoryIds.length > 0) this.corpusRevision += 1n;
+    return {
+      closedSessionEvents: closedEvents.length,
+      pendingCandidates: pendingCandidates.length,
+      rejectedCandidates: rejectedCandidates.length,
+      supersededRevisions: 0,
+      retractedMemories: retractedMemories.length,
+      conflicts: conflicts.length,
+    };
   }
 
   async listCurrentMemories(): Promise<MemoryRevision[]> {
@@ -297,7 +359,7 @@ export class InMemoryRepository implements MemoryRepository {
   }
 
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
-    const createdAt = new Date().toISOString();
+    const createdAt = this.now().toISOString();
     const record: JobRecord = {
       ...job,
       id: `job_${randomUUID()}`,
@@ -333,7 +395,7 @@ export class InMemoryRepository implements MemoryRepository {
   }
 
   async claimNextJob(workerId: string, leaseMs: number): Promise<JobRecord | null> {
-    const now = new Date();
+    const now = this.now();
     const leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString();
     const candidates = [...this.jobs.values()]
       .filter(
@@ -392,8 +454,8 @@ export class InMemoryRepository implements MemoryRepository {
     }
     const updated = {
       ...job,
-      leaseExpiresAt: new Date(Date.now() + leaseMs).toISOString(),
-      updatedAt: new Date().toISOString(),
+      leaseExpiresAt: new Date(this.now().getTime() + leaseMs).toISOString(),
+      updatedAt: this.now().toISOString(),
     };
     this.jobs.set(id, updated);
     return updated;
@@ -411,7 +473,7 @@ export class InMemoryRepository implements MemoryRepository {
       availableAt: undefined,
       leaseOwner: status === 'running' ? workerId : undefined,
       leaseExpiresAt: status === 'running' ? job.leaseExpiresAt : undefined,
-      updatedAt: new Date().toISOString(),
+      updatedAt: this.now().toISOString(),
     };
     this.jobs.set(id, updated);
     return updated;
@@ -429,7 +491,7 @@ export class InMemoryRepository implements MemoryRepository {
       availableAt,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
-      updatedAt: new Date().toISOString(),
+      updatedAt: this.now().toISOString(),
     };
     this.jobs.set(id, updated);
     return updated;
@@ -439,7 +501,7 @@ export class InMemoryRepository implements MemoryRepository {
     attempt: Omit<JobAttemptRecord, 'id' | 'workerId' | 'createdAt' | 'updatedAt'>,
     workerId: string,
   ): Promise<JobAttemptRecord> {
-    const now = new Date().toISOString();
+    const now = this.now().toISOString();
     const job = this.jobs.get(attempt.jobId);
     if (!job || job.status !== 'running' || job.leaseOwner !== workerId) {
       throw new Error('job_lease_lost');
@@ -478,7 +540,7 @@ export class InMemoryRepository implements MemoryRepository {
         ...attempts[index],
         status,
         errorCode: errorCode ?? attempts[index].errorCode,
-        updatedAt: new Date().toISOString(),
+        updatedAt: this.now().toISOString(),
       };
       attempts[index] = updated;
       this.jobAttempts.set(jobId, attempts);
@@ -489,6 +551,14 @@ export class InMemoryRepository implements MemoryRepository {
 
   async getCorpusRevision(): Promise<CorpusRevision> {
     return { id: this.corpusId, epoch: this.corpusEpoch, revision: this.corpusRevision };
+  }
+
+  async getRetentionState(): Promise<RetentionState> {
+    return { ...this.retentionState };
+  }
+
+  async recordRetentionRun(lastRunAt: string): Promise<void> {
+    this.retentionState = { lastRunAt };
   }
 
   private revisionFromInput(id: string, input: ProposeMemoryInput): MemoryRevision {
@@ -511,5 +581,11 @@ export class InMemoryRepository implements MemoryRepository {
     const session = this.sessions.get(id);
     if (!session) throw new Error('session_not_found');
     return session;
+  }
+
+  private memoryIdsOlderThan(lifecycle: MemoryLifecycle, cutoff: string): string[] {
+    return [...this.memories.values()]
+      .filter((memory) => memory.lifecycle === lifecycle && memory.updatedAt < cutoff)
+      .map((memory) => memory.id);
   }
 }
