@@ -25,6 +25,7 @@ The first vertical slice provides:
 - a guarded empty-database restore path that re-applies the forget ledger;
 - a conservative session-consolidation job and scheduled balanced retention in the worker;
 - a derived Redis cache with revision validation and lexical/semantic fallback;
+- a rebuildable Neo4j projection driven by the PostgreSQL outbox;
 - Docker Compose development deployment.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
@@ -94,6 +95,11 @@ The owner web console is available in Compose at `http://127.0.0.1:8080` by defa
 Redis is a rebuildable derived cache. If it is unavailable, retrieval continues
 from PostgreSQL and lexical/semantic fallback; cached search results are accepted
 only when their corpus revision still matches the authoritative store.
+
+Neo4j is also derived. The worker consumes the PostgreSQL outbox, projects
+accepted memories, scopes, conflicts, and forget events, and can rebuild the
+graph from canonical data with `NEO4J_REBUILD_ON_START=true`. PostgreSQL remains
+authoritative.
 
 To start it directly from the repository after building, run `npm run web:dev`; set `WEB_API_ORIGIN` when the API is not on `127.0.0.1:3000`.
 

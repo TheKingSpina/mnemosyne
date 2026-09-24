@@ -10,6 +10,7 @@
   "dependencies": {
     "@mnemosyne/contracts": "0.0.0",
     "@mnemosyne/core": "0.0.0",
-    "@mnemosyne/postgres": "0.0.0"
+    "@mnemosyne/postgres": "0.0.0",
+    "neo4j-driver": "^6.2.0"
   }
 }

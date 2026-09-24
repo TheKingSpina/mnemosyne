@@ -5,6 +5,7 @@ import { PostgresMemoryRepository } from '@mnemosyne/postgres';
 import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
 import { OpenRouterExtractor } from './provider-extractor.js';
 import { ProviderRouter } from './provider-router.js';
+import { Neo4jProjection } from './neo4j-projection.js';
 
 const connectionString = process.env.DATABASE_URL;
 const forgetSecret = process.env.MNEMOSYNE_FORGET_SECRET;
@@ -19,7 +20,10 @@ const backoffMs = integerOption(process.env.WORKER_BACKOFF_MS ?? '1000', 0);
 const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?? '30000', 1000);
 const workerId = process.env.WORKER_ID ?? `${hostname()}:${process.pid}:${randomUUID()}`;
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
-const service = new CoreMemoryService(repository, { forgetSecret });
+const service = new CoreMemoryService(repository, {
+  forgetSecret,
+  neo4jConfigured: Boolean(process.env.NEO4J_URI),
+});
 const extractor = createExtractor();
 const retentionIntervalMs = integerOption(
   process.env.WORKER_RETENTION_INTERVAL_MS ?? '86400000',
@@ -34,8 +38,22 @@ const worker = new ExtractionWorker({
   maxAttempts,
   backoffMs,
 });
+const neo4jUri = process.env.NEO4J_URI;
+const neo4jUsername = process.env.NEO4J_USERNAME;
+const neo4jPassword = process.env.NEO4J_PASSWORD;
+const neo4jProjection =
+  neo4jUri && neo4jUsername && neo4jPassword
+    ? new Neo4jProjection(repository, {
+        uri: neo4jUri,
+        username: neo4jUsername,
+        password: neo4jPassword,
+        database: process.env.NEO4J_DATABASE,
+        batchSize: integerOption(process.env.NEO4J_BATCH_SIZE ?? '100', 1),
+      })
+    : undefined;
 
 let stopping = false;
+let rebuildPending = process.env.NEO4J_REBUILD_ON_START === 'true';
 let shutdownTimer: NodeJS.Timeout | undefined;
 let pollTimer: NodeJS.Timeout | undefined;
 let wakePolling: (() => void) | undefined;
@@ -47,6 +65,11 @@ let nextRetentionRun = Date.now() + retentionIntervalMs;
 while (!stopping) {
   try {
     const result = await worker.runOnce();
+    if (neo4jProjection && rebuildPending) {
+      await neo4jProjection.rebuild();
+      rebuildPending = false;
+    }
+    if (neo4jProjection) await neo4jProjection.runOnce();
     if (retentionIntervalMs > 0 && Date.now() >= nextRetentionRun) {
       await service.runRetention();
       nextRetentionRun = Date.now() + retentionIntervalMs;
@@ -59,6 +82,7 @@ while (!stopping) {
   }
 }
 if (shutdownTimer) clearTimeout(shutdownTimer);
+await neo4jProjection?.close();
 process.stdout.write(`Mnemosyne extraction worker ${workerId} stopped\n`);
 
 function stop(signal: NodeJS.Signals): void {

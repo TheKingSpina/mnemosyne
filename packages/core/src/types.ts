@@ -201,6 +201,8 @@ export interface MemoryRepository {
   getJob(id: string): Promise<JobRecord | null>;
   getRetentionState(): Promise<RetentionState>;
   recordRetentionRun(lastRunAt: string): Promise<void>;
+  claimOutboxEvents(limit: number): Promise<OutboxEvent[]>;
+  markOutboxProcessed(ids: number[]): Promise<void>;
   getCorpusRevision(): Promise<CorpusRevision>;
 }
 
@@ -223,6 +225,14 @@ export interface RetentionRunCounts {
 
 export interface RetentionState {
   lastRunAt?: string;
+}
+
+export interface OutboxEvent {
+  id: number;
+  eventType: string;
+  aggregateId: string;
+  storeRevision: bigint;
+  payload: Record<string, unknown>;
 }
 
 export interface CorpusRestore {

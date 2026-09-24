@@ -21,6 +21,7 @@ import type {
   RetentionState,
   CorpusRestore,
   CorpusRestoreCounts,
+  OutboxEvent,
   SessionRecord,
 } from './types.js';
 import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
@@ -38,6 +39,7 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly jobAttempts = new Map<string, JobAttemptRecord[]>();
   private readonly forgetLedger = new Map<string, string>();
   private retentionState: RetentionState = {};
+  private outbox: OutboxEvent[] = [];
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
@@ -623,6 +625,17 @@ export class InMemoryRepository implements MemoryRepository {
 
   async recordRetentionRun(lastRunAt: string): Promise<void> {
     this.retentionState = { lastRunAt };
+  }
+
+  async claimOutboxEvents(limit: number): Promise<OutboxEvent[]> {
+    return this.outbox
+      .slice(0, limit)
+      .map((event) => ({ ...event, payload: { ...event.payload } }));
+  }
+
+  async markOutboxProcessed(ids: number[]): Promise<void> {
+    const processed = new Set(ids);
+    this.outbox = this.outbox.filter((event) => !processed.has(event.id));
   }
 
   private revisionFromInput(id: string, input: ProposeMemoryInput): MemoryRevision {

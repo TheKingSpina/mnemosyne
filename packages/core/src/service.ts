@@ -74,6 +74,7 @@ export interface CoreMemoryServiceOptions {
   semanticSearchIndex?: SemanticSearchIndex;
   corpusCache?: CorpusCache;
   corpusCacheTtlSeconds?: number;
+  neo4jConfigured?: boolean;
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -97,7 +98,7 @@ export class CoreMemoryService implements MemoryService {
       },
       projections: {
         redis: this.options.corpusCache !== undefined,
-        neo4j: false,
+        neo4j: this.options.neo4jConfigured === true,
         semanticSearch:
           this.options.embeddingProvider !== undefined &&
           this.options.semanticSearchIndex !== undefined,

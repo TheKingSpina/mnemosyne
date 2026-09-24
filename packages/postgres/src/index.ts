@@ -21,6 +21,7 @@ import type {
   RetentionState,
   CorpusRestore,
   CorpusRestoreCounts,
+  OutboxEvent,
   SessionRecord,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
@@ -103,6 +104,14 @@ interface JobAttemptRow extends QueryResultRow {
   error_code: string | null;
   created_at: Date;
   updated_at: Date;
+}
+
+interface OutboxRow extends QueryResultRow {
+  id: string;
+  event_type: string;
+  aggregate_id: string;
+  store_revision: string;
+  payload: Record<string, unknown>;
 }
 
 export class PostgresMemoryRepository implements MemoryRepository {
@@ -945,6 +954,35 @@ export class PostgresMemoryRepository implements MemoryRepository {
        SET last_run_at = $2, updated_at = now()
        WHERE id = $1`,
       ['default', lastRunAt],
+    );
+  }
+
+  async claimOutboxEvents(limit: number): Promise<OutboxEvent[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+      throw new Error('outbox_batch_size_invalid');
+    }
+    const result = await this.database.query<OutboxRow>(
+      `SELECT id, event_type, aggregate_id, store_revision, payload
+       FROM corpus_outbox
+       WHERE processed_at IS NULL
+       ORDER BY id
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      eventType: row.event_type,
+      aggregateId: row.aggregate_id,
+      storeRevision: BigInt(row.store_revision),
+      payload: row.payload,
+    }));
+  }
+
+  async markOutboxProcessed(ids: number[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.database.query(
+      'UPDATE corpus_outbox SET processed_at = now() WHERE id = ANY($1::bigint[]) AND processed_at IS NULL',
+      [ids],
     );
   }
 
