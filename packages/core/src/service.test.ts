@@ -525,6 +525,8 @@ describe('CoreMemoryService', () => {
       events: [{ id: 'evt_export' }],
       memories: [],
       revisions: [],
+      jobs: [{ operation: 'memory_extraction', status: 'queued' }],
+      jobAttempts: [],
       forgetLedger: [{ memoryId: proposed.memoryId }],
     });
   });

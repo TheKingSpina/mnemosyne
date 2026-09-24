@@ -223,6 +223,18 @@ export class InMemoryRepository implements MemoryRepository {
     }));
   }
 
+  async listAllJobs(): Promise<JobRecord[]> {
+    return [...this.jobs.values()].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    );
+  }
+
+  async listAllJobAttempts(): Promise<JobAttemptRecord[]> {
+    return [...this.jobAttempts.values()].flatMap((attempts) =>
+      attempts.map((attempt) => ({ ...attempt })),
+    );
+  }
+
   async listPendingMemories(): Promise<MemoryRecord[]> {
     return [...this.memories.values()]
       .filter((memory) => memory.lifecycle === 'pending_approval')

@@ -405,6 +405,18 @@ export class PostgresMemoryRepository implements MemoryRepository {
     }));
   }
 
+  async listAllJobs(): Promise<JobRecord[]> {
+    const result = await this.database.query<JobRow>('SELECT * FROM jobs ORDER BY created_at DESC');
+    return result.rows.map((row) => this.jobFromRow(row));
+  }
+
+  async listAllJobAttempts(): Promise<JobAttemptRecord[]> {
+    const result = await this.database.query<JobAttemptRow>(
+      'SELECT * FROM job_attempts ORDER BY job_id, attempt DESC',
+    );
+    return result.rows.map((row) => this.jobAttemptFromRow(row));
+  }
+
   async listPendingMemories(): Promise<MemoryRecord[]> {
     const result = await this.database.query<MemoryRow>(
       `SELECT * FROM memories

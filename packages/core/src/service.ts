@@ -112,6 +112,8 @@ export class CoreMemoryService implements MemoryService {
       memories,
       revisions,
       conflicts: await this.repository.listAllConflicts(),
+      jobs: await this.repository.listAllJobs(),
+      jobAttempts: await this.repository.listAllJobAttempts(),
       forgetLedger,
     });
   }

@@ -265,6 +265,8 @@ describe('Mnemosyne API authorization', () => {
       jobIds?: string[];
       memories: unknown[];
       revisions: unknown[];
+      jobs: unknown[];
+      jobAttempts: unknown[];
       forgetLedger: unknown[];
     };
 
@@ -275,6 +277,8 @@ describe('Mnemosyne API authorization', () => {
     expect(body.events[0]?.id).toBe('event-export-1');
     expect(body.jobIds).toBeUndefined();
     expect(body.memories).toEqual([]);
+    expect(body.jobs).toHaveLength(1);
+    expect(body.jobAttempts).toEqual([]);
     expect(events.jobIds).toHaveLength(1);
   });
 

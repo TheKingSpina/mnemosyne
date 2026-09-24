@@ -160,6 +160,8 @@ export interface MemoryRepository {
   listAllEvents(): Promise<EventRecord[]>;
   listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>>;
   listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>>;
+  listAllJobs(): Promise<JobRecord[]>;
+  listAllJobAttempts(): Promise<JobAttemptRecord[]>;
   listPendingMemories(): Promise<MemoryRecord[]>;
   listMemoryViews(): Promise<MemoryWithCurrent[]>;
   listRevisions(id: string): Promise<MemoryRevision[]>;

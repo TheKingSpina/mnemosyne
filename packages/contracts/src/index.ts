@@ -465,6 +465,31 @@ export const corpusExportSchema = z.object({
   ),
   revisions: z.array(z.object({ memoryId: z.string().min(1), revision: memoryRevisionSchema })),
   conflicts: z.array(conflictViewSchema),
+  jobs: z.array(
+    z.object({
+      id: z.string().min(1),
+      operation: z.enum(['session_consolidation', 'memory_extraction']),
+      status: z.enum(['queued', 'running', 'succeeded', 'failed', 'quarantined', 'cancelled']),
+      sessionId: z.string().min(1),
+      availableAt: z.string().datetime({ offset: true }).optional(),
+      leaseOwner: z.string().min(1).optional(),
+      leaseExpiresAt: z.string().datetime({ offset: true }).optional(),
+      createdAt: z.string().datetime({ offset: true }),
+      updatedAt: z.string().datetime({ offset: true }),
+    }),
+  ),
+  jobAttempts: z.array(
+    z.object({
+      id: z.string().min(1),
+      jobId: z.string().min(1),
+      workerId: z.string().min(1),
+      attempt: z.number().int().positive(),
+      status: z.enum(['running', 'succeeded', 'failed', 'quarantined']),
+      errorCode: z.string().max(200).optional(),
+      createdAt: z.string().datetime({ offset: true }),
+      updatedAt: z.string().datetime({ offset: true }),
+    }),
+  ),
   forgetLedger: z.array(
     z.object({ memoryId: z.string().min(1), forgottenAt: z.string().datetime({ offset: true }) }),
   ),
