@@ -417,6 +417,10 @@ export class CoreMemoryService implements MemoryService {
     };
   }
 
+  async listJobAttempts(jobId: string) {
+    return this.repository.listJobAttempts(jobId);
+  }
+
   async listScopesForSession(sessionId: string): Promise<Scope[]> {
     const session = await this.repository.findSession(sessionId);
     if (!session) throw new Error('session_not_found');

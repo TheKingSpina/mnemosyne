@@ -6,7 +6,7 @@ import type {
   ProposeMemoryInput,
   RecordEventsInput,
 } from '@mnemosyne/contracts';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomUUID as createRandomId } from 'node:crypto';
 import type {
   ConflictRecord,
   CorpusRevision,
@@ -15,8 +15,10 @@ import type {
   MemoryRecord,
   MemoryRepository,
   MemoryWithCurrent,
+  JobAttemptRecord,
   SessionRecord,
 } from './types.js';
+import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
 
 export class InMemoryRepository implements MemoryRepository {
   private readonly sessions = new Map<string, SessionRecord>();
@@ -25,6 +27,7 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly revisions = new Map<string, Map<number, MemoryRevision>>();
   private readonly conflicts = new Map<string, ConflictRecord>();
   private readonly jobs = new Map<string, JobRecord>();
+  private readonly jobAttempts = new Map<string, JobAttemptRecord[]>();
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
@@ -200,7 +203,7 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.conflicts.values()];
   }
 
-  async createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord> {
+  async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
     const createdAt = new Date().toISOString();
     const record: JobRecord = {
       ...job,
@@ -230,6 +233,67 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.jobs.values()]
       .filter((job) => !sessionId || job.sessionId === sessionId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async listJobAttempts(jobId: string): Promise<ListJobAttemptsOutput> {
+    return { items: this.jobAttempts.get(jobId) ?? [] };
+  }
+
+  async claimNextJob(workerId: string, leaseMs: number): Promise<JobRecord | null> {
+    void workerId;
+    void leaseMs;
+    const job = [...this.jobs.values()]
+      .filter((value) => value.status === 'queued')
+      .find((value) => !this.jobAttempts.has(value.id));
+    if (!job) return null;
+    const running = { ...job, status: 'running' as const, updatedAt: new Date().toISOString() };
+    this.jobs.set(job.id, running);
+    return running;
+  }
+
+  async updateJob(id: string, status: JobRecord['status']): Promise<JobRecord> {
+    const job = this.jobs.get(id);
+    if (!job) throw new Error('job_not_found');
+    const updated = { ...job, status, updatedAt: new Date().toISOString() };
+    this.jobs.set(id, updated);
+    return updated;
+  }
+
+  async createJobAttempt(
+    attempt: Omit<JobAttemptRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<JobAttemptRecord> {
+    const now = new Date().toISOString();
+    const record: JobAttemptRecord = {
+      ...attempt,
+      id: `attempt_${createRandomId()}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const attempts = this.jobAttempts.get(attempt.jobId) ?? [];
+    attempts.push(record);
+    this.jobAttempts.set(attempt.jobId, attempts);
+    return record;
+  }
+
+  async finishJobAttempt(
+    id: string,
+    status: JobAttemptRecord['status'],
+    errorCode?: string,
+  ): Promise<JobAttemptRecord> {
+    for (const [jobId, attempts] of this.jobAttempts) {
+      const index = attempts.findIndex((attempt) => attempt.id === id);
+      if (index < 0) continue;
+      const updated = {
+        ...attempts[index],
+        status,
+        errorCode: errorCode ?? attempts[index].errorCode,
+        updatedAt: new Date().toISOString(),
+      };
+      attempts[index] = updated;
+      this.jobAttempts.set(jobId, attempts);
+      return updated;
+    }
+    throw new Error('job_attempt_not_found');
   }
 
   async getCorpusRevision(): Promise<CorpusRevision> {

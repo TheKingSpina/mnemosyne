@@ -11,6 +11,7 @@ import type {
   ConflictRecord,
   CorpusRevision,
   EventRecord,
+  JobAttemptRecord,
   JobRecord,
   MemoryRecord,
   MemoryRepository,
@@ -68,6 +69,16 @@ interface JobRow extends QueryResultRow {
   operation: JobRecord['operation'];
   status: JobRecord['status'];
   session_id: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface JobAttemptRow extends QueryResultRow {
+  id: string;
+  job_id: string;
+  attempt: number;
+  status: JobAttemptRecord['status'];
+  error_code: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -372,7 +383,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
     }));
   }
 
-  async createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord> {
+  async createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord> {
     const result = await this.database.query<JobRow>(
       'INSERT INTO jobs (id, operation, status, session_id) VALUES ($1, $2, $3, $4) RETURNING *',
       [`job_${randomUUID()}`, job.operation, job.status, job.sessionId],
@@ -404,6 +415,90 @@ export class PostgresMemoryRepository implements MemoryRepository {
         )
       : await this.database.query<JobRow>('SELECT * FROM jobs ORDER BY created_at DESC');
     return result.rows.map((row) => this.jobFromRow(row));
+  }
+
+  async listJobAttempts(jobId: string) {
+    const result = await this.database.query<JobAttemptRow>(
+      'SELECT * FROM job_attempts WHERE job_id = $1 ORDER BY attempt DESC',
+      [jobId],
+    );
+    return { items: result.rows.map((row) => this.jobAttemptFromRow(row)) };
+  }
+
+  async claimNextJob(workerId: string, leaseMs: number): Promise<JobRecord | null> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<JobRow>(
+        `UPDATE jobs
+         SET status = 'running', updated_at = now()
+         WHERE id = (
+           SELECT id FROM jobs
+           WHERE status = 'queued'
+           ORDER BY created_at
+           FOR UPDATE SKIP LOCKED
+           LIMIT 1
+         )
+         RETURNING *`,
+      );
+      if (!result.rows[0]) {
+        await client.query('COMMIT');
+        return null;
+      }
+      await client.query(
+        `INSERT INTO job_attempts (id, job_id, attempt, status, created_at, updated_at)
+         VALUES ($1, $2, 1, 'running', now(), now())`,
+        [`attempt_${randomUUID()}`, result.rows[0].id],
+      );
+      void workerId;
+      void leaseMs;
+      await client.query('COMMIT');
+      return this.jobFromRow(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateJob(id: string, status: JobRecord['status']): Promise<JobRecord> {
+    const result = await this.database.query<JobRow>(
+      'UPDATE jobs SET status = $2, updated_at = now() WHERE id = $1 RETURNING *',
+      [id, status],
+    );
+    if (!result.rows[0]) throw new Error('job_not_found');
+    return this.jobFromRow(result.rows[0]);
+  }
+
+  async createJobAttempt(
+    attempt: Omit<JobAttemptRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<JobAttemptRecord> {
+    const result = await this.database.query<JobAttemptRow>(
+      `INSERT INTO job_attempts (id, job_id, attempt, status, error_code, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, now(), now()) RETURNING *`,
+      [
+        `attempt_${randomUUID()}`,
+        attempt.jobId,
+        attempt.attempt,
+        attempt.status,
+        attempt.errorCode ?? null,
+      ],
+    );
+    return this.jobAttemptFromRow(result.rows[0]);
+  }
+
+  async finishJobAttempt(
+    id: string,
+    status: JobAttemptRecord['status'],
+    errorCode?: string,
+  ): Promise<JobAttemptRecord> {
+    const result = await this.database.query<JobAttemptRow>(
+      'UPDATE job_attempts SET status = $2, error_code = $3, updated_at = now() WHERE id = $1 RETURNING *',
+      [id, status, errorCode ?? null],
+    );
+    if (!result.rows[0]) throw new Error('job_attempt_not_found');
+    return this.jobAttemptFromRow(result.rows[0]);
   }
 
   async getCorpusRevision(): Promise<CorpusRevision> {
@@ -555,6 +650,18 @@ export class PostgresMemoryRepository implements MemoryRepository {
       operation: row.operation,
       status: row.status,
       sessionId: row.session_id,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  private jobAttemptFromRow(row: JobAttemptRow): JobAttemptRecord {
+    return {
+      id: row.id,
+      jobId: row.job_id,
+      attempt: row.attempt,
+      status: row.status,
+      errorCode: row.error_code ?? undefined,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };

@@ -76,6 +76,19 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
+CREATE TABLE IF NOT EXISTS job_attempts (
+  id text PRIMARY KEY,
+  job_id text NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  attempt integer NOT NULL,
+  status text NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'quarantined')),
+  error_code text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (job_id, attempt)
+);
+
+CREATE INDEX IF NOT EXISTS job_attempts_job_idx ON job_attempts(job_id, attempt DESC);
+
 CREATE TABLE IF NOT EXISTS corpus_outbox (
   id bigserial PRIMARY KEY,
   event_type text NOT NULL,

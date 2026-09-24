@@ -240,6 +240,41 @@ export const adminSessionDetailOutputSchema = z.object({
 });
 export type AdminSessionDetailOutput = z.infer<typeof adminSessionDetailOutputSchema>;
 
+export const jobAttemptViewSchema = z.object({
+  id: z.string().min(1),
+  jobId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  status: z.enum(['running', 'succeeded', 'failed', 'quarantined']),
+  errorCode: z.string().max(200).optional(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+});
+export type JobAttemptView = z.infer<typeof jobAttemptViewSchema>;
+
+export const extractionCandidateSchema = z.object({
+  sessionId: z.string().min(1),
+  eventIds: z.array(z.string().min(1)).min(1),
+  content: z.string().min(1).max(10_000),
+  kind: memoryKindSchema,
+  scope: scopeSchema,
+  epistemicBasis: epistemicBasisSchema,
+  assessment: assessmentSchema.default('uncontested'),
+  confidence: z.number().min(0).max(1).nullable().default(null),
+  sensitivity: sensitivitySchema.default('normal'),
+  activation: activationSchema.default('on_demand'),
+});
+export type ExtractionCandidate = z.infer<typeof extractionCandidateSchema>;
+
+export const extractionResultSchema = z.object({
+  candidates: z.array(extractionCandidateSchema).default([]),
+});
+export type ExtractionResult = z.infer<typeof extractionResultSchema>;
+
+export const listJobAttemptsOutputSchema = z.object({
+  items: z.array(jobAttemptViewSchema),
+});
+export type ListJobAttemptsOutput = z.infer<typeof listJobAttemptsOutputSchema>;
+
 export const recordEventSchema = z.object({
   eventId: z.string().min(1),
   type: z.literal('message'),

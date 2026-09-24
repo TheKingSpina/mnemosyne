@@ -4,6 +4,8 @@ import type {
   AdminJobsOutput,
   AdminSessionDetailOutput,
   AdminSessionsOutput,
+  JobAttemptView,
+  ListJobAttemptsOutput,
   AdminMemoriesOutput,
   AdminOverviewOutput,
   ConflictListOutput,
@@ -88,6 +90,10 @@ export interface JobRecord {
   updatedAt: string;
 }
 
+export interface JobAttemptRecord extends JobAttemptView {
+  jobId: string;
+}
+
 export interface ProposalContext {
   actor: MemoryActor;
   explicitDirective: boolean;
@@ -115,6 +121,7 @@ export interface MemoryService {
   listAdminSessions(input: ListAdminSessionsInput): Promise<AdminSessionsOutput>;
   getAdminSessionDetail(sessionId: string): Promise<AdminSessionDetailOutput>;
   listAdminJobs(input: ListAdminJobsInput): Promise<AdminJobsOutput>;
+  listJobAttempts(jobId: string): Promise<ListJobAttemptsOutput>;
   listScopesForSession(sessionId: string): Promise<Scope[]>;
   getCorpusRevision(): Promise<string>;
 }
@@ -143,6 +150,17 @@ export interface MemoryRepository {
   listSessions(): Promise<SessionRecord[]>;
   listEvents(sessionId: string): Promise<EventRecord[]>;
   listJobs(sessionId?: string): Promise<JobRecord[]>;
+  listJobAttempts(jobId: string): Promise<ListJobAttemptsOutput>;
+  claimNextJob(workerId: string, leaseMs: number): Promise<JobRecord | null>;
+  updateJob(id: string, status: JobRecord['status']): Promise<JobRecord>;
+  createJobAttempt(
+    attempt: Omit<JobAttemptRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<JobAttemptRecord>;
+  finishJobAttempt(
+    id: string,
+    status: JobAttemptRecord['status'],
+    errorCode?: string,
+  ): Promise<JobAttemptRecord>;
   createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord>;
   getJob(id: string): Promise<JobRecord | null>;
   getCorpusRevision(): Promise<CorpusRevision>;
