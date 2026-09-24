@@ -475,6 +475,7 @@
       const clearMessage = () => {
         $('message').className = 'message hidden';
       };
+      const idempotencyKey = () => crypto.randomUUID();
       const request = async (path, options = {}) => {
         const headers = {
           ...(options.body ? { 'content-type': 'application/json' } : {}),
@@ -650,6 +651,7 @@
         if (content === null || !content.trim()) return;
         request(`/v1/memories/${encodeURIComponent(memory.memoryId)}/corrections`, {
           method: 'POST',
+          headers: { 'idempotency-key': idempotencyKey() },
           body: { expectedVersion: current.currentVersion, content },
         })
           .then(() => {
@@ -663,6 +665,7 @@
         if (!reason) return;
         request(`/v1/memories/${encodeURIComponent(memory.memoryId)}/retractions`, {
           method: 'POST',
+          headers: { 'idempotency-key': idempotencyKey() },
           body: { reason },
         })
           .then(() => {
@@ -676,11 +679,16 @@
         try {
           const prepared = await request(
             `/v1/memories/${encodeURIComponent(memory.memoryId)}/forget/prepare`,
-            { method: 'POST', body: {} },
+            {
+              method: 'POST',
+              headers: { 'idempotency-key': idempotencyKey() },
+              body: {},
+            },
           );
           if (!confirm('Conferma definitivamente la dimenticanza?')) return;
           await request(`/v1/memories/${encodeURIComponent(memory.memoryId)}/forget`, {
             method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
             body: { confirmationToken: prepared.confirmationToken },
           });
           showMessage('Memoria dimenticata.');
@@ -719,6 +727,7 @@
         try {
           await request(`/v1/admin/conflicts/${encodeURIComponent(conflict.id)}/resolution`, {
             method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
             body: {},
           });
           showMessage('Conflitto risolto.');
@@ -860,6 +869,7 @@
       const review = (memory, decision) =>
         request(`/v1/proposals/${encodeURIComponent(memory.memoryId)}/decision`, {
           method: 'POST',
+          headers: { 'idempotency-key': idempotencyKey() },
           body: { expectedVersion: memory.currentVersion, decision },
         })
           .then(() => {

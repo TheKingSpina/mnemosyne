@@ -11,6 +11,7 @@
     "@mnemosyne/contracts": "0.0.0",
     "@mnemosyne/core": "0.0.0",
     "@mnemosyne/postgres": "0.0.0",
+    "pg": "^8.23.0",
     "zod": "4.6.5"
   }
 }

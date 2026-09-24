@@ -7,7 +7,9 @@ const ownerToken = 'owner-token-that-is-long-enough-for-tests-123456';
 const harnessToken = 'harness-token-that-is-long-enough-for-tests-123456';
 const servers: Server[] = [];
 
-function createTestServer(options: { withoutAccessPolicy?: boolean } = {}): {
+function createTestServer(
+  options: { withoutAccessPolicy?: boolean; requireIdempotencyKey?: boolean } = {},
+): {
   service: CoreMemoryService;
   repository: InMemoryRepository;
   server: Server;
@@ -16,12 +18,12 @@ function createTestServer(options: { withoutAccessPolicy?: boolean } = {}): {
   const service = new CoreMemoryService(repository, {
     forgetSecret: 'forget-secret-that-is-long-enough-for-tests-0123456789',
   });
-  const server = createApiServer(
-    service,
-    options.withoutAccessPolicy
+  const server = createApiServer(service, {
+    ...(options.withoutAccessPolicy
       ? {}
-      : { accessPolicy: createAccessPolicy({ ownerToken, harnessToken }) },
-  );
+      : { accessPolicy: createAccessPolicy({ ownerToken, harnessToken }) }),
+    requireIdempotencyKey: options.requireIdempotencyKey ?? false,
+  });
   servers.push(server);
   return { service, repository, server };
 }
@@ -45,6 +47,97 @@ afterEach(async () => {
 });
 
 describe('Mnemosyne API authorization', () => {
+  it('replays a successful write for the same idempotency key and payload', async () => {
+    const { repository, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const request = {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'session-request-1',
+      },
+      body: JSON.stringify({ projectId: 'synthetic-project' }),
+    };
+
+    const first = await fetch(`${baseUrl}/v1/sessions`, request);
+    const firstBody = (await first.json()) as unknown;
+    const second = await fetch(`${baseUrl}/v1/sessions`, request);
+    const secondBody = (await second.json()) as unknown;
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(secondBody).toEqual(firstBody);
+    expect(await repository.listSessions()).toHaveLength(1);
+  });
+
+  it('rejects a reused idempotency key with a different payload', async () => {
+    const { repository, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const headers = {
+      authorization: `Bearer ${harnessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': 'conflicting-session-request',
+    };
+
+    const first = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ projectId: 'synthetic-project-a' }),
+    });
+    const second = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ projectId: 'synthetic-project-b' }),
+    });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({ code: 'idempotency_key_conflict' });
+    expect(await repository.listSessions()).toHaveLength(1);
+  });
+
+  it('requires an idempotency key for state-changing writes when configured', async () => {
+    const { repository, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const response = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ projectId: 'synthetic-project' }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'idempotency_key_required' });
+    expect(await repository.listSessions()).toHaveLength(0);
+  });
+
+  it('releases an idempotency key after a failed write so it can be retried', async () => {
+    const { repository, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const headers = {
+      authorization: `Bearer ${harnessToken}`,
+      'content-type': 'application/json',
+      'idempotency-key': 'retryable-session-request',
+    };
+    const invalid = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ projectId: '' }),
+    });
+    const valid = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ projectId: 'synthetic-project' }),
+    });
+
+    expect(invalid.status).toBe(400);
+    expect(valid.status).toBe(201);
+    expect(await repository.listSessions()).toHaveLength(1);
+  });
+
   it('fails closed when the API has no access policy configured', async () => {
     const { server } = createTestServer({ withoutAccessPolicy: true });
     const baseUrl = await listen(server);

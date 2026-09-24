@@ -20,6 +20,12 @@ import type {
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+export {
+  PostgresIdempotencyStore,
+  completeIdempotencyKey,
+  reserveIdempotencyKey,
+} from './idempotency-store.js';
+export type { IdempotencyReservation } from '@mnemosyne/core';
 
 type Database = Pick<Pool, 'query' | 'connect'> | Pick<PoolClient, 'query'>;
 
@@ -98,6 +104,12 @@ export class PostgresMemoryRepository implements MemoryRepository {
 
   static async fromConnectionString(connectionString: string): Promise<PostgresMemoryRepository> {
     const pool = new Pool({ connectionString });
+    const repository = new PostgresMemoryRepository(pool);
+    await repository.migrate();
+    return repository;
+  }
+
+  static async fromPool(pool: Pool): Promise<PostgresMemoryRepository> {
     const repository = new PostgresMemoryRepository(pool);
     await repository.migrate();
     return repository;

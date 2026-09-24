@@ -16,6 +16,7 @@ The first vertical slice provides:
 - correction, retraction, and confirmed forget operations;
 - PostgreSQL persistence with `pgvector`-ready storage;
 - a REST API;
+- persistent PostgreSQL-backed replay for REST writes with `Idempotency-Key`;
 - an MCP server over `stdio` and Streamable HTTP with bearer authentication;
 - a local owner web console for overview, search, review, history, conflicts, and context preview;
 - a recoverable extraction worker with leases, retries, and quarantine;
@@ -95,6 +96,7 @@ export OWNER_TOKEN='your-owner-token'
 
 SESSION_ID=$(curl -fsS http://127.0.0.1:3000/v1/sessions \
   -H "authorization: Bearer $HARNESS_TOKEN" \
+  -H 'idempotency-key: open-session-example' \
   -H 'content-type: application/json' \
   -d '{"projectId":"my-project","areaIds":["software"]}' \
   | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).sessionId))")
@@ -105,6 +107,7 @@ Submit a proposal:
 ```bash
 curl -fsS http://127.0.0.1:3000/v1/proposals \
   -H "authorization: Bearer $HARNESS_TOKEN" \
+  -H 'idempotency-key: proposal-example' \
   -H 'content-type: application/json' \
   -d "{
     \"sessionId\": \"$SESSION_ID\",
@@ -120,7 +123,7 @@ curl -fsS http://127.0.0.1:3000/v1/proposals \
   }"
 ```
 
-Harness proposals remain pending until the governing policy accepts them. Owner-only REST operations, including proposal review, correction, retraction, and forget, require `Bearer $OWNER_TOKEN`; a harness token receives `403 Forbidden` for those operations. The same access policy is applied inside the MCP adapter.
+All state-changing REST requests in the API deployment require an `Idempotency-Key`. Reusing a key with the same method, path, actor, and JSON body replays the previous response; reusing it with a different fingerprint returns `409 Conflict`. The key and response are stored in PostgreSQL, while a failed request releases its reservation. Harness proposals remain pending until the governing policy accepts them. Owner-only REST operations, including proposal review, correction, retraction, and forget, require `Bearer $OWNER_TOKEN`; a harness token receives `403 Forbidden` for those operations. The same access policy is applied inside the MCP adapter.
 
 ## Local development
 

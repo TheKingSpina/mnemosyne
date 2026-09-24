@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS corpus_outbox (
 CREATE INDEX IF NOT EXISTS corpus_outbox_unprocessed_idx
   ON corpus_outbox(id) WHERE processed_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key text PRIMARY KEY,
+  payload_hash text NOT NULL,
+  response_status integer NOT NULL DEFAULT 0,
+  response_body jsonb NOT NULL DEFAULT 'null'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS forget_ledger (
   memory_id text PRIMARY KEY,
   forgotten_at timestamptz NOT NULL DEFAULT now()

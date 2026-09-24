@@ -13,10 +13,14 @@ import {
 } from '@mnemosyne/contracts';
 import {
   DomainError,
+  InMemoryIdempotencyStore,
+  hashIdempotencyPayload,
   toDomainError,
   type AccessPolicy,
+  type IdempotencyStore,
   type MemoryPermission,
   type MemoryService,
+  type StoredIdempotentResponse,
 } from '@mnemosyne/core';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { z } from 'zod';
@@ -39,12 +43,29 @@ const pendingQuerySchema = z.object({
 
 interface ApiServerOptions {
   accessPolicy?: AccessPolicy;
+  idempotencyStore?: IdempotencyStore;
   maxRequestBodyBytes?: number;
+  requireIdempotencyKey?: boolean;
+}
+
+type ApiRequest = IncomingMessage | BufferedApiRequest;
+
+function isBufferedApiRequest(request: ApiRequest): request is BufferedApiRequest {
+  return 'body' in request;
+}
+
+interface ResponseWriter {
+  writeHead(statusCode: number, headers?: Record<string, string | number>): ResponseWriter;
+  end(chunk?: string | Buffer): ResponseWriter;
 }
 
 export function createApiServer(service: MemoryService, options: ApiServerOptions): Server {
+  const serverOptions: ApiServerOptions = {
+    ...options,
+    idempotencyStore: options.idempotencyStore ?? new InMemoryIdempotencyStore(),
+  };
   return createServer((request, response) => {
-    void handleRequest(service, options, request, response).catch((error: unknown) => {
+    void handleRequest(service, serverOptions, request, response).catch((error: unknown) => {
       sendError(response, error);
     });
   });
@@ -91,6 +112,8 @@ async function handleRequest(
       response,
       url,
       options.maxRequestBodyBytes ?? 1_048_576,
+      options.idempotencyStore,
+      options.requireIdempotencyKey ?? false,
     );
     return;
   }
@@ -101,8 +124,64 @@ async function handleRequest(
 async function handleAuthorizedRequest(
   service: MemoryService,
   actor: 'owner' | 'harness',
-  request: IncomingMessage,
-  response: ServerResponse,
+  request: ApiRequest,
+  response: ResponseWriter,
+  url: URL,
+  maxRequestBodyBytes: number,
+  idempotencyStore: IdempotencyStore | undefined,
+  requireIdempotencyKey: boolean,
+): Promise<void> {
+  if (
+    !isBufferedApiRequest(request) &&
+    isStateChangingRoute(url, request.method) &&
+    idempotencyStore
+  ) {
+    const key = idempotencyKeyFrom(request);
+    if (!key && !requireIdempotencyKey)
+      return handleAuthorizedRequestUnchecked(
+        service,
+        actor,
+        request,
+        response,
+        url,
+        maxRequestBodyBytes,
+      );
+    await handleIdempotentPost(
+      idempotencyStore,
+      request,
+      key,
+      response,
+      url,
+      maxRequestBodyBytes,
+      actor,
+      (bufferedService, bufferedActor, bufferedRequest, bufferedResponse) =>
+        handleAuthorizedRequestUnchecked(
+          bufferedService,
+          bufferedActor,
+          bufferedRequest,
+          bufferedResponse,
+          url,
+          maxRequestBodyBytes,
+        ),
+      service,
+    );
+    return;
+  }
+  await handleAuthorizedRequestUnchecked(
+    service,
+    actor,
+    request,
+    response,
+    url,
+    maxRequestBodyBytes,
+  );
+}
+
+async function handleAuthorizedRequestUnchecked(
+  service: MemoryService,
+  actor: 'owner' | 'harness',
+  request: ApiRequest,
+  response: ResponseWriter,
   url: URL,
   maxRequestBodyBytes: number,
 ): Promise<void> {
@@ -345,6 +424,131 @@ async function handleAuthorizedRequest(
   sendJson(response, 404, { code: 'not_found', message: 'Route not found' });
 }
 
+interface BufferedApiRequest {
+  method: 'POST';
+  url: URL;
+  body: Buffer;
+}
+
+type BufferedApiHandler = (
+  service: MemoryService,
+  actor: 'owner' | 'harness',
+  request: BufferedApiRequest,
+  response: ResponseWriter,
+) => Promise<void>;
+
+class BufferedResponse implements ResponseWriter {
+  statusCode = 200;
+  private responseBody = Buffer.alloc(0);
+
+  writeHead(statusCode: number): this {
+    this.statusCode = statusCode;
+    return this;
+  }
+
+  end(chunk?: string | Buffer): this {
+    this.responseBody = Buffer.isBuffer(chunk)
+      ? Buffer.from(chunk)
+      : Buffer.from(chunk ?? '', 'utf8');
+    return this;
+  }
+
+  result(): StoredIdempotentResponse {
+    if (this.statusCode === 204 || this.responseBody.length === 0) {
+      return { status: this.statusCode, body: null };
+    }
+    return {
+      status: this.statusCode,
+      body: JSON.parse(this.responseBody.toString('utf8')) as unknown,
+    };
+  }
+}
+
+function isStateChangingRoute(url: URL, method: string | undefined): boolean {
+  if (method !== 'POST') return false;
+  if (url.pathname === '/v1/context/resolve') return false;
+  if (url.pathname.endsWith('/forget/prepare')) return false;
+  return true;
+}
+
+function idempotencyKeyFrom(request: IncomingMessage): string | undefined {
+  const value = request.headers['idempotency-key'];
+  if (value === undefined) return undefined;
+  if (Array.isArray(value) || !/^[A-Za-z0-9._:-]{1,200}$/u.test(value)) {
+    throw new Error('idempotency_key_invalid');
+  }
+  return value;
+}
+
+function requestPayload(request: BufferedApiRequest, actor: 'owner' | 'harness'): unknown {
+  let body: unknown;
+  try {
+    body = JSON.parse(request.body.toString('utf8') || '{}') as unknown;
+  } catch {
+    throw new Error('invalid_json');
+  }
+  return {
+    method: request.method,
+    path: `${request.url.pathname}${request.url.search}`,
+    actor,
+    body,
+  };
+}
+
+function sendStoredResponse(response: ResponseWriter, stored: StoredIdempotentResponse): void {
+  sendJson(response, stored.status, stored.body);
+}
+
+async function handleIdempotentPost(
+  store: IdempotencyStore,
+  request: IncomingMessage,
+  key: string | undefined,
+  response: ResponseWriter,
+  url: URL,
+  maxRequestBodyBytes: number,
+  actor: 'owner' | 'harness',
+  handler: BufferedApiHandler,
+  service: MemoryService,
+): Promise<void> {
+  if (!key) throw new Error('idempotency_key_required');
+  const body = await readRequestBuffer(request, maxRequestBodyBytes);
+  const payload = requestPayload({ method: 'POST', url, body }, actor);
+  const payloadHash = hashIdempotencyPayload(payload);
+  const reservation = await store.acquire(key, payloadHash);
+  if (reservation.state !== 'reserved' && !reservation.payloadMatches) {
+    throw new Error('idempotency_key_conflict');
+  }
+  if (reservation.state === 'existing') {
+    sendStoredResponse(response, reservation.response);
+    return;
+  }
+  if (reservation.state === 'in_progress') throw new Error('idempotency_in_progress');
+  try {
+    const stored = await executeBufferedHandler(
+      service,
+      actor,
+      { method: 'POST', url, body },
+      handler,
+    );
+    await store.save(key, payloadHash, stored);
+    sendStoredResponse(response, stored);
+  } catch (error) {
+    await store.abort(key, payloadHash);
+    throw error;
+  }
+}
+
+async function executeBufferedHandler(
+  service: MemoryService,
+  actor: 'owner' | 'harness',
+  request: BufferedApiRequest,
+  handler: BufferedApiHandler,
+): Promise<StoredIdempotentResponse> {
+  const response = new BufferedResponse();
+  await handler(service, actor, request, response);
+  return response.result();
+}
+
 function permissionForPath(pathname: string, method: string | undefined): MemoryPermission {
   if (pathname === '/v1/proposals' && method === 'GET') return 'proposal.review';
   if (pathname === '/v1/proposals' && method === 'POST') return 'memory.propose';
@@ -363,18 +567,30 @@ function permissionForPath(pathname: string, method: string | undefined): Memory
   return 'memory.read';
 }
 
-async function readJson(request: IncomingMessage, maxBytes = 1_048_576): Promise<unknown> {
-  const chunks: string[] = [];
+async function readJson(request: ApiRequest, maxBytes = 1_048_576): Promise<unknown> {
+  if (isBufferedApiRequest(request)) {
+    if (request.body.length > maxBytes) throw new Error('request_body_too_large');
+    return parseJson(request.body);
+  }
+  const body = await readRequestBuffer(request, maxBytes);
+  return parseJson(body);
+}
+
+async function readRequestBuffer(request: IncomingMessage, maxBytes = 1_048_576): Promise<Buffer> {
+  const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
     size += buffer.length;
     if (size > maxBytes) throw new Error('request_body_too_large');
-    chunks.push(buffer.toString('utf8'));
+    chunks.push(buffer);
   }
-  if (chunks.length === 0) return {};
+  return Buffer.concat(chunks);
+}
+
+function parseJson(body: Buffer): unknown {
   try {
-    return JSON.parse(chunks.join('')) as unknown;
+    return JSON.parse(body.toString('utf8') || '{}') as unknown;
   } catch {
     throw new Error('invalid_json');
   }
@@ -387,7 +603,7 @@ function objectBody(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
+function sendJson(response: ResponseWriter, status: number, body: unknown): void {
   if (status === 204) {
     response.writeHead(204).end();
     return;

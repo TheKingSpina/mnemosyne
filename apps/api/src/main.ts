@@ -1,5 +1,6 @@
 import { CoreMemoryService, createAccessPolicy } from '@mnemosyne/core';
-import { PostgresMemoryRepository } from '@mnemosyne/postgres';
+import { PostgresIdempotencyStore, PostgresMemoryRepository } from '@mnemosyne/postgres';
+import { Pool } from 'pg';
 import { createApiServer } from './app.js';
 
 const connectionString = process.env.DATABASE_URL;
@@ -12,12 +13,15 @@ if (!connectionString || !forgetSecret || !ownerToken || !harnessToken) {
   );
 }
 
-const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
+const pool = new Pool({ connectionString });
+const repository = await PostgresMemoryRepository.fromPool(pool);
 const service = new CoreMemoryService(repository, { forgetSecret });
 const host = process.env.API_HOST ?? '127.0.0.1';
 const port = Number(process.env.API_PORT ?? 3000);
 const server = createApiServer(service, {
   accessPolicy: createAccessPolicy({ ownerToken, harnessToken }),
+  idempotencyStore: new PostgresIdempotencyStore(pool),
+  requireIdempotencyKey: true,
 });
 server.listen(port, host, () => {
   process.stdout.write(`Mnemosyne API listening on ${host}:${port}\n`);

@@ -13,4 +13,39 @@ describe('IdempotencyStore', () => {
       false,
     );
   });
+
+  it('reserves a key and distinguishes an in-flight request', async () => {
+    const store = new InMemoryIdempotencyStore();
+    const payloadHash = hashIdempotencyPayload({ request: 1 });
+
+    expect(await store.acquire('request-1', payloadHash)).toEqual({
+      state: 'reserved',
+      payloadMatches: false,
+      response: null,
+    });
+    expect(await store.acquire('request-1', payloadHash)).toEqual({
+      state: 'in_progress',
+      payloadMatches: true,
+      response: null,
+    });
+    expect(await store.acquire('request-1', hashIdempotencyPayload({ request: 2 }))).toEqual({
+      state: 'in_progress',
+      payloadMatches: false,
+      response: null,
+    });
+  });
+
+  it('allows a reservation to be aborted after a failed operation', async () => {
+    const store = new InMemoryIdempotencyStore();
+    const payloadHash = hashIdempotencyPayload({ request: 1 });
+    await store.acquire('request-1', payloadHash);
+
+    await store.abort('request-1', payloadHash);
+
+    expect(await store.acquire('request-1', payloadHash)).toEqual({
+      state: 'reserved',
+      payloadMatches: false,
+      response: null,
+    });
+  });
 });

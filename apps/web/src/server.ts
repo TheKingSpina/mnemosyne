@@ -80,7 +80,7 @@ async function proxyApiRequest(
   const upstreamUrl = new URL(path, apiOrigin);
   upstreamUrl.search = url.search;
   const headers = new Headers();
-  for (const name of ['accept', 'authorization', 'content-type']) {
+  for (const name of ['accept', 'authorization', 'content-type', 'idempotency-key']) {
     const value = request.headers[name];
     if (typeof value === 'string') headers.set(name, value);
   }

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { chmod, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import {
@@ -119,6 +120,7 @@ async function run(name: string, args: string[]): Promise<void> {
     printJson(
       await request(`/v1/admin/conflicts/${encodeURIComponent(id)}/resolution`, z.unknown(), {
         method: 'POST',
+        headers: { 'idempotency-key': randomUUID() },
         body: JSON.stringify({}),
       }),
     );
