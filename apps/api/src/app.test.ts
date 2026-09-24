@@ -503,6 +503,43 @@ describe('Mnemosyne API authorization', () => {
     expect(memory?.memory.lifecycle).toBe('accepted');
   });
 
+  it('denies feedback submission to the harness profile', async () => {
+    const { service, server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    const proposed = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Memoria protetta da feedback',
+        kind: 'fact',
+        scope: { type: 'project', id: 'synthetic-project' },
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const response = await fetch(`${baseUrl}/v1/memories/feedback`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'feedback-harness',
+      },
+      body: JSON.stringify({
+        memoryId: proposed.memoryId,
+        sessionId: session.sessionId,
+        kind: 'useful',
+        observedAt: '2026-09-24T12:00:00.000Z',
+      }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
   it('filters owner memories by exact scope identifier', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

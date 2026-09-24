@@ -592,6 +592,7 @@ function permissionForPath(pathname: string, method: string | undefined): Memory
   if (pathname.includes('/corrections')) return 'memory.correct';
   if (pathname.includes('/retractions')) return 'memory.retract';
   if (pathname.includes('/forget')) return 'memory.forget';
+  if (pathname === '/v1/memories/feedback') return 'proposal.review';
   if (pathname === '/v1/memories') return 'memory.read';
   if (pathname === '/v1/context/resolve') return 'context.resolve';
   if (pathname.startsWith('/v1/memories/')) return 'memory.read';
