@@ -291,7 +291,7 @@ export class InMemoryRepository implements MemoryRepository {
     if (!record) throw new Error('memory_not_found');
     const updated = { ...record, lifecycle, updatedAt: this.now().toISOString() };
     this.memories.set(id, updated);
-    if (lifecycle === 'accepted') this.corpusRevision += 1n;
+    this.corpusRevision += 1n;
     this.enqueueOutbox(lifecycle === 'accepted' ? 'memory.accepted' : `memory.${lifecycle}`, id);
     return updated;
   }

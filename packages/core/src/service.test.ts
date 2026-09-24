@@ -1082,4 +1082,54 @@ describe('CoreMemoryService', () => {
     await repository.markOutboxProcessed(afterExpiry!);
     expect(await repository.claimOutboxEvents(10, 'projection-c', 1_000)).toBeNull();
   });
+
+  it('orders memory lifecycle events before conflict projection events', async () => {
+    let now = new Date('2026-01-20T10:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'il progetto usa npm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    now = new Date('2026-01-20T10:01:00.000Z');
+    const contradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'il progetto non usa npm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    });
+    const claim = await repository.claimOutboxEvents(100, 'projection-test', 10_000);
+    const events = claim?.events ?? [];
+    const conflictIndex = events.findIndex(
+      (event) => event.eventType === 'memory.conflict.created',
+    );
+    const memoryLifecycleIndexes = events
+      .map((event, index) => ({ event, index }))
+      .filter(({ event }) => event.aggregateId === contradiction.memoryId)
+      .map(({ index }) => index);
+
+    expect(conflictIndex).toBeGreaterThanOrEqual(0);
+    expect(memoryLifecycleIndexes.every((index) => index < conflictIndex)).toBe(true);
+  });
 });

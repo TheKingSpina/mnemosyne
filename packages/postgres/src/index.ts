@@ -389,6 +389,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       );
       const record = result.rows[0];
       await this.insertRevision(client, record.id, this.revisionFromInput(record.id, input));
+      await this.bumpCorpus(client, 'memory.proposed', record.id);
       await client.query('COMMIT');
       return this.memoryFromRow(record);
     } catch (error) {
@@ -523,7 +524,11 @@ export class PostgresMemoryRepository implements MemoryRepository {
       );
       const record = result.rows[0];
       if (!record) throw new Error('memory_not_found');
-      if (lifecycle === 'accepted') await this.bumpCorpus(client, 'memory.accepted', id);
+      await this.bumpCorpus(
+        client,
+        lifecycle === 'accepted' ? 'memory.accepted' : `memory.${lifecycle}`,
+        id,
+      );
       await client.query('COMMIT');
       return this.memoryFromRow(record);
     } catch (error) {
