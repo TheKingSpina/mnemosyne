@@ -27,8 +27,14 @@ The first vertical slice provides:
 - a derived Redis cache with revision validation and lexical/semantic fallback;
 - a rebuildable Neo4j projection driven by the PostgreSQL outbox;
 - Docker Compose development deployment.
+- OpenAPI 3.1 contract generated from the shared Zod contracts and served at `/v1/openapi.json`.
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
+
+The generated API contract is available at [`docs/openapi.yaml`](docs/openapi.yaml) and from
+the local API without authentication at `GET /v1/openapi.json`. It is intentionally public:
+it contains contract metadata only, never corpus data. Run `npm run openapi:generate` after
+changing a shared contract, and `npm run openapi:check` in CI to detect a stale artifact.
 
 ## Quick start
 

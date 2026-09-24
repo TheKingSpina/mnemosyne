@@ -35,6 +35,9 @@ jobs:
       - name: Type-check
         run: npm run check
 
+      - name: Check generated OpenAPI artifact
+        run: npm run openapi:check
+
       - name: Test
         run: npm test
 

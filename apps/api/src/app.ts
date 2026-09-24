@@ -27,6 +27,7 @@ import {
 } from '@mnemosyne/core';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { z } from 'zod';
+import { serializeOpenApiDocument } from './openapi.js';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 const bodylessSchema = z.object({});
@@ -81,6 +82,16 @@ async function handleRequest(
   response: ServerResponse,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+  if (request.method === 'GET' && url.pathname === '/v1/openapi.json') {
+    const payload = serializeOpenApiDocument();
+    response.writeHead(200, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(payload),
+      'cache-control': 'no-store',
+    });
+    response.end(payload);
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/health/live') {
     sendJson(response, 200, { status: 'ok' });
     return;

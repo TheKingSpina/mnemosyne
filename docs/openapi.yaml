@@ -1,0 +1,5301 @@
+openapi: 3.1.0
+info:
+  title: Mnemosyne REST API
+  version: 0.0.0
+  description: >-
+    API monoutente per il Mnemosyne. PostgreSQL è la fonte autorevole; Redis,
+    pgvector e Neo4j sono proiezioni derivate.
+
+
+    I corpi JSON sono limitati a 1.048.576 byte. Nel deployment API ogni
+    operazione POST che modifica lo stato richiede `Idempotency-Key`; `POST
+    /v1/context/resolve` e `POST /v1/memories/{id}/forget/prepare` sono esenti
+    perché non scrivono il corpus.
+
+
+    I token `owner` e `harness` sono scambiati tramite lo stesso schema Bearer
+    ma hanno autorizzazioni diverse, descritte per operazione.
+
+
+    Il documento pubblico `/v1/openapi.json` non contiene dati del corpus ed è
+    servito senza autenticazione con cache `no-store`.
+  license:
+    name: GNU Affero General Public License v3.0 only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+externalDocs:
+  description: Specifica tecnica e limiti del progetto
+  url: https://github.com/TheKingSpina/mnemosyne/blob/main/docs/assistante-memoriale-spec.md
+servers:
+  - url: http://127.0.0.1:3000
+    description: Deployment locale di sviluppo; non esporre questa porta
+      direttamente a Internet.
+tags:
+  - name: Discovery
+    description: Salute e contratto API.
+  - name: Sessions
+    description: Ciclo di vita ed eventi delle sessioni.
+  - name: Memories
+    description: Proposal, retrieval e lifecycle delle memorie.
+  - name: Context
+    description: Composizione del contesto approvato.
+  - name: Jobs
+    description: Stato dei job asincroni.
+  - name: Administration
+    description: Operazioni riservate al profilo owner.
+security:
+  - bearerAuth: []
+paths:
+  /v1/openapi.json:
+    get:
+      tags:
+        - Discovery
+      operationId: getOpenApiDocument
+      summary: Restituisce il contratto OpenAPI corrente
+      description: Operazione pubblica. Il documento contiene soltanto metadati API e
+        non richiede credenziali.
+      security: []
+      x-required-profile: public
+      responses:
+        '200':
+          description: Contratto OpenAPI 3.1.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '405':
+          description: Metodo HTTP non consentito.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /health/live:
+    get:
+      tags:
+        - Discovery
+      operationId: getLiveness
+      summary: Verifica che il processo API sia attivo
+      description: Endpoint pubblico che non verifica PostgreSQL.
+      security: []
+      x-required-profile: public
+      responses:
+        '200':
+          description: Processo attivo.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: ok
+                required:
+                  - status
+                additionalProperties: false
+        '405':
+          description: Metodo HTTP non consentito.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /health/ready:
+    get:
+      tags:
+        - Discovery
+      operationId: getReadiness
+      summary: Verifica che la fonte autorevole sia raggiungibile
+      description: Endpoint pubblico. Restituisce errore se PostgreSQL non può fornire
+        la revisione del corpus.
+      security: []
+      x-required-profile: public
+      responses:
+        '200':
+          description: Fonte autorevole raggiungibile.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: ready
+                required:
+                  - status
+                additionalProperties: false
+        '405':
+          description: Metodo HTTP non consentito.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/sessions:
+    post:
+      tags:
+        - Sessions
+      operationId: openSession
+      summary: Apre una sessione di lavoro
+      x-required-profile: harness_or_owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenSessionInput'
+      responses:
+        '201':
+          description: Sessione creata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenSessionOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/sessions/{id}/events:
+    post:
+      tags:
+        - Sessions
+      operationId: recordSessionEvents
+      summary: Registra eventi idempotenti per una sessione
+      description: Gli eventi sono unici per `sessionId + eventId`. Ogni batch con
+        almeno un nuovo evento accoduta un job di estrazione.
+      x-required-profile: harness_or_owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordEventsRequest'
+      responses:
+        '202':
+          description: Eventi accettati e job enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordEventsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/sessions/{id}/close:
+    post:
+      tags:
+        - Sessions
+      operationId: closeSession
+      summary: Chiude la sessione e avvia il consolidamento
+      x-required-profile: harness_or_owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: false
+        description: 'Corpo JSON opzionale; quando presente deve essere un oggetto
+          vuoto. Il server accetta anche un body assente. Limite massimo:
+          1,048,576 byte.'
+        content:
+          application/json:
+            schema: &a1
+              type: object
+              properties: {}
+      responses:
+        '202':
+          description: Sessione chiusa e job di consolidamento enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloseSessionOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/proposals:
+    post:
+      tags:
+        - Memories
+      operationId: proposeMemory
+      summary: Propone una memoria governata dalla policy
+      description: Le proposal del profilo harness restano pending finché il owner non
+        le revisiona. Il servizio valida sempre il risultato, anche per un token
+        owner.
+      x-required-profile: harness_or_owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposeMemoryInput'
+      responses:
+        '201':
+          description: Proposta creata, accettata, unita o respinta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalResult'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+    get:
+      tags:
+        - Memories
+      operationId: listPendingProposals
+      summary: Elenca le candidate pending accessibili alla sessione
+      x-required-profile: owner
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          description: Sessione da cui leggere le candidate.
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di elementi da restituire.
+          schema:
+            default: 20
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          required: false
+          description: Numero di elementi da saltare.
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+      responses:
+        '200':
+          description: Candidate pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingProposalsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/proposals/{id}/decision:
+    post:
+      tags:
+        - Memories
+      operationId: reviewMemoryProposal
+      summary: Accetta o respinge una proposal pending
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewProposalRequest'
+      responses:
+        '200':
+          description: Decisione applicata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewProposalOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/context/resolve:
+    post:
+      tags:
+        - Context
+      operationId: resolveMemoryContext
+      summary: Compone contesto strutturato entro un budget di token
+      description: Operazione di lettura modellata come POST perché il budget e la
+        query sono un body validato. Non richiede Idempotency-Key.
+      x-required-profile: harness_or_owner
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContextInput'
+      responses:
+        '200':
+          description: Contesto approvato e stato del servizio.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories:
+    get:
+      tags:
+        - Memories
+      operationId: searchMemories
+      summary: Cerca memorie approvate visibili alla sessione
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: sessionId
+          in: query
+          required: true
+          description: Sessione che determina gli scope visibili.
+          schema:
+            type: string
+            minLength: 1
+        - name: q
+          in: query
+          required: true
+          description: Query lessicale e semantica.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 2000
+        - name: scopeType
+          in: query
+          required: false
+          description: Filtro opzionale; deve essere accompagnato da scopeId.
+          schema:
+            type: string
+            enum:
+              - session
+              - project
+              - area
+              - global
+        - name: scopeId
+          in: query
+          required: false
+          description: Identificatore esatto dello scope.
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di elementi da restituire.
+          schema:
+            default: 20
+            type: integer
+            minimum: 1
+            maximum: 50
+        - name: offset
+          in: query
+          required: false
+          description: Numero di elementi da saltare.
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+      responses:
+        '200':
+          description: Memorie recuperate.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchMemoriesOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories/{id}:
+    get:
+      tags:
+        - Memories
+      operationId: getMemory
+      summary: Legge una memoria
+      description: Il profilo harness riceve la revisione corrente solo se è accepted.
+        Il profilo owner riceve anche record, revisioni e conflitti.
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Memoria o vista amministrativa.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MemoryView'
+                  - $ref: '#/components/schemas/MemoryAdminView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories/{id}/corrections:
+    post:
+      tags:
+        - Memories
+      operationId: correctMemory
+      summary: Crea una nuova revisione di una memoria accepted
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectMemoryRequest'
+      responses:
+        '200':
+          description: Correzione applicata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectMemoryOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories/{id}/retractions:
+    post:
+      tags:
+        - Memories
+      operationId: retractMemory
+      summary: Revoca una memoria senza eliminarne la provenienza
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetractionRequest'
+      responses:
+        '200':
+          description: Memoria revocata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories/{id}/forget/prepare:
+    post:
+      tags:
+        - Memories
+      operationId: prepareForgetMemory
+      summary: Prepara una conferma forget a breve scadenza
+      description: L’endpoint genera un token HMAC non persistente e non modifica il
+        corpus; non richiede Idempotency-Key.
+      x-required-profile: owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: false
+        description: 'Corpo JSON opzionale; quando presente deve essere un oggetto
+          vuoto. Il server accetta anche un body assente. Limite massimo:
+          1,048,576 byte.'
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        '200':
+          description: Token di conferma emesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepareForgetOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories/{id}/forget:
+    post:
+      tags:
+        - Memories
+      operationId: forgetMemory
+      summary: Dimentica definitivamente una memoria con conferma esplicita
+      description: La rimozione autorevole viene seguita dalla cancellazione delle
+        proiezioni derivate. Il forget ledger non viene rimosso.
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgetRequest'
+      responses:
+        '204':
+          description: Memoria dimenticata.
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/memories/feedback:
+    post:
+      tags:
+        - Memories
+      operationId: submitMemoryFeedback
+      summary: Registra feedback non distruttivo su una memoria
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryFeedbackInput'
+      responses:
+        '201':
+          description: Feedback registrato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryFeedbackOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+    get:
+      tags:
+        - Memories
+      operationId: listMemoryFeedback
+      summary: Elenca il feedback registrato per una memoria
+      x-required-profile: owner
+      parameters:
+        - name: memoryId
+          in: query
+          required: true
+          description: Identificatore della memoria.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Feedback della memoria.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMemoryFeedbackOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/jobs/{id}:
+    get:
+      tags:
+        - Jobs
+      operationId: getJob
+      summary: Legge lo stato di un job
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Job trovato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/overview:
+    get:
+      tags:
+        - Administration
+      operationId: getAdminOverview
+      summary: Restituisce gli aggregati di amministrazione
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Aggregati corpus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOverviewOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/capabilities:
+    get:
+      tags:
+        - Administration
+      operationId: getAdminCapabilities
+      summary: Riporta le capacità operative effettivamente configurate
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Capacità correnti.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCapabilitiesOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/memories:
+    get:
+      tags:
+        - Administration
+      operationId: listAdminMemories
+      summary: Cerca memorie in ogni lifecycle
+      x-required-profile: owner
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Filtro testuale.
+          schema:
+            type: string
+            maxLength: 2000
+        - name: lifecycle
+          in: query
+          required: false
+          description: Filtro lifecycle.
+          schema:
+            type: string
+            enum:
+              - candidate
+              - pending_approval
+              - accepted
+              - rejected
+              - superseded
+              - expired
+              - retracted
+              - forgotten
+        - name: kind
+          in: query
+          required: false
+          description: Filtro tipo memoria.
+          schema:
+            type: string
+            enum:
+              - fact
+              - preference
+              - instruction
+              - decision
+              - convention
+              - constraint
+              - goal
+              - hypothesis
+              - episode
+        - name: scopeType
+          in: query
+          required: false
+          description: Filtro tipo scope.
+          schema:
+            type: string
+            enum:
+              - session
+              - project
+              - area
+              - global
+        - name: scopeId
+          in: query
+          required: false
+          description: Filtro identificatore scope.
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di elementi da restituire.
+          schema:
+            default: 50
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          required: false
+          description: Numero di elementi da saltare.
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+      responses:
+        '200':
+          description: Memorie filtrate.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminMemoriesOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/memories/{id}:
+    get:
+      tags:
+        - Administration
+      operationId: getAdminMemory
+      summary: Legge memoria, revisioni e conflitti
+      x-required-profile: owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Vista amministrativa.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryAdminView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/conflicts:
+    get:
+      tags:
+        - Administration
+      operationId: listConflicts
+      summary: Elenca tutti i conflitti diretti
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Conflitti trovati.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictListOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/conflicts/{id}/resolution:
+    post:
+      tags:
+        - Administration
+      operationId: resolveConflict
+      summary: Chiude un conflitto diretto
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: false
+        description: 'Corpo JSON opzionale; quando presente deve essere un oggetto
+          vuoto. Il server accetta anche un body assente. Limite massimo:
+          1,048,576 byte.'
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        '200':
+          description: Conflitto risolto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/sessions:
+    get:
+      tags:
+        - Administration
+      operationId: listAdminSessions
+      summary: Elenca le sessioni
+      x-required-profile: owner
+      parameters:
+        - name: projectId
+          in: query
+          required: false
+          description: Filtro progetto esatto.
+          schema:
+            type: string
+            minLength: 1
+        - name: status
+          in: query
+          required: false
+          description: Filtro stato sessione.
+          schema:
+            type: string
+            enum:
+              - open
+              - closed
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di elementi da restituire.
+          schema:
+            default: 50
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          required: false
+          description: Numero di elementi da saltare.
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+      responses:
+        '200':
+          description: Sessioni filtrate.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSessionsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/sessions/{id}:
+    get:
+      tags:
+        - Administration
+      operationId: getAdminSession
+      summary: Legge una sessione con eventi e job
+      x-required-profile: owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Dettaglio sessione.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSessionDetailOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/jobs:
+    get:
+      tags:
+        - Administration
+      operationId: listAdminJobs
+      summary: Elenca i job di estrazione e consolidamento
+      x-required-profile: owner
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filtro stato job.
+          schema:
+            type: string
+            enum:
+              - queued
+              - running
+              - succeeded
+              - failed
+              - quarantined
+              - cancelled
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di elementi da restituire.
+          schema:
+            default: 50
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          required: false
+          description: Numero di elementi da saltare.
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+      responses:
+        '200':
+          description: Job filtrati.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminJobsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/jobs/{id}/attempts:
+    get:
+      tags:
+        - Administration
+      operationId: listAdminJobAttempts
+      summary: Elenca i tentativi di un job
+      x-required-profile: owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Tentativi del job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListJobAttemptsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/retention:
+    get:
+      tags:
+        - Administration
+      operationId: getRetentionStatus
+      summary: Legge stato e policy di retention
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Stato retention.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionStatusOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/retention/run:
+    post:
+      tags:
+        - Administration
+      operationId: runRetention
+      summary: Esegue la retention governata balanced
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        description: 'Corpo JSON opzionale; quando presente deve essere un oggetto
+          vuoto. Il server accetta anche un body assente. Limite massimo:
+          1,048,576 byte.'
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        '200':
+          description: Retention completata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionRunOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/exports/corpus:
+    get:
+      tags:
+        - Administration
+      operationId: exportCorpus
+      summary: Scarica il corpus canonico
+      description: 'Il download usa Content-Disposition e Cache-Control: no-store.
+        Questo export non è ancora un backup operativo certificato.'
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Export canonico schema version 1.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorpusExport'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/restore/corpus:
+    post:
+      tags:
+        - Administration
+      operationId: restoreCorpus
+      summary: Ripristina un export canonico su corpus vuoto
+      description: Il restore valida i riferimenti, unisce il forget ledger
+        preesistente e ignora i dati appartenenti a memorie dimenticate. Non può
+        importare in un corpus non vuoto.
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorpusExport'
+      responses:
+        '200':
+          description: Corpus ripristinato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorpusRestoreResult'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Usa MNEMOSYNE_OWNER_TOKEN oppure MNEMOSYNE_HARNESS_TOKEN. Il
+        profilo è determinato dal token, non dallo schema HTTP.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Chiave 1–200 caratteri `[A-Za-z0-9._:-]`. La stessa chiave, attore,
+        metodo, path e JSON replayano la risposta; un fingerprint diverso
+        restituisce 409.
+      schema:
+        type: string
+        pattern: ^[A-Za-z0-9._:-]{1,200}$
+  schemas:
+    OpenSessionInput:
+      type: object
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        areaIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        taskTitle:
+          type: string
+          maxLength: 500
+      required:
+        - projectId
+    OpenSessionOutput:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          minLength: 1
+        projectId:
+          type: string
+          minLength: 1
+        areaIds:
+          type: array
+          items:
+            type: string
+        corpusRevision:
+          type: string
+          minLength: 1
+      required:
+        - sessionId
+        - projectId
+        - areaIds
+        - corpusRevision
+      additionalProperties: false
+    RecordEventsRequest:
+      type: object
+      properties:
+        events:
+          minItems: 1
+          maxItems: 100
+          type: array
+          items:
+            type: object
+            properties:
+              eventId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                const: message
+              role:
+                type: string
+                enum:
+                  - user
+                  - assistant
+                  - tool
+              content:
+                type: string
+                minLength: 1
+                maxLength: 100000
+              occurredAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              explicitMemoryRequest:
+                default: false
+                type: boolean
+            required:
+              - eventId
+              - type
+              - role
+              - content
+              - occurredAt
+      required:
+        - events
+    RecordEventsOutput:
+      type: object
+      properties:
+        acceptedEventIds:
+          type: array
+          items:
+            type: string
+        duplicateEventIds:
+          type: array
+          items:
+            type: string
+        jobIds:
+          type: array
+          items:
+            type: string
+      required:
+        - acceptedEventIds
+        - duplicateEventIds
+        - jobIds
+      additionalProperties: false
+    CloseSessionOutput:
+      type: object
+      properties:
+        jobId:
+          type: string
+          minLength: 1
+      required:
+        - jobId
+      additionalProperties: false
+    ProposeMemoryInput:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          minLength: 1
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        kind:
+          type: string
+          enum:
+            - fact
+            - preference
+            - instruction
+            - decision
+            - convention
+            - constraint
+            - goal
+            - hypothesis
+            - episode
+        scope:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - session
+                - project
+                - area
+                - global
+            id:
+              type: string
+              minLength: 1
+          required:
+            - type
+            - id
+        epistemicBasis:
+          type: string
+          enum:
+            - user_asserted
+            - observed
+            - verified
+            - inferred
+            - unknown
+        assessment:
+          default: uncontested
+          type: string
+          enum:
+            - uncontested
+            - disputed
+        confidence:
+          default: null
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        sensitivity:
+          default: normal
+          type: string
+          enum:
+            - normal
+            - private
+            - sensitive
+            - secret
+        activation:
+          default: on_demand
+          type: string
+          enum:
+            - always
+            - on_demand
+        sourceEventIds:
+          default: []
+          type: array
+          items:
+            type: string
+            minLength: 1
+      required:
+        - sessionId
+        - content
+        - kind
+        - scope
+        - epistemicBasis
+    ProposalResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - accepted
+            - pending_approval
+            - rejected
+            - merged
+        memoryId:
+          type: string
+        proposalId:
+          type: string
+        conflictId:
+          type: string
+        jobId:
+          type: string
+        reason:
+          type: string
+      required:
+        - status
+      additionalProperties: false
+    PendingProposalsOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                      - global
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              lifecycle:
+                type: string
+                enum:
+                  - candidate
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - superseded
+                  - expired
+                  - retracted
+                  - forgotten
+              currentVersion:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+              - lifecycle
+              - currentVersion
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - items
+        - limit
+        - offset
+      additionalProperties: false
+    ReviewProposalRequest:
+      type: object
+      properties:
+        expectedVersion:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        decision:
+          type: string
+          enum:
+            - accept
+            - reject
+        finalContent:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        finalKind:
+          type: string
+          enum:
+            - fact
+            - preference
+            - instruction
+            - decision
+            - convention
+            - constraint
+            - goal
+            - hypothesis
+            - episode
+        finalScope:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - session
+                - project
+                - area
+                - global
+            id:
+              type: string
+              minLength: 1
+          required:
+            - type
+            - id
+        finalEpistemicBasis:
+          type: string
+          enum:
+            - user_asserted
+            - observed
+            - verified
+            - inferred
+            - unknown
+        finalAssessment:
+          type: string
+          enum:
+            - uncontested
+            - disputed
+        finalConfidence:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        finalSensitivity:
+          type: string
+          enum:
+            - normal
+            - private
+            - sensitive
+            - secret
+        finalActivation:
+          type: string
+          enum:
+            - always
+            - on_demand
+      required:
+        - expectedVersion
+        - decision
+    ReviewProposalOutput:
+      type: object
+      properties:
+        memory:
+          type: object
+          properties:
+            memoryId:
+              type: string
+              minLength: 1
+            version:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            content:
+              type: string
+              minLength: 1
+              maxLength: 10000
+            kind:
+              type: string
+              enum:
+                - fact
+                - preference
+                - instruction
+                - decision
+                - convention
+                - constraint
+                - goal
+                - hypothesis
+                - episode
+            scope:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - session
+                    - project
+                    - area
+                    - global
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - type
+                - id
+              additionalProperties: false
+            epistemicBasis:
+              type: string
+              enum:
+                - user_asserted
+                - observed
+                - verified
+                - inferred
+                - unknown
+            assessment:
+              type: string
+              enum:
+                - uncontested
+                - disputed
+            confidence:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            sensitivity:
+              type: string
+              enum:
+                - normal
+                - private
+                - sensitive
+                - secret
+            activation:
+              type: string
+              enum:
+                - always
+                - on_demand
+            sourceEventIds:
+              default: []
+              type: array
+              items:
+                type: string
+                minLength: 1
+            lifecycle:
+              type: string
+              enum:
+                - candidate
+                - pending_approval
+                - accepted
+                - rejected
+                - superseded
+                - expired
+                - retracted
+                - forgotten
+            currentVersion:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            createdAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            updatedAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - memoryId
+            - version
+            - content
+            - kind
+            - scope
+            - epistemicBasis
+            - assessment
+            - confidence
+            - sensitivity
+            - activation
+            - sourceEventIds
+            - lifecycle
+            - currentVersion
+            - createdAt
+            - updatedAt
+          additionalProperties: false
+      required:
+        - memory
+      additionalProperties: false
+    ContextInput:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          minLength: 1
+        query:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        budgetTokens:
+          default: 1200
+          type: integer
+          minimum: 100
+          maximum: 100000
+      required:
+        - sessionId
+        - query
+    ContextOutput:
+      type: object
+      properties:
+        context:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                      - global
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+            additionalProperties: false
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+                enum:
+                  - direct_contradiction
+                  - scope_mismatch
+                  - temporal_overlap
+                  - different_subject
+                  - semantic_tension
+              memoryIds:
+                minItems: 2
+                type: array
+                items:
+                  type: string
+            required:
+              - id
+              - type
+              - memoryIds
+            additionalProperties: false
+        requiredContextComplete:
+          type: boolean
+        tokensEstimated:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        budgetTokens:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        excludedResults:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        serviceStatus:
+          type: string
+          enum:
+            - available
+            - degraded
+            - maintenance
+            - unavailable
+        corpusRevision:
+          type: string
+          minLength: 1
+        degradations:
+          type: array
+          items:
+            type: object
+            properties:
+              component:
+                type: string
+              missingCapability:
+                type: string
+              impact:
+                type: string
+            required:
+              - component
+              - missingCapability
+              - impact
+            additionalProperties: false
+      required:
+        - context
+        - conflicts
+        - requiredContextComplete
+        - tokensEstimated
+        - budgetTokens
+        - excludedResults
+        - serviceStatus
+        - corpusRevision
+        - degradations
+      additionalProperties: false
+    MemoryView:
+      type: object
+      properties:
+        memoryId:
+          type: string
+          minLength: 1
+        version:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        kind:
+          type: string
+          enum:
+            - fact
+            - preference
+            - instruction
+            - decision
+            - convention
+            - constraint
+            - goal
+            - hypothesis
+            - episode
+        scope:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - session
+                - project
+                - area
+                - global
+            id:
+              type: string
+              minLength: 1
+          required:
+            - type
+            - id
+          additionalProperties: false
+        epistemicBasis:
+          type: string
+          enum:
+            - user_asserted
+            - observed
+            - verified
+            - inferred
+            - unknown
+        assessment:
+          type: string
+          enum:
+            - uncontested
+            - disputed
+        confidence:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        sensitivity:
+          type: string
+          enum:
+            - normal
+            - private
+            - sensitive
+            - secret
+        activation:
+          type: string
+          enum:
+            - always
+            - on_demand
+        sourceEventIds:
+          default: []
+          type: array
+          items:
+            type: string
+            minLength: 1
+        lifecycle:
+          type: string
+          enum:
+            - candidate
+            - pending_approval
+            - accepted
+            - rejected
+            - superseded
+            - expired
+            - retracted
+            - forgotten
+        currentVersion:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        createdAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        updatedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - memoryId
+        - version
+        - content
+        - kind
+        - scope
+        - epistemicBasis
+        - assessment
+        - confidence
+        - sensitivity
+        - activation
+        - sourceEventIds
+        - lifecycle
+        - currentVersion
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+    MemoryAdminView:
+      type: object
+      properties:
+        memory:
+          type: object
+          properties:
+            memoryId:
+              type: string
+              minLength: 1
+            version:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            content:
+              type: string
+              minLength: 1
+              maxLength: 10000
+            kind:
+              type: string
+              enum:
+                - fact
+                - preference
+                - instruction
+                - decision
+                - convention
+                - constraint
+                - goal
+                - hypothesis
+                - episode
+            scope:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - session
+                    - project
+                    - area
+                    - global
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - type
+                - id
+              additionalProperties: false
+            epistemicBasis:
+              type: string
+              enum:
+                - user_asserted
+                - observed
+                - verified
+                - inferred
+                - unknown
+            assessment:
+              type: string
+              enum:
+                - uncontested
+                - disputed
+            confidence:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            sensitivity:
+              type: string
+              enum:
+                - normal
+                - private
+                - sensitive
+                - secret
+            activation:
+              type: string
+              enum:
+                - always
+                - on_demand
+            sourceEventIds:
+              default: []
+              type: array
+              items:
+                type: string
+                minLength: 1
+            lifecycle:
+              type: string
+              enum:
+                - candidate
+                - pending_approval
+                - accepted
+                - rejected
+                - superseded
+                - expired
+                - retracted
+                - forgotten
+            currentVersion:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            createdAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            updatedAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - memoryId
+            - version
+            - content
+            - kind
+            - scope
+            - epistemicBasis
+            - assessment
+            - confidence
+            - sensitivity
+            - activation
+            - sourceEventIds
+            - lifecycle
+            - currentVersion
+            - createdAt
+            - updatedAt
+          additionalProperties: false
+        revisions:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                      - global
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+            additionalProperties: false
+        conflicts:
+          default: []
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                enum:
+                  - direct_contradiction
+                  - scope_mismatch
+                  - temporal_overlap
+                  - different_subject
+                  - semantic_tension
+              memoryIds:
+                minItems: 2
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              status:
+                type: string
+                enum:
+                  - open
+                  - resolved
+            required:
+              - id
+              - type
+              - memoryIds
+              - status
+            additionalProperties: false
+      required:
+        - memory
+        - revisions
+        - conflicts
+      additionalProperties: false
+    SearchMemoriesOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                      - global
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+            additionalProperties: false
+      required:
+        - items
+      additionalProperties: false
+    ConflictView:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum:
+            - direct_contradiction
+            - scope_mismatch
+            - temporal_overlap
+            - different_subject
+            - semantic_tension
+        memoryIds:
+          minItems: 2
+          type: array
+          items:
+            type: string
+            minLength: 1
+        status:
+          type: string
+          enum:
+            - open
+            - resolved
+      required:
+        - id
+        - type
+        - memoryIds
+        - status
+      additionalProperties: false
+    ConflictListOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                enum:
+                  - direct_contradiction
+                  - scope_mismatch
+                  - temporal_overlap
+                  - different_subject
+                  - semantic_tension
+              memoryIds:
+                minItems: 2
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              status:
+                type: string
+                enum:
+                  - open
+                  - resolved
+            required:
+              - id
+              - type
+              - memoryIds
+              - status
+            additionalProperties: false
+      required:
+        - items
+      additionalProperties: false
+    CorrectMemoryRequest:
+      type: object
+      properties:
+        expectedVersion:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        content:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        kind:
+          type: string
+          enum:
+            - fact
+            - preference
+            - instruction
+            - decision
+            - convention
+            - constraint
+            - goal
+            - hypothesis
+            - episode
+        scope:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - session
+                - project
+                - area
+                - global
+            id:
+              type: string
+              minLength: 1
+          required:
+            - type
+            - id
+        epistemicBasis:
+          type: string
+          enum:
+            - user_asserted
+            - observed
+            - verified
+            - inferred
+            - unknown
+        assessment:
+          type: string
+          enum:
+            - uncontested
+            - disputed
+        confidence:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        sensitivity:
+          type: string
+          enum:
+            - normal
+            - private
+            - sensitive
+            - secret
+        activation:
+          type: string
+          enum:
+            - always
+            - on_demand
+      required:
+        - expectedVersion
+        - content
+    CorrectMemoryOutput:
+      type: object
+      properties:
+        memory:
+          type: object
+          properties:
+            memoryId:
+              type: string
+              minLength: 1
+            version:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            content:
+              type: string
+              minLength: 1
+              maxLength: 10000
+            kind:
+              type: string
+              enum:
+                - fact
+                - preference
+                - instruction
+                - decision
+                - convention
+                - constraint
+                - goal
+                - hypothesis
+                - episode
+            scope:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - session
+                    - project
+                    - area
+                    - global
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - type
+                - id
+              additionalProperties: false
+            epistemicBasis:
+              type: string
+              enum:
+                - user_asserted
+                - observed
+                - verified
+                - inferred
+                - unknown
+            assessment:
+              type: string
+              enum:
+                - uncontested
+                - disputed
+            confidence:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            sensitivity:
+              type: string
+              enum:
+                - normal
+                - private
+                - sensitive
+                - secret
+            activation:
+              type: string
+              enum:
+                - always
+                - on_demand
+            sourceEventIds:
+              default: []
+              type: array
+              items:
+                type: string
+                minLength: 1
+            lifecycle:
+              type: string
+              enum:
+                - candidate
+                - pending_approval
+                - accepted
+                - rejected
+                - superseded
+                - expired
+                - retracted
+                - forgotten
+            currentVersion:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            createdAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            updatedAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - memoryId
+            - version
+            - content
+            - kind
+            - scope
+            - epistemicBasis
+            - assessment
+            - confidence
+            - sensitivity
+            - activation
+            - sourceEventIds
+            - lifecycle
+            - currentVersion
+            - createdAt
+            - updatedAt
+          additionalProperties: false
+      required:
+        - memory
+      additionalProperties: false
+    RetractionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      required:
+        - reason
+    PrepareForgetOutput:
+      type: object
+      properties:
+        memoryId:
+          type: string
+          minLength: 1
+        confirmationToken:
+          type: string
+          minLength: 16
+        expiresAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - memoryId
+        - confirmationToken
+        - expiresAt
+      additionalProperties: false
+    ForgetRequest:
+      type: object
+      properties:
+        confirmationToken:
+          type: string
+          minLength: 1
+      required:
+        - confirmationToken
+    MemoryFeedbackInput:
+      type: object
+      properties:
+        memoryId:
+          type: string
+          minLength: 1
+        sessionId:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum:
+            - useful
+            - not_useful
+            - outdated
+            - incorrect
+            - scope_mismatch
+        comment:
+          type: string
+          maxLength: 2000
+        observedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - memoryId
+        - sessionId
+        - kind
+        - observedAt
+    MemoryFeedbackOutput:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        memoryId:
+          type: string
+          minLength: 1
+        sessionId:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum:
+            - useful
+            - not_useful
+            - outdated
+            - incorrect
+            - scope_mismatch
+        comment:
+          type: string
+          maxLength: 2000
+        observedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        createdAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - id
+        - memoryId
+        - sessionId
+        - kind
+        - observedAt
+        - createdAt
+      additionalProperties: false
+    ListMemoryFeedbackOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              memoryId:
+                type: string
+                minLength: 1
+              sessionId:
+                type: string
+                minLength: 1
+              kind:
+                type: string
+                enum:
+                  - useful
+                  - not_useful
+                  - outdated
+                  - incorrect
+                  - scope_mismatch
+              comment:
+                type: string
+                maxLength: 2000
+              observedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - memoryId
+              - sessionId
+              - kind
+              - observedAt
+              - createdAt
+            additionalProperties: false
+      required:
+        - items
+      additionalProperties: false
+    JobView:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        operation:
+          type: string
+          enum:
+            - session_consolidation
+            - memory_extraction
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - succeeded
+            - failed
+            - quarantined
+            - cancelled
+        sessionId:
+          type: string
+          minLength: 1
+        availableAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        leaseOwner:
+          type: string
+          minLength: 1
+        leaseExpiresAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        createdAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        updatedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - id
+        - operation
+        - status
+        - sessionId
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+    AdminOverviewOutput:
+      type: object
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        accepted:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        pendingApproval:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        rejected:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        retracted:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        conflicts:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        corpusRevision:
+          type: string
+          minLength: 1
+      required:
+        - total
+        - accepted
+        - pendingApproval
+        - rejected
+        - retracted
+        - conflicts
+        - corpusRevision
+      additionalProperties: false
+    AdminCapabilitiesOutput:
+      type: object
+      properties:
+        extraction:
+          type: object
+          properties:
+            localExtractor:
+              type: boolean
+            openRouterConfigured:
+              type: boolean
+          required:
+            - localExtractor
+            - openRouterConfigured
+          additionalProperties: false
+        projections:
+          type: object
+          properties:
+            redis:
+              type: boolean
+            neo4j:
+              type: boolean
+              const: false
+            semanticSearch:
+              type: boolean
+          required:
+            - redis
+            - neo4j
+            - semanticSearch
+          additionalProperties: false
+        operations:
+          type: object
+          properties:
+            backupVerified:
+              type: boolean
+              const: false
+            retentionManaged:
+              type: boolean
+              const: true
+            exportAvailable:
+              type: boolean
+              const: true
+          required:
+            - backupVerified
+            - retentionManaged
+            - exportAvailable
+          additionalProperties: false
+      required:
+        - extraction
+        - projections
+        - operations
+      additionalProperties: false
+    AdminMemoriesOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                      - global
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              lifecycle:
+                type: string
+                enum:
+                  - candidate
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - superseded
+                  - expired
+                  - retracted
+                  - forgotten
+              currentVersion:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+              - lifecycle
+              - currentVersion
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+        total:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - items
+        - total
+        - limit
+        - offset
+      additionalProperties: false
+    AdminSessionsOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              projectId:
+                type: string
+                minLength: 1
+              areaIds:
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              taskTitle:
+                type: string
+              sequence:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              status:
+                type: string
+                enum:
+                  - open
+                  - closed
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              closedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - projectId
+              - areaIds
+              - sequence
+              - status
+              - createdAt
+            additionalProperties: false
+        total:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - items
+        - total
+        - limit
+        - offset
+      additionalProperties: false
+    AdminSessionDetailOutput:
+      type: object
+      properties:
+        session:
+          type: object
+          properties:
+            id:
+              type: string
+              minLength: 1
+            projectId:
+              type: string
+              minLength: 1
+            areaIds:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            taskTitle:
+              type: string
+            sequence:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            status:
+              type: string
+              enum:
+                - open
+                - closed
+            createdAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            closedAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - id
+            - projectId
+            - areaIds
+            - sequence
+            - status
+            - createdAt
+          additionalProperties: false
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              sessionId:
+                type: string
+                minLength: 1
+              sequence:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              type:
+                type: string
+                const: message
+              role:
+                type: string
+                enum:
+                  - user
+                  - assistant
+                  - tool
+              content:
+                type: string
+              occurredAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              explicitMemoryRequest:
+                type: boolean
+            required:
+              - id
+              - sessionId
+              - sequence
+              - type
+              - role
+              - content
+              - occurredAt
+              - explicitMemoryRequest
+            additionalProperties: false
+        jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              operation:
+                type: string
+                enum:
+                  - session_consolidation
+                  - memory_extraction
+              status:
+                type: string
+                enum:
+                  - queued
+                  - running
+                  - succeeded
+                  - failed
+                  - quarantined
+                  - cancelled
+              sessionId:
+                type: string
+                minLength: 1
+              availableAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              leaseOwner:
+                type: string
+                minLength: 1
+              leaseExpiresAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - operation
+              - status
+              - sessionId
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+      required:
+        - session
+        - events
+        - jobs
+      additionalProperties: false
+    AdminJobsOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              operation:
+                type: string
+                enum:
+                  - session_consolidation
+                  - memory_extraction
+              status:
+                type: string
+                enum:
+                  - queued
+                  - running
+                  - succeeded
+                  - failed
+                  - quarantined
+                  - cancelled
+              sessionId:
+                type: string
+                minLength: 1
+              availableAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              leaseOwner:
+                type: string
+                minLength: 1
+              leaseExpiresAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - operation
+              - status
+              - sessionId
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+        total:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - items
+        - total
+        - limit
+        - offset
+      additionalProperties: false
+    ListJobAttemptsOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              jobId:
+                type: string
+                minLength: 1
+              workerId:
+                type: string
+                minLength: 1
+              attempt:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              status:
+                type: string
+                enum:
+                  - running
+                  - succeeded
+                  - failed
+                  - quarantined
+              errorCode:
+                type: string
+                maxLength: 200
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - jobId
+              - workerId
+              - attempt
+              - status
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+      required:
+        - items
+      additionalProperties: false
+    RetentionStatusOutput:
+      type: object
+      properties:
+        managed:
+          type: boolean
+          const: true
+        profile:
+          type: string
+          const: balanced
+        policy:
+          type: object
+          properties:
+            closedEventDays:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            pendingCandidateDays:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            rejectedCandidateDays:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            supersededRevisionDays:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            retractedMemoryDays:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+          required:
+            - closedEventDays
+            - pendingCandidateDays
+            - rejectedCandidateDays
+            - supersededRevisionDays
+            - retractedMemoryDays
+          additionalProperties: false
+        lastRunAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - managed
+        - profile
+        - policy
+      additionalProperties: false
+    RetentionRunOutput:
+      type: object
+      properties:
+        profile:
+          type: string
+          const: balanced
+        startedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        completedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        cutoffs:
+          type: object
+          properties:
+            closedEvents:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            pendingCandidates:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            rejectedCandidates:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            supersededRevisions:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            retractedMemories:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - closedEvents
+            - pendingCandidates
+            - rejectedCandidates
+            - supersededRevisions
+            - retractedMemories
+          additionalProperties: false
+        deleted:
+          type: object
+          properties:
+            closedSessionEvents:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            pendingCandidates:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            rejectedCandidates:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            supersededRevisions:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            retractedMemories:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            conflicts:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+          required:
+            - closedSessionEvents
+            - pendingCandidates
+            - rejectedCandidates
+            - supersededRevisions
+            - retractedMemories
+            - conflicts
+          additionalProperties: false
+      required:
+        - profile
+        - startedAt
+        - completedAt
+        - cutoffs
+        - deleted
+      additionalProperties: false
+    CorpusExport:
+      type: object
+      properties:
+        schemaVersion:
+          type: number
+          const: 1
+        exportedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        corpusRevision:
+          type: string
+          minLength: 1
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              projectId:
+                type: string
+                minLength: 1
+              areaIds:
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              taskTitle:
+                type: string
+              sequence:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              status:
+                type: string
+                enum:
+                  - open
+                  - closed
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              closedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - projectId
+              - areaIds
+              - sequence
+              - status
+              - createdAt
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              sessionId:
+                type: string
+                minLength: 1
+              sequence:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              type:
+                type: string
+                const: message
+              role:
+                type: string
+                enum:
+                  - user
+                  - assistant
+                  - tool
+              content:
+                type: string
+              occurredAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              explicitMemoryRequest:
+                type: boolean
+            required:
+              - id
+              - sessionId
+              - sequence
+              - type
+              - role
+              - content
+              - occurredAt
+              - explicitMemoryRequest
+        memories:
+          type: array
+          items:
+            type: object
+            properties:
+              record:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    minLength: 1
+                  currentVersion:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  lifecycle:
+                    type: string
+                    enum:
+                      - candidate
+                      - pending_approval
+                      - accepted
+                      - rejected
+                      - superseded
+                      - expired
+                      - retracted
+                      - forgotten
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+                required:
+                  - id
+                  - currentVersion
+                  - lifecycle
+                  - createdAt
+                  - updatedAt
+              current:
+                type: object
+                properties:
+                  memoryId:
+                    type: string
+                    minLength: 1
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  content:
+                    type: string
+                    minLength: 1
+                    maxLength: 10000
+                  kind:
+                    type: string
+                    enum:
+                      - fact
+                      - preference
+                      - instruction
+                      - decision
+                      - convention
+                      - constraint
+                      - goal
+                      - hypothesis
+                      - episode
+                  scope:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - session
+                          - project
+                          - area
+                          - global
+                      id:
+                        type: string
+                        minLength: 1
+                    required:
+                      - type
+                      - id
+                  epistemicBasis:
+                    type: string
+                    enum:
+                      - user_asserted
+                      - observed
+                      - verified
+                      - inferred
+                      - unknown
+                  assessment:
+                    type: string
+                    enum:
+                      - uncontested
+                      - disputed
+                  confidence:
+                    anyOf:
+                      - type: number
+                        minimum: 0
+                        maximum: 1
+                      - type: 'null'
+                  sensitivity:
+                    type: string
+                    enum:
+                      - normal
+                      - private
+                      - sensitive
+                      - secret
+                  activation:
+                    type: string
+                    enum:
+                      - always
+                      - on_demand
+                  sourceEventIds:
+                    default: []
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+                required:
+                  - memoryId
+                  - version
+                  - content
+                  - kind
+                  - scope
+                  - epistemicBasis
+                  - assessment
+                  - confidence
+                  - sensitivity
+                  - activation
+            required:
+              - record
+              - current
+        revisions:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              revision:
+                type: object
+                properties:
+                  memoryId:
+                    type: string
+                    minLength: 1
+                  version:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  content:
+                    type: string
+                    minLength: 1
+                    maxLength: 10000
+                  kind:
+                    type: string
+                    enum:
+                      - fact
+                      - preference
+                      - instruction
+                      - decision
+                      - convention
+                      - constraint
+                      - goal
+                      - hypothesis
+                      - episode
+                  scope:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - session
+                          - project
+                          - area
+                          - global
+                      id:
+                        type: string
+                        minLength: 1
+                    required:
+                      - type
+                      - id
+                  epistemicBasis:
+                    type: string
+                    enum:
+                      - user_asserted
+                      - observed
+                      - verified
+                      - inferred
+                      - unknown
+                  assessment:
+                    type: string
+                    enum:
+                      - uncontested
+                      - disputed
+                  confidence:
+                    anyOf:
+                      - type: number
+                        minimum: 0
+                        maximum: 1
+                      - type: 'null'
+                  sensitivity:
+                    type: string
+                    enum:
+                      - normal
+                      - private
+                      - sensitive
+                      - secret
+                  activation:
+                    type: string
+                    enum:
+                      - always
+                      - on_demand
+                  sourceEventIds:
+                    default: []
+                    type: array
+                    items:
+                      type: string
+                      minLength: 1
+                required:
+                  - memoryId
+                  - version
+                  - content
+                  - kind
+                  - scope
+                  - epistemicBasis
+                  - assessment
+                  - confidence
+                  - sensitivity
+                  - activation
+            required:
+              - memoryId
+              - revision
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                enum:
+                  - direct_contradiction
+                  - scope_mismatch
+                  - temporal_overlap
+                  - different_subject
+                  - semantic_tension
+              memoryIds:
+                minItems: 2
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              status:
+                type: string
+                enum:
+                  - open
+                  - resolved
+            required:
+              - id
+              - type
+              - memoryIds
+              - status
+        jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              operation:
+                type: string
+                enum:
+                  - session_consolidation
+                  - memory_extraction
+              status:
+                type: string
+                enum:
+                  - queued
+                  - running
+                  - succeeded
+                  - failed
+                  - quarantined
+                  - cancelled
+              sessionId:
+                type: string
+                minLength: 1
+              availableAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              leaseOwner:
+                type: string
+                minLength: 1
+              leaseExpiresAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - operation
+              - status
+              - sessionId
+              - createdAt
+              - updatedAt
+        jobAttempts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              jobId:
+                type: string
+                minLength: 1
+              workerId:
+                type: string
+                minLength: 1
+              attempt:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              status:
+                type: string
+                enum:
+                  - running
+                  - succeeded
+                  - failed
+                  - quarantined
+              errorCode:
+                type: string
+                maxLength: 200
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - jobId
+              - workerId
+              - attempt
+              - status
+              - createdAt
+              - updatedAt
+        forgetLedger:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              forgottenAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - memoryId
+              - forgottenAt
+      required:
+        - schemaVersion
+        - exportedAt
+        - corpusRevision
+        - sessions
+        - events
+        - memories
+        - revisions
+        - conflicts
+        - jobs
+        - jobAttempts
+        - forgetLedger
+    CorpusRestoreResult:
+      type: object
+      properties:
+        sourceCorpusRevision:
+          type: string
+          minLength: 1
+        corpusRevision:
+          type: string
+          minLength: 1
+        restored:
+          type: object
+          properties:
+            sessions:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            events:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            memories:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            revisions:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            conflicts:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            jobs:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            jobAttempts:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            forgetLedger:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+          required:
+            - sessions
+            - events
+            - memories
+            - revisions
+            - conflicts
+            - jobs
+            - jobAttempts
+            - forgetLedger
+          additionalProperties: false
+        skipped:
+          type: object
+          properties:
+            forgottenMemories:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            forgottenRevisions:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            forgottenConflicts:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+          required:
+            - forgottenMemories
+            - forgottenRevisions
+            - forgottenConflicts
+          additionalProperties: false
+      required:
+        - sourceCorpusRevision
+        - corpusRevision
+        - restored
+        - skipped
+      additionalProperties: false
+    ApiProblem:
+      type: object
+      properties:
+        type:
+          type: string
+          minLength: 1
+        title:
+          type: string
+          minLength: 1
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        code:
+          type: string
+          minLength: 1
+      required:
+        - type
+        - title
+        - status
+        - code
+      additionalProperties: false
+    ApiError:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+      required:
+        - code
+        - message
+      additionalProperties: false

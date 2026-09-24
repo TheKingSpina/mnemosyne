@@ -20,6 +20,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "openapi:generate": "npm run build && node scripts/generate-openapi.mjs",
+    "openapi:check": "npm run build && node scripts/generate-openapi.mjs && git diff --exit-code -- docs/openapi.yaml",
     "verify": "npm run format:check && npm run lint && npm run check && npm run test",
     "api:dev": "npm run dev --workspace @mnemosyne/api",
     "cli:dev": "npm run dev --workspace @mnemosyne/cli",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@redocly/openapi-core": "^2.54.2",
     "@types/node": "^22.20.4",
     "@types/pg": "^8.23.1",
     "@vitest/coverage-v8": "^5.0.1",
@@ -37,7 +40,8 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.1",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "yaml": "^2.9.1"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
