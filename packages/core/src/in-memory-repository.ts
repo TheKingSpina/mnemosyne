@@ -42,6 +42,7 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly forgetLedger = new Map<string, string>();
   private retentionState: RetentionState = {};
   private outbox: OutboxEvent[] = [];
+  private nextOutboxId = 1;
   private readonly feedback = new Map<string, MemoryFeedbackOutput[]>();
   private corpusRevision: bigint = 1n;
   private readonly corpusEpoch = randomUUID();
@@ -717,7 +718,7 @@ export class InMemoryRepository implements MemoryRepository {
 
   private enqueueOutbox(eventType: string, aggregateId: string, version?: number): void {
     this.outbox.push({
-      id: this.outbox.length + 1,
+      id: this.nextOutboxId++,
       eventType,
       aggregateId,
       storeRevision: this.corpusRevision,
