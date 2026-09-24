@@ -168,6 +168,78 @@ export const adminOverviewOutputSchema = z.object({
 });
 export type AdminOverviewOutput = z.infer<typeof adminOverviewOutputSchema>;
 
+export const sessionViewSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  areaIds: z.array(z.string().min(1)),
+  taskTitle: z.string().optional(),
+  sequence: z.number().int().nonnegative(),
+  status: z.enum(['open', 'closed']),
+  createdAt: z.string().datetime({ offset: true }),
+  closedAt: z.string().datetime({ offset: true }).optional(),
+});
+export type SessionView = z.infer<typeof sessionViewSchema>;
+
+export const listAdminSessionsInputSchema = z.object({
+  projectId: z.string().min(1).optional(),
+  status: z.enum(['open', 'closed']).optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+export type ListAdminSessionsInput = z.infer<typeof listAdminSessionsInputSchema>;
+
+export const adminSessionsOutputSchema = z.object({
+  items: z.array(sessionViewSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type AdminSessionsOutput = z.infer<typeof adminSessionsOutputSchema>;
+
+export const jobViewSchema = z.object({
+  id: z.string().min(1),
+  operation: z.enum(['session_consolidation', 'memory_extraction']),
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']),
+  sessionId: z.string().min(1),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+});
+export type JobView = z.infer<typeof jobViewSchema>;
+
+export const listAdminJobsInputSchema = z.object({
+  status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+export type ListAdminJobsInput = z.infer<typeof listAdminJobsInputSchema>;
+
+export const adminJobsOutputSchema = z.object({
+  items: z.array(jobViewSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type AdminJobsOutput = z.infer<typeof adminJobsOutputSchema>;
+
+export const eventViewSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1),
+  sequence: z.number().int().positive(),
+  type: z.literal('message'),
+  role: z.enum(['user', 'assistant', 'tool']),
+  content: z.string(),
+  occurredAt: z.string().datetime({ offset: true }),
+  explicitMemoryRequest: z.boolean(),
+});
+export type EventView = z.infer<typeof eventViewSchema>;
+
+export const adminSessionDetailOutputSchema = z.object({
+  session: sessionViewSchema,
+  events: z.array(eventViewSchema),
+  jobs: z.array(jobViewSchema),
+});
+export type AdminSessionDetailOutput = z.infer<typeof adminSessionDetailOutputSchema>;
+
 export const recordEventSchema = z.object({
   eventId: z.string().min(1),
   type: z.literal('message'),

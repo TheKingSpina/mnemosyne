@@ -1,6 +1,7 @@
+import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach } from 'vitest';
 import { createWebServer } from './server.js';
 
 const servers: Server[] = [];
@@ -16,8 +17,8 @@ afterEach(async () => {
   );
 });
 
-describe('Mnemosyne web proxy', () => {
-  it('serves the owner console with security headers', async () => {
+describe('Mnemosyne web server', () => {
+  it('serves the console with security headers', async () => {
     const server = createWebServer({
       apiOrigin: 'http://127.0.0.1:3000',
       indexPath: new URL('./index.html', import.meta.url).pathname,

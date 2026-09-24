@@ -8,6 +8,8 @@ import {
   recordEventsInputSchema,
   reviewProposalInputSchema,
   searchMemoriesInputSchema,
+  listAdminJobsInputSchema,
+  listAdminSessionsInputSchema,
   type ContextInput,
   type ContextOutput,
   type AdminMemoriesOutput,
@@ -16,11 +18,16 @@ import {
   type CorrectMemoryInput,
   type CorrectMemoryOutput,
   type ListAdminMemoriesInput,
+  type ListAdminJobsInput,
+  type ListAdminSessionsInput,
   type ListPendingProposalsInput,
   type MemoryPatch,
   type MemoryRevision,
   type MemoryView,
   type MemoryAdminView,
+  type AdminJobsOutput,
+  type AdminSessionDetailOutput,
+  type AdminSessionsOutput,
   type OpenSessionInput,
   type OpenSessionOutput,
   type PendingProposalsOutput,
@@ -370,6 +377,46 @@ export class CoreMemoryService implements MemoryService {
     };
   }
 
+  async listAdminSessions(input: ListAdminSessionsInput): Promise<AdminSessionsOutput> {
+    const validated = listAdminSessionsInputSchema.parse(input);
+    const filtered = (await this.repository.listSessions())
+      .filter((session) => !validated.projectId || session.projectId === validated.projectId)
+      .filter((session) => !validated.status || session.status === validated.status);
+    return {
+      items: filtered
+        .slice(validated.offset, validated.offset + validated.limit)
+        .map((session) => this.sessionView(session)),
+      total: filtered.length,
+      limit: validated.limit,
+      offset: validated.offset,
+    };
+  }
+
+  async getAdminSessionDetail(sessionId: string): Promise<AdminSessionDetailOutput> {
+    const session = await this.repository.findSession(sessionId);
+    if (!session) throw new Error('session_not_found');
+    return {
+      session: this.sessionView(session),
+      events: await this.repository.listEvents(sessionId),
+      jobs: (await this.repository.listJobs(sessionId)).map((job) => this.jobView(job)),
+    };
+  }
+
+  async listAdminJobs(input: ListAdminJobsInput): Promise<AdminJobsOutput> {
+    const validated = listAdminJobsInputSchema.parse(input);
+    const filtered = (await this.repository.listJobs()).filter(
+      (job) => !validated.status || job.status === validated.status,
+    );
+    return {
+      items: filtered
+        .slice(validated.offset, validated.offset + validated.limit)
+        .map((job) => this.jobView(job)),
+      total: filtered.length,
+      limit: validated.limit,
+      offset: validated.offset,
+    };
+  }
+
   async listScopesForSession(sessionId: string): Promise<Scope[]> {
     const session = await this.repository.findSession(sessionId);
     if (!session) throw new Error('session_not_found');
@@ -390,6 +437,30 @@ export class CoreMemoryService implements MemoryService {
     if (sensitivity === 'secret' || containsSecret(content)) {
       throw new Error('sensitive_content');
     }
+  }
+
+  private sessionView(session: SessionRecord) {
+    return {
+      id: session.id,
+      projectId: session.projectId,
+      areaIds: session.areaIds,
+      taskTitle: session.taskTitle,
+      sequence: session.sequence,
+      status: session.status,
+      createdAt: session.createdAt,
+      closedAt: session.closedAt,
+    };
+  }
+
+  private jobView(job: JobRecord) {
+    return {
+      id: job.id,
+      operation: job.operation,
+      status: job.status,
+      sessionId: job.sessionId,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
   }
 
   private async view(memoryId: string): Promise<MemoryView> {

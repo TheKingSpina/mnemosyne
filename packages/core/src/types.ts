@@ -1,12 +1,17 @@
 import type {
   ContextInput,
   ContextOutput,
+  AdminJobsOutput,
+  AdminSessionDetailOutput,
+  AdminSessionsOutput,
   AdminMemoriesOutput,
   AdminOverviewOutput,
   ConflictListOutput,
   CorrectMemoryInput,
   CorrectMemoryOutput,
   ListAdminMemoriesInput,
+  ListAdminJobsInput,
+  ListAdminSessionsInput,
   MemoryActor,
   MemoryLifecycle,
   MemoryRevision,
@@ -80,6 +85,7 @@ export interface JobRecord {
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   sessionId: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProposalContext {
@@ -106,6 +112,9 @@ export interface MemoryService {
   getMemoryAdminView(id: string): Promise<MemoryAdminView | null>;
   listConflicts(): Promise<ConflictListOutput>;
   getAdminOverview(): Promise<AdminOverviewOutput>;
+  listAdminSessions(input: ListAdminSessionsInput): Promise<AdminSessionsOutput>;
+  getAdminSessionDetail(sessionId: string): Promise<AdminSessionDetailOutput>;
+  listAdminJobs(input: ListAdminJobsInput): Promise<AdminJobsOutput>;
   listScopesForSession(sessionId: string): Promise<Scope[]>;
   getCorpusRevision(): Promise<string>;
 }
@@ -131,7 +140,10 @@ export interface MemoryRepository {
   listRevisions(id: string): Promise<MemoryRevision[]>;
   findConflicts(memoryId: string): Promise<ConflictRecord[]>;
   listAllConflicts(): Promise<ConflictRecord[]>;
-  createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord>;
+  listSessions(): Promise<SessionRecord[]>;
+  listEvents(sessionId: string): Promise<EventRecord[]>;
+  listJobs(sessionId?: string): Promise<JobRecord[]>;
+  createJob(job: Omit<JobRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<JobRecord>;
   getJob(id: string): Promise<JobRecord | null>;
   getCorpusRevision(): Promise<CorpusRevision>;
 }

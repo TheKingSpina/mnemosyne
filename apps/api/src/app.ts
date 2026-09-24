@@ -8,6 +8,8 @@ import {
   searchMemoriesInputSchema,
   listPendingProposalsInputSchema,
   listAdminMemoriesInputSchema,
+  listAdminJobsInputSchema,
+  listAdminSessionsInputSchema,
 } from '@mnemosyne/contracts';
 import {
   DomainError,
@@ -200,6 +202,31 @@ async function handleAuthorizedRequest(
   }
   if (request.method === 'GET' && url.pathname === '/v1/admin/overview') {
     sendJson(response, 200, await service.getAdminOverview());
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/sessions') {
+    const input = listAdminSessionsInputSchema.parse({
+      projectId: url.searchParams.get('projectId') || undefined,
+      status: url.searchParams.get('status') || undefined,
+      limit: url.searchParams.get('limit') ?? undefined,
+      offset: url.searchParams.get('offset') ?? undefined,
+    });
+    sendJson(response, 200, await service.listAdminSessions(input));
+    return;
+  }
+  const adminSession = url.pathname.match(/^\/v1\/admin\/sessions\/([^/]+)$/u);
+  if (request.method === 'GET' && adminSession) {
+    const { id } = paramsSchema.parse({ id: adminSession[1] });
+    sendJson(response, 200, await service.getAdminSessionDetail(id));
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/jobs') {
+    const input = listAdminJobsInputSchema.parse({
+      status: url.searchParams.get('status') || undefined,
+      limit: url.searchParams.get('limit') ?? undefined,
+      offset: url.searchParams.get('offset') ?? undefined,
+    });
+    sendJson(response, 200, await service.listAdminJobs(input));
     return;
   }
   const memory = url.pathname.match(/^\/v1\/memories\/([^/]+)$/u);

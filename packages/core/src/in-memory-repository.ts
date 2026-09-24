@@ -201,10 +201,12 @@ export class InMemoryRepository implements MemoryRepository {
   }
 
   async createJob(job: Omit<JobRecord, 'id' | 'createdAt'>): Promise<JobRecord> {
+    const createdAt = new Date().toISOString();
     const record: JobRecord = {
       ...job,
       id: `job_${randomUUID()}`,
-      createdAt: new Date().toISOString(),
+      createdAt,
+      updatedAt: createdAt,
     };
     this.jobs.set(record.id, record);
     return record;
@@ -212,6 +214,22 @@ export class InMemoryRepository implements MemoryRepository {
 
   async getJob(id: string): Promise<JobRecord | null> {
     return this.jobs.get(id) ?? null;
+  }
+
+  async listSessions(): Promise<SessionRecord[]> {
+    return [...this.sessions.values()].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt),
+    );
+  }
+
+  async listEvents(sessionId: string): Promise<EventRecord[]> {
+    return this.findEvents(sessionId);
+  }
+
+  async listJobs(sessionId?: string): Promise<JobRecord[]> {
+    return [...this.jobs.values()]
+      .filter((job) => !sessionId || job.sessionId === sessionId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
   async getCorpusRevision(): Promise<CorpusRevision> {

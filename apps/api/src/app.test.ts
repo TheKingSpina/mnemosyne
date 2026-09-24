@@ -222,6 +222,46 @@ describe('Mnemosyne API authorization', () => {
     expect(detailBody.revisions.map((revision) => revision.version)).toEqual([2, 1]);
   });
 
+  it('exposes owner session and job administration', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    const events = await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'event-admin-1',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: false,
+        },
+      ],
+    });
+
+    const sessions = await fetch(`${baseUrl}/v1/admin/sessions`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const detail = await fetch(`${baseUrl}/v1/admin/sessions/${session.sessionId}`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const jobs = await fetch(`${baseUrl}/v1/admin/jobs`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(sessions.status).toBe(200);
+    expect(await sessions.json()).toMatchObject({ total: 1 });
+    expect(detail.status).toBe(200);
+    expect(await detail.json()).toMatchObject({
+      session: { id: session.sessionId },
+      events: [{ id: 'event-admin-1' }],
+      jobs: [{ id: events.jobIds[0], status: 'queued' }],
+    });
+    expect(jobs.status).toBe(200);
+    expect(await jobs.json()).toMatchObject({ total: 1 });
+  });
+
   it('returns a validation error for an oversized body without persisting it', async () => {
     const { service, server } = createTestServer();
     const baseUrl = await listen(server);

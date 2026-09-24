@@ -69,6 +69,7 @@ interface JobRow extends QueryResultRow {
   status: JobRecord['status'];
   session_id: string;
   created_at: Date;
+  updated_at: Date;
 }
 
 export class PostgresMemoryRepository implements MemoryRepository {
@@ -384,6 +385,27 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows[0] ? this.jobFromRow(result.rows[0]) : null;
   }
 
+  async listSessions(): Promise<SessionRecord[]> {
+    const result = await this.database.query<SessionRow>(
+      'SELECT * FROM sessions ORDER BY created_at DESC',
+    );
+    return result.rows.map((row) => this.sessionFromRow(row));
+  }
+
+  async listEvents(sessionId: string): Promise<EventRecord[]> {
+    return this.findEvents(sessionId);
+  }
+
+  async listJobs(sessionId?: string): Promise<JobRecord[]> {
+    const result = sessionId
+      ? await this.database.query<JobRow>(
+          'SELECT * FROM jobs WHERE session_id = $1 ORDER BY created_at DESC',
+          [sessionId],
+        )
+      : await this.database.query<JobRow>('SELECT * FROM jobs ORDER BY created_at DESC');
+    return result.rows.map((row) => this.jobFromRow(row));
+  }
+
   async getCorpusRevision(): Promise<CorpusRevision> {
     const result = await this.database.query<{ id: string; epoch: string; revision: string }>(
       'SELECT id, epoch, revision FROM corpus_state WHERE id = $1',
@@ -534,6 +556,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       status: row.status,
       sessionId: row.session_id,
       createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
     };
   }
 }

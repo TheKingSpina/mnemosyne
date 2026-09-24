@@ -243,4 +243,35 @@ describe('CoreMemoryService', () => {
       ),
     ).rejects.toThrow('harness_cannot_issue_owner_directive');
   });
+
+  it('lists administrative sessions, events, and jobs with stable views', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const events = await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'evt_admin_1',
+          type: 'message',
+          role: 'user',
+          content: 'Messaggio sintetico',
+          occurredAt: '2026-01-20T10:00:00Z',
+          explicitMemoryRequest: true,
+        },
+      ],
+    });
+
+    const sessions = await service.listAdminSessions({
+      projectId: 'memory-service',
+      limit: 20,
+      offset: 0,
+    });
+    const detail = await service.getAdminSessionDetail(session.sessionId);
+    const jobs = await service.listAdminJobs({ status: 'queued', limit: 20, offset: 0 });
+
+    expect(sessions).toMatchObject({ total: 1, items: [{ id: session.sessionId }] });
+    expect(detail.events[0]?.id).toBe('evt_admin_1');
+    expect(detail.jobs[0]?.id).toBe(events.jobIds[0]);
+    expect(jobs.total).toBe(1);
+  });
 });

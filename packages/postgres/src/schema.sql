@@ -70,8 +70,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   operation text NOT NULL,
   status text NOT NULL,
   session_id text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS corpus_outbox (
   id bigserial PRIMARY KEY,
