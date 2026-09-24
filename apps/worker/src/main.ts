@@ -1,14 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { extractionResultSchema } from '@mnemosyne/contracts';
-import {
-  CoreMemoryService,
-  ExtractionWorker,
-  type EventRecord,
-  type Extractor,
-  type SessionRecord,
-} from '@mnemosyne/core';
+import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
 import { PostgresMemoryRepository } from '@mnemosyne/postgres';
+import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
 
 const connectionString = process.env.DATABASE_URL;
 const forgetSecret = process.env.MNEMOSYNE_FORGET_SECRET;
@@ -24,11 +18,10 @@ const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?
 const workerId = process.env.WORKER_ID ?? `${hostname()}:${process.pid}:${randomUUID()}`;
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
 const service = new CoreMemoryService(repository, { forgetSecret });
-const extractor = explicitRememberExtractor();
 const worker = new ExtractionWorker({
   repository,
   service,
-  extractor,
+  extractor: new ExplicitRememberExtractor(),
   workerId,
   leaseMs,
   maxAttempts,
@@ -66,32 +59,6 @@ function stop(signal: NodeJS.Signals): void {
     process.exitCode = 1;
     process.exit();
   }, shutdownTimeoutMs);
-}
-
-function explicitRememberExtractor(): Extractor {
-  return {
-    async extract({ session, events }: { session: SessionRecord; events: EventRecord[] }) {
-      const candidates: unknown[] = [];
-      for (const event of events) {
-        if (!event.explicitMemoryRequest || event.role !== 'user') continue;
-        const content = event.content.match(/^ricorda\s+(?:che\s+)?(.+)$/iu)?.[1]?.trim();
-        if (!content) continue;
-        candidates.push({
-          sessionId: session.id,
-          eventIds: [event.id],
-          content,
-          kind: 'instruction' as const,
-          scope: { type: 'project' as const, id: session.projectId },
-          epistemicBasis: 'user_asserted' as const,
-          assessment: 'uncontested' as const,
-          confidence: 1,
-          sensitivity: 'normal' as const,
-          activation: 'on_demand' as const,
-        });
-      }
-      return extractionResultSchema.parse({ candidates });
-    },
-  };
 }
 
 function integerOption(value: string, minimum: number): number {
