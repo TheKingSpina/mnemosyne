@@ -24,6 +24,9 @@ Do not include real credentials, conversations, memory contents, or backup files
 - Keep provider keys and forget secrets outside the repository and database.
 - Use synthetic data in tests and reports.
 - Back up PostgreSQL securely and test restoration regularly.
+- The `npm run backup:postgres` helper writes an unencrypted custom-format dump
+  with restrictive local permissions; encrypt and copy it to protected storage
+  before relying on it operationally.
 
 ## Supported versions
 

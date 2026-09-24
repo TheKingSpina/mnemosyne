@@ -221,6 +221,22 @@ clears derived feedback/outbox/cache state, and skips any memory, revision, or
 conflict belonging to a forgotten memory. It is a controlled migration/import
 path, not yet a production backup-and-restore guarantee.
 
+For an authoritative PostgreSQL dump, run the backup helper with an output path
+outside the repository. The helper writes a custom-format archive with mode
+`0600` and validates it with `pg_restore --list`:
+
+```bash
+npm run backup:postgres -- \
+  --output /secure/backup/mnemosyne-$(date +%Y%m%d).dump \
+  --verify-restore
+```
+
+`--verify-restore` restores into a temporary database and checks the corpus and
+forget-ledger tables before deleting that database. The helper does not encrypt,
+copy, schedule, or retain backups; use an external encryption and storage
+workflow. A successful command is evidence of a PostgreSQL archive/restore
+check, not a complete production disaster-recovery certification.
+
 ## MCP
 
 The MCP adapter is a first-class interface. It shares the same Memory Core and policy engine as REST.
