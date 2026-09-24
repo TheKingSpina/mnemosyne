@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFile } from 'node:fs/promises';
+import { chmod, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import {
@@ -121,6 +121,7 @@ async function run(name: string, args: string[]): Promise<void> {
     const destination = required(args, 0, 'output path');
     const value = corpusExportSchema.parse(await request('/v1/admin/exports/corpus', z.unknown()));
     await writeFile(destination, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    await chmod(destination, 0o600);
     process.stdout.write(`Export scritto in ${destination}\n`);
     return;
   }

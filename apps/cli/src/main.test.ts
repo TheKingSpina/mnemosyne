@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -42,9 +42,11 @@ describe('Mnemosyne CLI', () => {
 
     await import('./main.js');
     const saved = JSON.parse(await readFile(destination, 'utf8')) as { schemaVersion: number };
+    const fileMode = (await stat(destination)).mode & 0o777;
     const request = fetchMock.mock.calls[0];
 
     expect(saved.schemaVersion).toBe(1);
+    expect(fileMode).toBe(0o600);
     expect(request?.[0]).toEqual(new URL('http://127.0.0.1:3000/v1/admin/exports/corpus'));
     expect(new Headers(request?.[1]?.headers).get('authorization')).toBe(
       'Bearer synthetic-owner-token-12345678901234567890',
