@@ -23,11 +23,15 @@ The first vertical slice provides:
 - an owner-only canonical corpus export with no-store download semantics;
 - a balanced retention policy with persistent last-run status, owner trigger, and worker schedule;
 - a guarded empty-database restore path that re-applies the forget ledger;
-- a conservative session-consolidation job and scheduled balanced retention in the worker;
+- a conservative session-consolidation job that merges duplicate pending sources without auto-accepting them, plus scheduled balanced retention in the worker;
 - a derived Redis cache with revision validation and lexical/semantic fallback;
 - a rebuildable Neo4j projection driven by the PostgreSQL outbox;
 - Docker Compose development deployment;
-- OpenAPI 3.1 contract generated from the shared Zod contracts and served at `/v1/openapi.json`.
+- OpenAPI 3.1 contract generated from the shared Zod contracts and served at `/v1/openapi.json`;
+- verified PostgreSQL backup and restore tooling with optional authenticated encryption, manifests, checksums, and retention;
+- release-oriented CI checks for secrets, dependency licenses, Docker images, and synthetic end-to-end flows.
+
+The browser runs on the Mac, outside the container. For a Mac mini M1 deployment with private Tailscale access, follow [`docs/macos-mini-tailscale.md`](docs/macos-mini-tailscale.md).
 
 The full architecture and roadmap are documented in [`docs/assistante-memoriale-spec.md`](docs/assistante-memoriale-spec.md).
 
@@ -101,11 +105,11 @@ policy. If either provider setting is present, both are required. Set
 local extractor only for classified provider failures; `openrouter` disables
 that fallback.
 
-Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
+Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; the bearer token selects the owner or harness profile, while `MCP_PROFILE` applies only to stdio. Configure `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` for DNS-rebinding protection, and use `MCP_SESSION_IDLE_TIMEOUT_MS` to expire inactive sessions. Every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. HTTP session state is process-local: use one MCP replica or sticky routing until a shared transport store is introduced. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
 
-The owner web console is available in Compose at `http://127.0.0.1:8080` by default. Enter the owner API origin and `MNEMOSYNE_OWNER_TOKEN` in the console; the token is kept only in the browser's session storage. The console proxies browser API calls server-side, so the API is not exposed to the browser as a directly exposed cross-origin service. The console is a local administration surface, not a replacement for HTTPS on a remote deployment.
+The owner web console is published by Compose at `http://127.0.0.1:8080` when Docker runs on the same Mac. Leave the console API origin as `/api/backend`; the `web` container proxies requests to the internal API service. If Docker runs on another host, set `WEB_BIND_HOST=0.0.0.0` (or the host LAN address) in `.env`, open `http://<docker-host>:8080`, and protect the port with firewall/TLS. Enter `MNEMOSYNE_OWNER_TOKEN` in the console; it is kept only in browser session storage.
 
 Redis is a rebuildable derived cache. If it is unavailable, retrieval continues
 from PostgreSQL and lexical/semantic fallback; cached search results are accepted
@@ -174,8 +178,13 @@ Useful commands:
 npm run format
 npm run lint
 npm run check
+npm run license:check
+npm run secret:scan
 npm test
 npm run build
+npm run eval:all
+npm run sbom:generate
+npm run e2e:synthetic
 ```
 
 Run the API locally against the Compose PostgreSQL instance:
@@ -222,8 +231,9 @@ conflict belonging to a forgotten memory. It is a controlled migration/import
 path, not yet a production backup-and-restore guarantee.
 
 For an authoritative PostgreSQL dump, run the backup helper with an output path
-outside the repository. The helper writes a custom-format archive with mode
-`0600` and validates it with `pg_restore --list`:
+outside the repository. The helper writes a custom-format archive, verifies it
+before publishing it, writes a SHA-256 manifest, and can restore it into a
+temporary database for verification:
 
 ```bash
 npm run backup:postgres -- \
@@ -231,11 +241,25 @@ npm run backup:postgres -- \
   --verify-restore
 ```
 
-`--verify-restore` restores into a temporary database and checks the corpus and
-forget-ledger tables before deleting that database. The helper does not encrypt,
-copy, schedule, or retain backups; use an external encryption and storage
-workflow. A successful command is evidence of a PostgreSQL archive/restore
-check, not a complete production disaster-recovery certification.
+For production use, encrypt the archive and configure retention:
+
+```bash
+npm run backup:postgres -- \
+  --output /secure/backup/mnemosyne-$(date +%Y%m%d).dump \
+  --verify-restore \
+  --encrypt \
+  --passphrase-file /secure/mnemosyne-backup.pass \
+  --keep-last 14 \
+  --keep-days 30
+```
+
+The optional encryption uses authenticated AES-256-GCM with a key derived from
+a passphrase file; the passphrase is never accepted as a command-line value.
+The manifest records verification state, counts, size, and checksum without
+including corpus contents. Use `npm run restore:postgres` to restore into an
+explicit, empty target database before switching a deployment. The helper does
+not replace external encrypted storage, scheduling, or disaster-recovery
+monitoring; see [`docs/backup-restore.md`](docs/backup-restore.md).
 
 ## MCP
 
@@ -270,6 +294,9 @@ packages/
   contracts/ Zod schemas and shared types
   core/      policy, service, and repository contract
   postgres/  PostgreSQL repository and schema
+scripts/     backup, restore, evaluation, and contract tooling
+evals/       synthetic governance dataset and offline baseline
+ops/         host scheduling templates for backup operations
 docs/        specification and design documents
 ```
 

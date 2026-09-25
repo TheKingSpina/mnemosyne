@@ -13,6 +13,7 @@ const securityHeaders = {
 export interface WebServerOptions {
   apiOrigin: string;
   indexPath: string;
+  visNetworkPath?: string;
   maxRequestBodyBytes?: number;
 }
 
@@ -24,16 +25,21 @@ export function createWebServer(options: WebServerOptions): Server {
   }
 
   return createServer((request, response) => {
-    void handleRequest(request, response, apiOrigin, options.indexPath, maxRequestBodyBytes).catch(
-      (error: unknown) => {
-        if (response.headersSent) return;
-        if (error instanceof Error && error.message === 'request_body_too_large') {
-          sendJson(response, 413, { code: 'request_body_too_large' });
-          return;
-        }
-        sendJson(response, 500, { code: 'internal_error' });
-      },
-    );
+    void handleRequest(
+      request,
+      response,
+      apiOrigin,
+      options.indexPath,
+      options.visNetworkPath,
+      maxRequestBodyBytes,
+    ).catch((error: unknown) => {
+      if (response.headersSent) return;
+      if (error instanceof Error && error.message === 'request_body_too_large') {
+        sendJson(response, 413, { code: 'request_body_too_large' });
+        return;
+      }
+      sendJson(response, 500, { code: 'internal_error' });
+    });
   });
 }
 
@@ -42,6 +48,7 @@ async function handleRequest(
   response: ServerResponse,
   apiOrigin: URL,
   indexPath: string,
+  visNetworkPath: string | undefined,
   maxRequestBodyBytes: number,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
@@ -51,6 +58,11 @@ async function handleRequest(
   }
   if (url.pathname === '/api/backend' || url.pathname.startsWith('/api/backend/')) {
     await proxyApiRequest(request, response, apiOrigin, url, maxRequestBodyBytes);
+    return;
+  }
+  if (url.pathname === '/vis-network.min.js' && visNetworkPath) {
+    const script = await readFile(visNetworkPath, 'utf8');
+    sendText(response, 200, script, 'application/javascript; charset=utf-8');
     return;
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {

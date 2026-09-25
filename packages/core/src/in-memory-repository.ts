@@ -265,8 +265,11 @@ export class InMemoryRepository implements MemoryRepository {
   ): Promise<MemoryRecord> {
     const record = this.memories.get(id);
     if (!record) throw new Error('memory_not_found');
-    if (!options.allowSameVersion && record.currentVersion !== revision.version - 1)
+    if (options.allowSameVersion) {
+      if (revision.version !== record.currentVersion) throw new Error('memory_version_conflict');
+    } else if (record.currentVersion !== revision.version - 1) {
       throw new Error('memory_version_conflict');
+    }
     const versions = this.revisions.get(id) ?? new Map<number, MemoryRevision>();
     const updatedAt = this.now().toISOString();
     versions.set(revision.version, revision);
@@ -286,6 +289,58 @@ export class InMemoryRepository implements MemoryRepository {
     return updated;
   }
 
+  async consolidateDuplicateCandidate(input: {
+    canonicalId: string;
+    canonicalVersion: number;
+    duplicateId: string;
+    duplicateVersion: number;
+    sourceEventIds: string[];
+  }): Promise<boolean> {
+    const canonical = this.memories.get(input.canonicalId);
+    const duplicate = this.memories.get(input.duplicateId);
+    if (
+      !canonical ||
+      !duplicate ||
+      canonical.currentVersion !== input.canonicalVersion ||
+      duplicate.currentVersion !== input.duplicateVersion ||
+      canonical.lifecycle !== 'pending_approval' ||
+      duplicate.lifecycle !== 'pending_approval'
+    ) {
+      return false;
+    }
+    const versions = this.revisions.get(input.canonicalId);
+    const current = versions?.get(input.canonicalVersion);
+    if (!versions || !current) throw new Error('memory_revision_not_found');
+    const updatedAt = this.now().toISOString();
+    if (input.sourceEventIds.length > 0) {
+      const nextVersion = input.canonicalVersion + 1;
+      versions.set(nextVersion, {
+        ...current,
+        version: nextVersion,
+        sourceEventIds: [...new Set([...current.sourceEventIds, ...input.sourceEventIds])],
+      });
+      const timestamps =
+        this.revisionTimestamps.get(input.canonicalId) ?? new Map<number, string>();
+      timestamps.set(nextVersion, updatedAt);
+      this.revisionTimestamps.set(input.canonicalId, timestamps);
+      this.memories.set(input.canonicalId, {
+        ...canonical,
+        currentVersion: nextVersion,
+        updatedAt,
+      });
+      this.corpusRevision += 1n;
+      this.enqueueOutbox('memory.sources.merged', input.canonicalId, nextVersion);
+    }
+    this.memories.set(input.duplicateId, {
+      ...duplicate,
+      lifecycle: 'rejected',
+      updatedAt,
+    });
+    this.corpusRevision += 1n;
+    this.enqueueOutbox('memory.rejected', input.duplicateId);
+    return true;
+  }
+
   async updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord> {
     const record = this.memories.get(id);
     if (!record) throw new Error('memory_not_found');
@@ -298,6 +353,21 @@ export class InMemoryRepository implements MemoryRepository {
 
   async removeMemory(id: string): Promise<void> {
     if (!this.memories.delete(id)) throw new Error('memory_not_found');
+    const updatedConflictIds: string[] = [];
+    for (const [conflictId, conflict] of this.conflicts) {
+      if (!conflict.memoryIds.includes(id)) continue;
+      const remainingMemoryIds = conflict.memoryIds.filter((memoryId) => memoryId !== id);
+      if (remainingMemoryIds.length < 2) {
+        this.conflicts.delete(conflictId);
+      } else {
+        this.conflicts.set(conflictId, { ...conflict, memoryIds: remainingMemoryIds });
+        updatedConflictIds.push(conflictId);
+      }
+    }
+    for (const conflictId of updatedConflictIds) {
+      this.corpusRevision += 1n;
+      this.enqueueOutbox('memory.conflict.updated', conflictId);
+    }
     this.revisions.delete(id);
     this.revisionTimestamps.delete(id);
     this.forgetLedger.set(id, this.now().toISOString());

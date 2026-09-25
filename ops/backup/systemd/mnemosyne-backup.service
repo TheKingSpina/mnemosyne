@@ -1,0 +1,9 @@
+[Unit]
+Description=Mnemosyne verified PostgreSQL backup
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+EnvironmentFile=__ENV_FILE__
+ExecStart=__REPO__/ops/backup/run-backup.sh

@@ -7,27 +7,34 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #10121a;
-        --panel: #191c27;
-        --panel-2: #222735;
-        --line: #30374a;
-        --text: #f2f4f8;
-        --muted: #a8b0c0;
-        --accent: #8ea8ff;
-        --good: #72d4a0;
-        --warn: #f0c674;
-        --bad: #ff8f9c;
+        --bg: #0b0d13;
+        --panel: #15171f;
+        --panel-2: #1b1e28;
+        --line: rgba(255, 255, 255, 0.09);
+        --text: #ebeef5;
+        --muted: #9da1ad;
+        --accent: #8b7ff0;
+        --good: #5dcaa5;
+        --warn: #e1b340;
+        --bad: #e07a8b;
+        --mono: 'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', monospace;
       }
       * {
         box-sizing: border-box;
       }
       body {
         margin: 0;
-        background: var(--bg);
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 78% -10%, rgba(139, 127, 240, 0.1), transparent 34%), var(--bg);
         color: var(--text);
         font:
-          14px/1.5 system-ui,
+          14px/1.5 Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
           sans-serif;
+        letter-spacing: -0.01em;
       }
       button,
       input,
@@ -39,17 +46,29 @@
         cursor: pointer;
       }
       header {
-        border-bottom: 1px solid var(--line);
-        padding: 20px 28px;
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 20;
+        width: 216px;
+        height: 100vh;
+        overflow-y: auto;
+        border-right: 1px solid var(--line);
+        border-bottom: 0;
+        padding: 18px 12px;
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 20px;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        gap: 18px;
+        background: rgba(11, 13, 19, 0.82);
+        backdrop-filter: blur(18px);
       }
       h1 {
-        margin: 0;
-        font-size: 21px;
-        letter-spacing: 0.02em;
+        margin: 4px 0 0;
+        color: var(--text);
+        font-size: 19px;
+        font-weight: 750;
+        letter-spacing: -0.03em;
       }
       h2 {
         margin: 0 0 14px;
@@ -64,32 +83,54 @@
       }
       nav {
         display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
+        flex-direction: column;
+        gap: 3px;
+        width: 100%;
       }
       nav button,
       .button {
         border: 1px solid var(--line);
-        background: var(--panel-2);
+        background: rgba(255, 255, 255, 0.045);
         color: var(--text);
-        border-radius: 8px;
-        padding: 8px 12px;
+        border-radius: 10px;
+        padding: 9px 12px;
+        transition:
+          color 160ms ease,
+          border-color 160ms ease,
+          background 160ms ease,
+          transform 160ms ease;
+      }
+      nav button:hover,
+      .button:hover {
+        color: var(--text);
+        border-color: rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.08);
+        transform: translateY(-1px);
       }
       nav button.active {
-        border-color: var(--accent);
-        color: var(--accent);
+        border-color: rgba(139, 127, 240, 0.42);
+        color: #c6bfff;
+        background: rgba(139, 127, 240, 0.14);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
       }
       main {
-        max-width: 1240px;
-        margin: 0 auto;
-        padding: 24px 28px 60px;
+        max-width: none;
+        margin-left: 216px;
+        padding: 28px 34px 60px;
       }
       .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
         display: flex;
         justify-content: space-between;
         align-items: center;
         gap: 14px;
-        margin-bottom: 20px;
+        margin: -28px -34px 24px;
+        padding: 16px 34px;
+        background: rgba(11, 13, 19, 0.78);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(18px);
       }
       .auth {
         display: flex;
@@ -100,10 +141,10 @@
       select,
       textarea {
         width: 100%;
-        background: #11141d;
+        background: #10131c;
         color: var(--text);
         border: 1px solid var(--line);
-        border-radius: 7px;
+        border-radius: 10px;
         padding: 9px 10px;
       }
       textarea {
@@ -117,6 +158,95 @@
       .cards {
         grid-template-columns: repeat(5, 1fr);
       }
+      .graph-panel {
+        min-height: 560px;
+        overflow: hidden;
+        padding: 0;
+      }
+      .graph-toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .graph-toolbar select {
+        max-width: 220px;
+      }
+      .graph-shell {
+        position: relative;
+        min-height: 560px;
+        background:
+          radial-gradient(circle at 50% 45%, rgba(142, 168, 255, 0.08), transparent 42%), #0c0f16;
+      }
+      #graph-canvas {
+        display: block;
+        width: 100%;
+        height: 560px;
+      }
+      .graph-edge {
+        stroke: #59647d;
+        stroke-width: 1.5;
+        opacity: 0.75;
+      }
+      .graph-edge.conflict {
+        stroke: var(--bad);
+        stroke-dasharray: 5 5;
+      }
+      .graph-node {
+        cursor: pointer;
+        stroke: var(--line);
+        stroke-width: 2;
+      }
+      .graph-node.scope {
+        fill: #33405d;
+      }
+      .graph-node.accepted {
+        fill: var(--good);
+      }
+      .graph-node.pending_approval {
+        fill: var(--warn);
+      }
+      .graph-node.rejected,
+      .graph-node.retracted {
+        fill: var(--bad);
+      }
+      .graph-label {
+        fill: var(--text);
+        font-size: 10px;
+        pointer-events: none;
+      }
+      .graph-legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        padding: 0 16px 16px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .graph-legend span::before {
+        content: '';
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 5px;
+        border-radius: 50%;
+        background: var(--good);
+      }
+      .graph-legend .pending::before {
+        background: var(--warn);
+      }
+      .graph-legend .scope::before {
+        background: #33405d;
+      }
+      .graph-legend .conflict::before {
+        background: var(--bad);
+      }
+      .graph-detail {
+        min-height: 54px;
+        border-top: 1px solid var(--line);
+        padding: 12px 16px;
+      }
       .cards.jobs {
         grid-template-columns: repeat(5, 1fr);
       }
@@ -124,14 +254,28 @@
         grid-template-columns: repeat(2, 1fr);
       }
       .panel {
-        background: var(--panel);
+        background: rgba(255, 255, 255, 0.045);
         border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 16px;
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow:
+          0 16px 38px rgba(0, 0, 0, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.045);
       }
       .metric {
-        font-size: 28px;
-        font-weight: 700;
+        color: #c6bfff;
+        font-family: var(--mono);
+        font-size: 30px;
+        font-weight: 650;
+        letter-spacing: -0.05em;
+      }
+      .cards .panel {
+        min-height: 112px;
+        background: linear-gradient(
+          145deg,
+          rgba(139, 127, 240, 0.14),
+          rgba(255, 255, 255, 0.035) 62%
+        );
       }
       .toolbar {
         display: flex;
@@ -255,6 +399,28 @@
           grid-template-columns: 1fr;
         }
         header {
+          position: relative;
+          inset: auto;
+          width: 100%;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          padding: 14px 18px;
+          flex-direction: row;
+          align-items: center;
+        }
+        nav {
+          flex-direction: row;
+          flex-wrap: wrap;
+          width: auto;
+        }
+        main {
+          margin-left: 0;
+          padding: 20px 18px 48px;
+        }
+        .topbar {
+          margin: -20px -18px 20px;
+          padding: 14px 18px;
           align-items: flex-start;
           flex-direction: column;
         }
@@ -269,6 +435,7 @@
       </div>
       <nav id="nav">
         <button data-view="overview" class="active">Panoramica</button>
+        <button data-view="graph">Grafo</button>
         <button data-view="memories">Memorie</button>
         <button data-view="review">Revisione</button>
         <button data-view="conflicts">Conflitti</button>
@@ -308,6 +475,34 @@
           <div id="capabilities-state" class="sub">—</div>
           <div class="row-actions" style="margin-top: 10px">
             <button class="button" id="export-corpus">Esporta corpus</button>
+          </div>
+        </div>
+      </section>
+      <section id="graph" class="view hidden">
+        <div class="panel graph-panel">
+          <div class="graph-toolbar">
+            <select id="graph-filter" aria-label="Filtro memorie">
+              <option value="all">Tutte le memorie</option>
+              <option value="accepted">Approvate</option>
+              <option value="pending_approval">In review</option>
+              <option value="rejected">Rifiutate</option>
+              <option value="retracted">Revocate</option>
+            </select>
+            <button class="button" id="graph-refresh">Aggiorna grafo</button>
+            <span class="sub" id="graph-summary"></span>
+          </div>
+          <div class="graph-shell">
+            <div id="graph-canvas" role="img" aria-label="Grafo delle memorie"></div>
+            <div id="graph-empty" class="empty hidden">Nessun nodo da visualizzare.</div>
+          </div>
+          <div class="graph-legend">
+            <span>Approvata</span>
+            <span class="pending">In review</span>
+            <span class="scope">Ambito / SCOPE</span>
+            <span class="conflict">CONFLICT</span>
+          </div>
+          <div id="graph-detail" class="graph-detail sub">
+            Seleziona un nodo per visualizzare i dettagli.
           </div>
         </div>
       </section>
@@ -456,10 +651,13 @@
         </div>
       </section>
     </main>
+    <script src="/vis-network.min.js"></script>
     <script>
       const state = {
         view: 'overview',
         overview: null,
+        graph: null,
+        graphNetwork: null,
         memories: [],
         selected: null,
         selectedJob: null,
@@ -519,13 +717,19 @@
           .forEach((el) => el.classList.toggle('active', el.dataset.view === view));
         $('page-title').textContent = {
           overview: 'Panoramica del corpus',
+          graph: 'Grafo della memoria',
           memories: 'Esplora memorie',
           review: 'Coda di revisione',
           conflicts: 'Conflitti',
           jobs: 'Job e tentativi',
           context: 'Composizione contesto',
         }[view];
+        if (!token()) {
+          showMessage('Inserisci il token owner e premi Connetti.', true);
+          return;
+        }
         if (view === 'overview') loadOverview();
+        if (view === 'graph') loadGraph();
         if (view === 'memories') loadMemories();
         if (view === 'conflicts') loadConflicts();
         if (view === 'jobs') loadJobs();
@@ -556,6 +760,265 @@
         } catch (error) {
           showMessage(error.message, true);
         }
+      };
+      const loadGraph = async () => {
+        try {
+          const [memoryData, conflictData] = await Promise.all([
+            request('/v1/admin/memories?q=&limit=100'),
+            request('/v1/admin/conflicts'),
+          ]);
+          const filter = $('graph-filter').value;
+          const visibleMemories = memoryData.items.filter(
+            (memory) => filter === 'all' || memory.lifecycle === filter,
+          );
+          const visibleIds = new Set(visibleMemories.map((memory) => memory.memoryId));
+          const nodes = [];
+          const edges = [];
+          const scopeByMemory = new Map();
+          for (const memory of visibleMemories) {
+            const scopeId = `scope:${memory.scope.type}:${memory.scope.id}`;
+            if (!nodes.some((node) => node.id === scopeId)) {
+              nodes.push({
+                id: scopeId,
+                kind: 'scope',
+                label: `${memory.scope.type}:${memory.scope.id}`,
+                lifecycle: 'scope',
+              });
+            }
+            nodes.push({
+              id: memory.memoryId,
+              kind: 'memory',
+              label: memory.content,
+              lifecycle: memory.lifecycle,
+              content: memory.content,
+              version: memory.currentVersion,
+            });
+            scopeByMemory.set(memory.memoryId, scopeId);
+            edges.push({ from: memory.memoryId, to: scopeId, kind: 'scope' });
+          }
+          for (const conflict of conflictData.items) {
+            const members = conflict.memoryIds.filter((memoryId) => visibleIds.has(memoryId));
+            for (let index = 1; index < members.length; index += 1) {
+              edges.push({
+                from: members[0],
+                to: members[index],
+                kind: 'conflict',
+                label: conflict.type,
+              });
+            }
+          }
+          state.graph = { nodes, edges };
+          renderGraphNetwork();
+          $('graph-summary').textContent =
+            `${visibleMemories.length} memorie · ${conflictData.items.length} conflitti`;
+          $('graph-empty').classList.toggle('hidden', nodes.length > 0);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const renderGraph = () => {
+        const svg = $('graph-canvas');
+        svg.replaceChildren();
+        const graph = state.graph || { nodes: [], edges: [] };
+        const namespace = 'http://www.w3.org/2000/svg';
+        const scopeNodes = graph.nodes.filter((node) => node.kind === 'scope');
+        const memoryNodes = graph.nodes.filter((node) => node.kind === 'memory');
+        const positions = new Map();
+        const scopeGroups = new Map();
+        scopeNodes.forEach((node, index) => {
+          const angle = (index / Math.max(scopeNodes.length, 1)) * Math.PI * 2;
+          positions.set(node.id, {
+            x: 500 + Math.cos(angle) * 135,
+            y: 280 + Math.sin(angle) * 135,
+          });
+        });
+        for (const node of memoryNodes) {
+          const scopeId = graph.edges.find(
+            (edge) => edge.kind === 'scope' && edge.from === node.id,
+          )?.to;
+          const members = memoryNodes.filter((candidate) =>
+            graph.edges.some(
+              (edge) => edge.kind === 'scope' && edge.from === candidate.id && edge.to === scopeId,
+            ),
+          );
+          const groupIndex = scopeNodes.findIndex((scope) => scope.id === scopeId);
+          const memberIndex = Math.max(
+            0,
+            members.findIndex((member) => member.id === node.id),
+          );
+          const angle =
+            (memberIndex / Math.max(members.length, 1)) * Math.PI * 2 + groupIndex * 0.45;
+          positions.set(node.id, {
+            x: Math.max(45, Math.min(955, 500 + Math.cos(angle) * (175 + (groupIndex % 2) * 20))),
+            y: Math.max(35, Math.min(525, 280 + Math.sin(angle) * (175 + (groupIndex % 2) * 20))),
+          });
+        }
+        for (const edge of graph.edges) {
+          const from = positions.get(edge.from);
+          const to = positions.get(edge.to);
+          if (!from || !to) continue;
+          const line = document.createElementNS(namespace, 'line');
+          line.setAttribute('x1', from.x);
+          line.setAttribute('y1', from.y);
+          line.setAttribute('x2', to.x);
+          line.setAttribute('y2', to.y);
+          line.setAttribute(
+            'class',
+            `graph-edge ${edge.kind === 'conflict' ? 'conflict' : ''}`.trim(),
+          );
+          line.append(document.createElementNS(namespace, 'title'));
+          line.lastChild.textContent = edge.label || 'Ambito';
+          svg.append(line);
+        }
+        for (const node of graph.nodes) {
+          const position = positions.get(node.id);
+          if (!position) continue;
+          const group = document.createElementNS(namespace, 'g');
+          const circle = document.createElementNS(namespace, 'circle');
+          circle.setAttribute('cx', position.x);
+          circle.setAttribute('cy', position.y);
+          circle.setAttribute('r', node.kind === 'scope' ? 13 : 8);
+          circle.setAttribute(
+            'class',
+            `graph-node ${node.kind === 'scope' ? 'scope' : node.lifecycle}`,
+          );
+          const title = document.createElementNS(namespace, 'title');
+          title.textContent = node.label;
+          circle.append(title);
+          group.append(circle);
+          const label = document.createElementNS(namespace, 'text');
+          label.setAttribute('x', position.x + 12);
+          label.setAttribute('y', position.y + 4);
+          label.setAttribute('class', 'graph-label');
+          label.textContent = node.kind === 'scope' ? node.label : node.label.slice(0, 24);
+          group.append(label);
+          group.onclick = () => {
+            $('graph-detail').textContent =
+              node.kind === 'scope'
+                ? `Ambito: ${node.label}`
+                : `${node.lifecycle} · v${node.version} · ${node.content}`;
+          };
+          svg.append(group);
+        }
+      };
+      const renderGraphNetwork = () => {
+        const graph = state.graph || { nodes: [], edges: [] };
+        const container = $('graph-canvas');
+        container.replaceChildren();
+        if (!window.vis?.Network) {
+          showMessage('Il renderer del grafo non è disponibile.', true);
+          return;
+        }
+        state.graphNetwork?.destroy();
+        const colors = {
+          scope: '#53658d',
+          accepted: '#5dcaa5',
+          pending_approval: '#e1b340',
+          rejected: '#e07a8b',
+          retracted: '#e07a8b',
+        };
+        const nodes = graph.nodes.map((node) => ({
+          id: node.id,
+          label: node.kind === 'scope' ? node.label : node.label.slice(0, 30),
+          title: node.label,
+          group: node.kind === 'scope' ? 'scope' : node.lifecycle,
+          value: node.kind === 'scope' ? 3 : 1,
+        }));
+        const edges = graph.edges.map((edge, index) => ({
+          id: `graph-edge-${index}`,
+          from: edge.from,
+          to: edge.to,
+          label: edge.kind === 'conflict' ? 'CONFLICT' : 'SCOPE',
+          title: edge.label || (edge.kind === 'scope' ? 'Appartiene all’ambito' : 'Conflitta con'),
+          font: {
+            face: 'SFMono-Regular, monospace',
+            size: 9,
+            color: edge.kind === 'conflict' ? '#e07a8b' : '#8b93a6',
+            strokeWidth: 3,
+            strokeColor: '#0b0d13',
+          },
+          color: {
+            color: edge.kind === 'conflict' ? '#e07a8b' : '#65718a',
+            opacity: edge.kind === 'conflict' ? 0.8 : 0.55,
+          },
+          dashes: edge.kind === 'conflict',
+          arrows: { to: { enabled: true, scaleFactor: 0.55 } },
+          width: edge.kind === 'conflict' ? 1.6 : 1,
+          smooth: { type: 'continuous' },
+        }));
+        const network = new window.vis.Network(
+          container,
+          { nodes, edges },
+          {
+            autoResize: true,
+            height: '100%',
+            interaction: {
+              hover: true,
+              dragNodes: true,
+              navigationButtons: false,
+              keyboard: false,
+              tooltipDelay: 120,
+              hideEdgesOnDrag: true,
+            },
+            physics: {
+              enabled: true,
+              stabilization: { iterations: 220, fit: true },
+              barnesHut: {
+                gravitationalConstant: -4200,
+                springLength: 145,
+                springConstant: 0.035,
+                damping: 0.86,
+              },
+              maxVelocity: 32,
+              minVelocity: 0.6,
+            },
+            nodes: {
+              shape: 'dot',
+              size: 12,
+              font: {
+                face: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+                size: 12,
+                color: '#ebeef5',
+              },
+              borderWidth: 1,
+              color: {
+                border: '#ebeef5',
+                highlight: { border: '#ffffff', shadow: '0 0 18px rgba(139,127,240,.8)' },
+              },
+            },
+            edges: { color: { inherit: false }, selectionWidth: 2 },
+            groups: {
+              scope: { color: { background: colors.scope, border: '#8b9bc2' }, size: 18 },
+              accepted: { color: { background: colors.accepted, border: '#b2f0d5' } },
+              pending_approval: {
+                color: { background: colors.pending_approval, border: '#f6d889' },
+              },
+              rejected: { color: { background: colors.rejected, border: '#f0a8b4' } },
+              retracted: { color: { background: colors.rejected, border: '#f0a8b4' } },
+            },
+          },
+        );
+        state.graphNetwork = network;
+        network.on('click', (params) => {
+          const nodeId = params.nodes[0];
+          if (!nodeId) return;
+          const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+          if (!node) return;
+          const relations = graph.edges
+            .filter((edge) => edge.from === node.id || edge.to === node.id)
+            .map((edge) =>
+              edge.kind === 'scope' ? `SCOPE → ${edge.to}` : `CONFLICT → ${edge.to}`,
+            );
+          $('graph-detail').textContent =
+            (node.kind === 'scope'
+              ? `Ambito: ${node.label}`
+              : `${node.lifecycle} · v${node.version} · ${node.content}`) +
+            (relations.length ? ` · ${relations.join(' · ')}` : '');
+        });
+        network.once('stabilizationIterationsDone', () => {
+          network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+        });
       };
       const loadMemories = async () => {
         try {
@@ -878,12 +1341,18 @@
           })
           .catch((error) => showMessage(error.message, true));
       $('connect').onclick = () => {
+        if (!token()) {
+          showMessage('Inserisci il token owner.', true);
+          return;
+        }
         sessionStorage.setItem('mnemosyne-owner-token', token());
         sessionStorage.setItem('mnemosyne-api-origin', apiOrigin());
         loadOverview();
       };
       $('owner-token').value = sessionStorage.getItem('mnemosyne-owner-token') || '';
       $('api-origin').value = sessionStorage.getItem('mnemosyne-api-origin') || '/api/backend';
+      $('graph-refresh').onclick = loadGraph;
+      $('graph-filter').onchange = loadGraph;
       $('memory-search').onclick = loadMemories;
       $('job-refresh').onclick = loadJobs;
       $('review-load').onclick = loadReview;

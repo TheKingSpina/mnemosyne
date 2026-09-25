@@ -17,3 +17,13 @@ README.md
 CONTRIBUTING.md
 CODE_OF_CONDUCT.md
 SECURITY.md
+secrets/
+*.pem
+*.key
+data/
+tmp/
+backups/
+volumes/
+*.dump
+*.enc
+*.manifest.json

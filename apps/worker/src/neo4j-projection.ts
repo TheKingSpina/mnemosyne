@@ -118,6 +118,28 @@ export class Neo4jProjection {
         );
         return;
       }
+      if (event.eventType === 'memory.conflict.updated') {
+        const conflict = await this.repository.getConflict(event.aggregateId);
+        if (!conflict) return;
+        await session.executeWrite((tx) =>
+          tx.run('MATCH ()-[r:CONFLICTS {id: $id}]->() DELETE r', { id: conflict.id }),
+        );
+        if (conflict.memoryIds.length < 2) return;
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MATCH (a:Memory {id: $first}), (b:Memory {id: $second})
+             MERGE (a)-[:CONFLICTS {id: $id, type: $type, status: $status}]->(b)`,
+            {
+              id: conflict.id,
+              type: conflict.type,
+              status: conflict.status,
+              first: conflict.memoryIds[0],
+              second: conflict.memoryIds[1],
+            },
+          ),
+        );
+        return;
+      }
       if (event.eventType === 'memory.conflict.created') {
         const conflict = await this.repository.getConflict(event.aggregateId);
         if (!conflict) return;

@@ -91,7 +91,7 @@ export const openApiDocument: Oas3_1Definition = {
   openapi: '3.1.0',
   info: {
     title: 'Mnemosyne REST API',
-    version: '0.0.0',
+    version: '0.1.0',
     description: [
       'API monoutente per il Mnemosyne. PostgreSQL è la fonte autorevole; Redis, pgvector e Neo4j sono proiezioni derivate.',
       'I corpi JSON sono limitati a 1.048.576 byte. Nel deployment API ogni operazione POST che modifica lo stato richiede `Idempotency-Key`; `POST /v1/context/resolve` e `POST /v1/memories/{id}/forget/prepare` sono esenti perché non scrivono il corpus.',

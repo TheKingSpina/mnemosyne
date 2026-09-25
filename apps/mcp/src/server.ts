@@ -42,7 +42,7 @@ async function authorized<T>(
 
 export function createMcpServer(service: MemoryService, profile: 'harness' | 'owner'): McpServer {
   const server = new McpServer(
-    { name: 'mnemosyne', version: '0.0.0' },
+    { name: 'mnemosyne', version: '0.1.0' },
     { instructions: 'Persistent, governed memory for LLM harnesses.' },
   );
 

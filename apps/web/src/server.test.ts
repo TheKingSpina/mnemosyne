@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { afterEach } from 'vitest';
 import { createWebServer } from './server.js';
 
@@ -16,6 +16,13 @@ afterEach(async () => {
     ),
   );
 });
+
+async function listen(server: Server): Promise<string> {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test_server_address_unavailable');
+  return `http://127.0.0.1:${address.port}`;
+}
 
 describe('Mnemosyne web server', () => {
   it('serves the console with security headers', async () => {
@@ -35,9 +42,32 @@ describe('Mnemosyne web server', () => {
     expect(await response.text()).toContain('Mnemosyne');
   });
 
+  it('proxies authenticated API requests through the browser origin', async () => {
+    const upstream = createServer((request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ authorization: request.headers.authorization }));
+    });
+    servers.push(upstream);
+    const upstreamUrl = await listen(upstream);
+    const web = createWebServer({
+      apiOrigin: upstreamUrl,
+      indexPath: new URL('./index.html', import.meta.url).pathname,
+    });
+    servers.push(web);
+    const webUrl = await listen(web);
+
+    const response = await fetch(`${webUrl}/api/backend/v1/admin/overview`, {
+      headers: { authorization: 'Bearer owner-test-token' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ authorization: 'Bearer owner-test-token' });
+  });
+
   it('uses session storage instead of local storage for the owner token', () => {
     const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
     expect(html).toContain("sessionStorage.setItem('mnemosyne-owner-token'");
+    expect(html).toContain('Inserisci il token owner e premi Connetti.');
     expect(html).not.toContain("localStorage.setItem('mnemosyne-owner-token'");
   });
 });

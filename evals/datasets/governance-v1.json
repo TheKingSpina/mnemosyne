@@ -1,0 +1,236 @@
+[
+  {
+    "id": "explicit-project-convention",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "events": [
+      {
+        "eventId": "explicit-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa pnpm",
+        "occurredAt": "2026-01-20T10:00:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 1,
+      "extractedContents": ["il progetto usa pnpm"],
+      "finalContents": ["il progetto usa pnpm"],
+      "kinds": ["convention"],
+      "scopes": ["project:eval-governance"],
+      "pendingBeforeReview": 1,
+      "acceptedAfterReview": 0,
+      "conflicts": 0,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "unmarked-event-is-ignored",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "events": [
+      {
+        "eventId": "unmarked-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa pnpm",
+        "occurredAt": "2026-01-20T10:01:00.000Z",
+        "explicitMemoryRequest": false
+      }
+    ],
+    "expected": {
+      "extractedCount": 0,
+      "extractedContents": [],
+      "finalContents": [],
+      "kinds": [],
+      "scopes": [],
+      "pendingBeforeReview": 0,
+      "acceptedAfterReview": 0,
+      "conflicts": 0,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "duplicate-candidates-preserve-sources",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "events": [
+      {
+        "eventId": "duplicate-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa pnpm",
+        "occurredAt": "2026-01-20T10:02:00.000Z",
+        "explicitMemoryRequest": true
+      },
+      {
+        "eventId": "duplicate-2",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa PNPM",
+        "occurredAt": "2026-01-20T10:03:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 2,
+      "extractedContents": ["il progetto usa pnpm"],
+      "finalContents": ["il progetto usa pnpm"],
+      "kinds": ["convention"],
+      "scopes": ["project:eval-governance"],
+      "pendingBeforeReview": 1,
+      "acceptedAfterReview": 0,
+      "conflicts": 0,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "consolidation-merges-independent-pending-candidates",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "directPending": [
+      {
+        "content": "Il progetto usa pnpm",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-governance" },
+        "epistemicBasis": "user_asserted",
+        "assessment": "uncontested",
+        "confidence": 1,
+        "sensitivity": "normal",
+        "activation": "on_demand",
+        "sourceEventIds": ["direct-pending-1"]
+      },
+      {
+        "content": "il progetto usa PNPM",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-governance" },
+        "epistemicBasis": "user_asserted",
+        "assessment": "uncontested",
+        "confidence": 1,
+        "sensitivity": "normal",
+        "activation": "on_demand",
+        "sourceEventIds": ["direct-pending-2"]
+      }
+    ],
+    "events": [
+      {
+        "eventId": "direct-pending-1",
+        "type": "message",
+        "role": "user",
+        "content": "Messaggio non marcato uno",
+        "occurredAt": "2026-01-20T10:02:30.000Z",
+        "explicitMemoryRequest": false
+      },
+      {
+        "eventId": "direct-pending-2",
+        "type": "message",
+        "role": "user",
+        "content": "Messaggio non marcato due",
+        "occurredAt": "2026-01-20T10:02:45.000Z",
+        "explicitMemoryRequest": false
+      }
+    ],
+    "expected": {
+      "extractedCount": 0,
+      "extractedContents": [],
+      "finalContents": ["il progetto usa pnpm"],
+      "kinds": ["convention"],
+      "scopes": ["project:eval-governance"],
+      "pendingBeforeReview": 2,
+      "acceptedAfterReview": 0,
+      "conflicts": 0,
+      "duplicateMerges": 1
+    }
+  },
+  {
+    "id": "secret-like-candidate-is-filtered",
+    "projectId": "eval-governance",
+    "query": "password",
+    "events": [
+      {
+        "eventId": "secret-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che api_key=sk-12345678901234567890",
+        "occurredAt": "2026-01-20T10:04:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 0,
+      "extractedContents": [],
+      "finalContents": [],
+      "kinds": [],
+      "scopes": [],
+      "pendingBeforeReview": 0,
+      "acceptedAfterReview": 0,
+      "conflicts": 0,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "global-preference-remains-pending",
+    "projectId": "eval-governance",
+    "query": "preferisco",
+    "events": [
+      {
+        "eventId": "global-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che globalmente preferisco risposte concise",
+        "occurredAt": "2026-01-20T10:05:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 1,
+      "extractedContents": ["globalmente preferisco risposte concise"],
+      "finalContents": ["globalmente preferisco risposte concise"],
+      "kinds": ["preference"],
+      "scopes": ["global:personal"],
+      "pendingBeforeReview": 1,
+      "acceptedAfterReview": 0,
+      "conflicts": 0,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "approved-contradiction-is-detected",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "acceptFirst": true,
+    "followUp": {
+      "content": "il progetto non usa pnpm",
+      "kind": "convention",
+      "scope": { "type": "project", "id": "eval-governance" },
+      "epistemicBasis": "user_asserted",
+      "assessment": "disputed",
+      "confidence": 1,
+      "sensitivity": "normal",
+      "activation": "on_demand",
+      "sourceEventIds": []
+    },
+    "events": [
+      {
+        "eventId": "contradiction-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa pnpm",
+        "occurredAt": "2026-01-20T10:06:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 1,
+      "extractedContents": ["il progetto usa pnpm"],
+      "finalContents": ["il progetto non usa pnpm", "il progetto usa pnpm"],
+      "kinds": ["convention", "convention"],
+      "scopes": ["project:eval-governance", "project:eval-governance"],
+      "pendingBeforeReview": 1,
+      "acceptedAfterReview": 1,
+      "conflicts": 1,
+      "duplicateMerges": 0
+    }
+  }
+]

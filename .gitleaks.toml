@@ -1,0 +1,4 @@
+[allowlist]
+description = "Synthetic secret fixtures"
+regexTarget = "match"
+regexes = ['''sk-12345678901234567890''']

@@ -3,10 +3,23 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+  schedule:
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: read
+
+env:
+  NODE_VERSION: '22'
+  POSTGRES_DB: mnemosyne_ci
+  POSTGRES_USER: mnemosyne_ci
+  POSTGRES_PASSWORD: ci-postgres-password-01234567890123456789
+  NEO4J_PASSWORD: ci-neo4j-password-01234567890123456789
+  MNEMOSYNE_FORGET_SECRET: ci-forget-secret-01234567890123456789
+  MNEMOSYNE_OWNER_TOKEN: ci-owner-token-01234567890123456789
+  MNEMOSYNE_HARNESS_TOKEN: ci-harness-token-01234567890123456789
 
 jobs:
   verify:
@@ -16,11 +29,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -38,8 +53,165 @@ jobs:
       - name: Check generated OpenAPI artifact
         run: npm run openapi:check
 
+      - name: Check dependency licenses
+        run: npm run license:check
+
       - name: Test
         run: npm test
 
+      - name: Evaluate governance and retrieval baselines
+        run: npm run eval:all
+
       - name: Audit dependencies
         run: npm audit --audit-level=high
+
+  security:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository history
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/repo:ro"
+          zricethezav/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+          detect
+          --source=/repo
+          --redact
+          --no-banner
+
+  containers:
+    name: Build ${{ matrix.target }} image
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api, mcp, web, worker]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build image
+        run: >-
+          docker build
+          --target "${{ matrix.target }}"
+          --tag "mnemosyne-${{ matrix.target }}:${{ github.sha }}"
+          .
+
+      - name: Check runtime user
+        run: docker run --rm --entrypoint id "mnemosyne-${{ matrix.target }}:${{ github.sha }}" -u
+
+      - name: Scan OS image vulnerabilities
+        run: >-
+          archive="$(mktemp)";
+          trap 'rm -f "$archive"' EXIT;
+          docker save "mnemosyne-${{ matrix.target }}:${{ github.sha }}" > "$archive";
+          docker run --rm
+          -v "$archive:/scan/image.tar:ro"
+          aquasec/trivy:0.58.1@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7
+          image
+          --input /scan/image.tar
+          --scanners vuln
+          --pkg-types os
+          --exit-code 1
+          --severity HIGH,CRITICAL
+          --ignore-unfixed
+          --quiet
+
+  e2e:
+    name: Synthetic end-to-end
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run synthetic end-to-end flow
+        run: npm run e2e:synthetic
+
+      - name: Collect container state
+        if: failure()
+        run: docker ps -a --filter 'name=mnemosyne-e2e-'
+
+  release:
+    name: Create GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, security, containers, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate annotated semver tag
+        run: |
+          test "$GITHUB_REF_NAME" != "${GITHUB_REF_NAME#v}"
+          echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
+
+      - name: Generate SBOM and source artifact
+        run: |
+          npm run sbom:generate
+          git archive --format=tar.gz --output=artifacts/mnemosyne-source.tar.gz "$GITHUB_REF_NAME"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnemosyne-release-artifacts
+          path: artifacts/
+
+      - name: Attest source provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/mnemosyne-source.tar.gz
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: artifacts/mnemosyne-sbom.cdx.json
+          predicate-type: https://cyclonedx.org/bom
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --verify-tag
+          --generate-notes
+          --title "$GITHUB_REF_NAME"
+          artifacts/mnemosyne-source.tar.gz
+          artifacts/mnemosyne-sbom.cdx.json

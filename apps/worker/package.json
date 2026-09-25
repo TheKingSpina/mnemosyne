@@ -1,6 +1,6 @@
 {
   "name": "@mnemosyne/worker",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,9 +8,9 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@mnemosyne/contracts": "0.0.0",
-    "@mnemosyne/core": "0.0.0",
-    "@mnemosyne/postgres": "0.0.0",
+    "@mnemosyne/contracts": "0.1.0",
+    "@mnemosyne/core": "0.1.0",
+    "@mnemosyne/postgres": "0.1.0",
     "neo4j-driver": "^6.2.0"
   }
 }

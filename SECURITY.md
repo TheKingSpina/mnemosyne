@@ -19,15 +19,18 @@ Do not include real credentials, conversations, memory contents, or backup files
 - Do not expose the development API or MCP server directly to the Internet.
 - Use authenticated private networking and TLS for remote access.
 - REST and Streamable HTTP use separate `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` credentials; do not run either interface unauthenticated.
+- Streamable HTTP sessions are bound to the authenticated owner or harness profile, expire when idle, and reject untrusted origins when `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` is configured. Session state is process-local; use one replica or sticky routing.
 - Administrative operations are authorized server-side; hiding a tool from a client is not treated as access control.
 - The owner web console is an administrative surface; keep it local or behind the same private network and HTTPS controls as the API. It proxies API calls server-side and keeps the owner token in browser session storage, not local storage.
 - Keep provider keys and forget secrets outside the repository and database.
 - Use synthetic data in tests and reports.
 - Back up PostgreSQL securely and test restoration regularly.
-- The `npm run backup:postgres` helper writes an unencrypted custom-format dump
-  with restrictive local permissions; encrypt and copy it to protected storage
-  before relying on it operationally.
+- `npm run backup:postgres` supports verified publication, optional authenticated
+  encryption, manifests, checksums, and retention. Use `npm run restore:postgres`
+  only with an explicit target database and a verified artifact.
+- Keep the passphrase file outside the repository and copy verified artifacts to
+  protected external storage before relying on them operationally.
 
 ## Supported versions
 
-The security policy for released versions will be maintained here as the project reaches its first release. Until then, use the latest `main` commit only for development and do not treat it as a production release.
+La versione `0.1.0` è il primo candidato supportato. Le versioni future saranno elencate qui dopo il tag di release; `main` rimane il canale di sviluppo. La checklist e le procedure sono in [`RELEASING.md`](RELEASING.md).

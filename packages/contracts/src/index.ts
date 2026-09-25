@@ -109,8 +109,8 @@ export type OpenSessionOutput = z.infer<typeof openSessionOutputSchema>;
 
 export const listPendingProposalsInputSchema = z.object({
   sessionId: z.string().min(1),
-  limit: z.number().int().min(1).max(100).default(20),
-  offset: z.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 export type ListPendingProposalsInput = z.infer<typeof listPendingProposalsInputSchema>;
 
@@ -127,8 +127,8 @@ export const listAdminMemoriesInputSchema = z.object({
   kind: memoryKindSchema.optional(),
   scopeType: scopeTypeSchema.optional(),
   scopeId: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(100).default(50),
-  offset: z.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 export type ListAdminMemoriesInput = z.infer<typeof listAdminMemoriesInputSchema>;
 
@@ -196,8 +196,8 @@ export type SessionView = z.infer<typeof sessionViewSchema>;
 export const listAdminSessionsInputSchema = z.object({
   projectId: z.string().min(1).optional(),
   status: z.enum(['open', 'closed']).optional(),
-  limit: z.number().int().min(1).max(100).default(50),
-  offset: z.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 export type ListAdminSessionsInput = z.infer<typeof listAdminSessionsInputSchema>;
 
@@ -226,8 +226,8 @@ export const listAdminJobsInputSchema = z.object({
   status: z
     .enum(['queued', 'running', 'succeeded', 'failed', 'quarantined', 'cancelled'])
     .optional(),
-  limit: z.number().int().min(1).max(100).default(50),
-  offset: z.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 export type ListAdminJobsInput = z.infer<typeof listAdminJobsInputSchema>;
 

@@ -443,7 +443,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
         'UPDATE memories SET current_version = $2, updated_at = now() WHERE id = $1 RETURNING *',
         [id, expectedVersion + 1],
       );
-      await this.bumpCorpus(client, 'memory.sources.merged', id, expectedVersion);
+      await this.bumpCorpus(client, 'memory.sources.merged', id, expectedVersion + 1);
       await client.query('COMMIT');
       return this.memoryFromRow(result.rows[0]);
     } catch (error) {
@@ -488,8 +488,11 @@ export class PostgresMemoryRepository implements MemoryRepository {
       );
       const record = current.rows[0];
       if (!record) throw new Error('memory_not_found');
-      if (!options.allowSameVersion && record.current_version !== revision.version - 1)
+      if (options.allowSameVersion) {
+        if (revision.version !== record.current_version) throw new Error('memory_version_conflict');
+      } else if (record.current_version !== revision.version - 1) {
         throw new Error('memory_version_conflict');
+      }
       await this.insertRevision(client, id, revision);
       const previous = await client.query<{ lifecycle: MemoryLifecycle }>(
         'SELECT lifecycle FROM memories WHERE id = $1',
@@ -506,6 +509,75 @@ export class PostgresMemoryRepository implements MemoryRepository {
       await this.bumpCorpus(client, 'memory.revision.created', id, revision.version);
       await client.query('COMMIT');
       return this.memoryFromRow(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async consolidateDuplicateCandidate(input: {
+    canonicalId: string;
+    canonicalVersion: number;
+    duplicateId: string;
+    duplicateVersion: number;
+    sourceEventIds: string[];
+  }): Promise<boolean> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const canonical = await client.query<MemoryRow & MemoryRevisionRow>(
+        `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+                r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation,
+                r.source_event_ids
+         FROM memories m
+         JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+         WHERE m.id = $1
+         FOR UPDATE OF m`,
+        [input.canonicalId],
+      );
+      const duplicate = await client.query<MemoryRow>(
+        'SELECT * FROM memories WHERE id = $1 FOR UPDATE',
+        [input.duplicateId],
+      );
+      const canonicalRow = canonical.rows[0];
+      const duplicateRow = duplicate.rows[0];
+      if (
+        !canonicalRow ||
+        !duplicateRow ||
+        input.canonicalId === input.duplicateId ||
+        canonicalRow.current_version !== input.canonicalVersion ||
+        duplicateRow.current_version !== input.duplicateVersion ||
+        canonicalRow.lifecycle !== 'pending_approval' ||
+        duplicateRow.lifecycle !== 'pending_approval'
+      ) {
+        await client.query('COMMIT');
+        return false;
+      }
+      if (input.sourceEventIds.length > 0) {
+        const revision = this.revisionFromRow(canonicalRow);
+        const nextVersion = input.canonicalVersion + 1;
+        await this.insertRevision(client, input.canonicalId, {
+          ...revision,
+          version: nextVersion,
+          sourceEventIds: [...new Set([...canonicalRow.source_event_ids, ...input.sourceEventIds])],
+        });
+        await client.query(
+          'UPDATE memories SET current_version = $2, updated_at = now() WHERE id = $1',
+          [input.canonicalId, nextVersion],
+        );
+        await this.bumpCorpus(client, 'memory.sources.merged', input.canonicalId, nextVersion);
+      }
+      await client.query(
+        `UPDATE memories
+         SET lifecycle = 'rejected', updated_at = now()
+         WHERE id = $1`,
+        [input.duplicateId],
+      );
+      await this.bumpCorpus(client, 'memory.rejected', input.duplicateId);
+      await client.query('COMMIT');
+      return true;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -545,6 +617,17 @@ export class PostgresMemoryRepository implements MemoryRepository {
       await client.query('BEGIN');
       const result = await client.query('SELECT id FROM memories WHERE id = $1 FOR UPDATE', [id]);
       if (!result.rows[0]) throw new Error('memory_not_found');
+      const updatedConflicts = await client.query<{ id: string }>(
+        `UPDATE conflicts
+         SET memory_ids = array_remove(memory_ids, $1)
+         WHERE $1 = ANY(memory_ids) AND cardinality(memory_ids) > 2
+         RETURNING id`,
+        [id],
+      );
+      for (const conflict of updatedConflicts.rows) {
+        await this.bumpCorpus(client, 'memory.conflict.updated', conflict.id);
+      }
+      await client.query('DELETE FROM conflicts WHERE $1 = ANY(memory_ids)', [id]);
       await client.query('DELETE FROM memories WHERE id = $1', [id]);
       await client.query(
         'INSERT INTO forget_ledger (memory_id) VALUES ($1) ON CONFLICT DO NOTHING',
@@ -742,8 +825,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     const client = await this.client();
     try {
       await client.query('BEGIN');
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        uniqueMemoryIds.join('\u0000'),
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1::text[]::text))', [
+        [...uniqueMemoryIds].sort(),
       ]);
       const existing = await client.query<ConflictRow>(
         `SELECT id, type, memory_ids, status

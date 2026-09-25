@@ -96,6 +96,10 @@ services:
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: ${MCP_PORT:-3333}
       MCP_MAX_REQUEST_BODY_BYTES: ${MCP_MAX_REQUEST_BODY_BYTES:-1048576}
+      MCP_MAX_SESSIONS: ${MCP_MAX_SESSIONS:-1000}
+      MCP_SESSION_IDLE_TIMEOUT_MS: ${MCP_SESSION_IDLE_TIMEOUT_MS:-1800000}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
     ports:
       - '127.0.0.1:${MCP_HTTP_PORT:-3333}:${MCP_PORT:-3333}'
     depends_on:
@@ -113,7 +117,12 @@ services:
       WEB_PORT: 8080
       WEB_API_ORIGIN: http://api:3000
     ports:
-      - '127.0.0.1:${WEB_PORT:-8080}:8080'
+      - '${WEB_BIND_HOST:-127.0.0.1}:${WEB_PORT:-8080}:8080'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
       api:
         condition: service_healthy

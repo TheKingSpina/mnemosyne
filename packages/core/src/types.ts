@@ -169,7 +169,18 @@ export interface MemoryRepository {
     sourceEventIds: string[],
   ): Promise<MemoryRecord>;
   createRevision(input: CorrectMemoryInput): Promise<MemoryRecord>;
-  updateMemoryRevision(id: string, revision: MemoryRevision): Promise<MemoryRecord>;
+  updateMemoryRevision(
+    id: string,
+    revision: MemoryRevision,
+    options?: { allowSameVersion?: boolean },
+  ): Promise<MemoryRecord>;
+  consolidateDuplicateCandidate(input: {
+    canonicalId: string;
+    canonicalVersion: number;
+    duplicateId: string;
+    duplicateVersion: number;
+    sourceEventIds: string[];
+  }): Promise<boolean>;
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
   runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts>;

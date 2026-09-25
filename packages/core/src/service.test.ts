@@ -353,6 +353,82 @@ describe('CoreMemoryService', () => {
     expect(pending?.memory.lifecycle).toBe('pending_approval');
   });
 
+  it('removes conflicts when a memory is forgotten and keeps the export restorable', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const accepted = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    const contradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto non usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    });
+    const prepared = await service.prepareForget(contradiction.memoryId!);
+    await service.forgetMemory(contradiction.memoryId!, prepared.confirmationToken);
+
+    const exportValue = await service.listCorpusExport();
+    const target = createService();
+    const restored = await target.restoreCorpus(exportValue);
+
+    expect((await service.listConflicts()).items).toEqual([]);
+    expect(exportValue.conflicts).toEqual([]);
+    expect(restored.restored.conflicts).toBe(0);
+    expect(await target.getMemory(accepted.memoryId!)).not.toBeNull();
+  });
+
+  it('keeps a multi-memory conflict when one remaining member is forgotten', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    const memories: string[] = [];
+    for (const content of ['Memoria A', 'Memoria B', 'Memoria C']) {
+      const result = await service.proposeMemory(
+        {
+          sessionId: session.sessionId,
+          content,
+          kind: 'fact',
+          scope: projectScope,
+          epistemicBasis: 'user_asserted',
+          assessment: 'uncontested',
+          confidence: 1,
+          sensitivity: 'normal',
+          activation: 'on_demand',
+          sourceEventIds: [],
+        },
+        { actor: 'owner', explicitDirective: true },
+      );
+      memories.push(result.memoryId!);
+    }
+    await repository.createConflict(memories);
+    const prepared = await service.prepareForget(memories[0]);
+    await service.forgetMemory(memories[0], prepared.confirmationToken);
+
+    const remaining = await service.listConflicts();
+    expect(remaining.items[0]?.memoryIds).toEqual([memories[1], memories[2]]);
+  });
+
   it('includes a relevant open conflict in resolved context metadata', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });
@@ -839,6 +915,116 @@ describe('CoreMemoryService', () => {
     );
     expect(afterRestore).not.toBe(beforeRestore);
     expect(afterRestore.endsWith(':1')).toBe(true);
+  });
+
+  it('consolidates duplicate pending candidates without accepting them', async () => {
+    let now = new Date('2026-01-20T10:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await service.recordEvents({
+      sessionId: session.sessionId,
+      events: [
+        {
+          eventId: 'consolidation-event-1',
+          type: 'message',
+          role: 'user',
+          content: 'Ricorda che il progetto usa pnpm',
+          occurredAt: '2026-01-20T10:00:00.000Z',
+          explicitMemoryRequest: true,
+        },
+        {
+          eventId: 'consolidation-event-2',
+          type: 'message',
+          role: 'user',
+          content: 'Ricorda che il progetto usa pnpm',
+          occurredAt: '2026-01-20T10:01:00.000Z',
+          explicitMemoryRequest: true,
+        },
+      ],
+    });
+    const first = await repository.createMemory({
+      sessionId: session.sessionId,
+      content: 'Il progetto usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['consolidation-event-1'],
+    });
+    const duplicate = await repository.createMemory({
+      sessionId: session.sessionId,
+      content: 'il progetto usa PNPM',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['consolidation-event-2'],
+    });
+    await service.closeSession(session.sessionId);
+    now = new Date('2026-01-20T10:02:00.000Z');
+
+    const result = await service.consolidateSession(session.sessionId);
+    const canonical = await service.getMemoryAdminView(first.id);
+    const rejected = await service.getMemoryAdminView(duplicate.id);
+
+    expect(result).toMatchObject({ candidateCount: 1, conflictCount: 0, acceptedMemories: 0 });
+    expect(canonical?.memory.currentVersion).toBe(2);
+    expect(canonical?.revisions[0]?.sourceEventIds).toEqual([
+      'consolidation-event-1',
+      'consolidation-event-2',
+    ]);
+    expect(rejected?.memory.lifecycle).toBe('rejected');
+  });
+
+  it('does not reject a candidate accepted during consolidation', async () => {
+    const repository = new InMemoryRepository();
+    const canonical = await repository.createMemory({
+      sessionId: 'synthetic-session',
+      content: 'Il progetto usa pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['canonical-event'],
+    });
+    const duplicate = await repository.createMemory({
+      sessionId: 'synthetic-session',
+      content: 'il progetto usa PNPM',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['duplicate-event'],
+    });
+    await repository.updateMemoryLifecycle(duplicate.id, 'accepted');
+
+    const consolidated = await repository.consolidateDuplicateCandidate({
+      canonicalId: canonical.id,
+      canonicalVersion: 1,
+      duplicateId: duplicate.id,
+      duplicateVersion: 1,
+      sourceEventIds: ['duplicate-event'],
+    });
+
+    expect(consolidated).toBe(false);
+    expect((await repository.getMemory(duplicate.id))?.record.lifecycle).toBe('accepted');
+    expect((await repository.getMemory(canonical.id))?.record.currentVersion).toBe(1);
   });
 
   it('uses the semantic index when available and removes forgotten entries', async () => {

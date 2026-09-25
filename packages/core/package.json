@@ -1,6 +1,6 @@
 {
   "name": "@mnemosyne/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,6 +14,6 @@
     "check": "tsc --build --pretty false"
   },
   "dependencies": {
-    "@mnemosyne/contracts": "0.0.0"
+    "@mnemosyne/contracts": "0.1.0"
   }
 }

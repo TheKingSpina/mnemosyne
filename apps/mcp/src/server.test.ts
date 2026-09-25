@@ -18,7 +18,7 @@ function createService(): CoreMemoryService {
 
 async function connect(profile: 'harness' | 'owner') {
   const server = createMcpServer(createService(), profile);
-  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  const client = new Client({ name: 'test-client', version: '0.1.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   closeables.push(server, client);
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -63,7 +63,7 @@ describe('Mnemosyne MCP tool profiles', () => {
   it('resolves a conflict through the owner MCP tool', async () => {
     const service = createService();
     const server = createMcpServer(service, 'owner');
-    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     closeables.push(server, client);
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

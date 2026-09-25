@@ -67,6 +67,7 @@ import type {
   MemoryRecord,
   MemoryRepository,
   MemoryService,
+  MemoryWithCurrent,
   ProposalContext,
   SessionRecord,
 } from './types.js';
@@ -735,14 +736,20 @@ export class CoreMemoryService implements MemoryService {
         memory.record.lifecycle === 'pending_approval' &&
         memory.current.sourceEventIds.some((eventId) => eventIds.has(eventId)),
     );
-    const candidateIds = new Set(candidates.map((memory) => memory.record.id));
+    await this.consolidateDuplicateCandidates(candidates);
+    const consolidatedCandidates = (await this.repository.listMemoryViews()).filter(
+      (memory) =>
+        memory.record.lifecycle === 'pending_approval' &&
+        memory.current.sourceEventIds.some((eventId) => eventIds.has(eventId)),
+    );
+    const candidateIds = new Set(consolidatedCandidates.map((memory) => memory.record.id));
     const conflicts = (await this.repository.listAllConflicts()).filter((conflict) =>
       conflict.memoryIds.some((memoryId) => candidateIds.has(memoryId)),
     );
     return {
       sessionId,
       sourceEventCount: events.length,
-      candidateCount: candidates.length,
+      candidateCount: consolidatedCandidates.length,
       conflictCount: conflicts.length,
       acceptedMemories: 0,
     };
@@ -762,6 +769,45 @@ export class CoreMemoryService implements MemoryService {
   async getCorpusRevision(): Promise<string> {
     const revision = await this.repository.getCorpusRevision();
     return `${revision.epoch}:${revision.revision}`;
+  }
+
+  private async consolidateDuplicateCandidates(candidates: MemoryWithCurrent[]): Promise<void> {
+    const groups = new Map<string, MemoryWithCurrent[]>();
+    for (const candidate of candidates) {
+      const key = JSON.stringify([
+        candidate.current.kind,
+        candidate.current.scope.type,
+        candidate.current.scope.id,
+        this.normalizedContent(candidate.current.content),
+      ]);
+      const group = groups.get(key) ?? [];
+      group.push(candidate);
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const ordered = [...group].sort((left, right) =>
+        left.record.createdAt.localeCompare(right.record.createdAt),
+      );
+      const canonical = ordered[0];
+      for (const duplicate of ordered.slice(1)) {
+        const newSourceEventIds = duplicate.current.sourceEventIds.filter(
+          (eventId) => !canonical.current.sourceEventIds.includes(eventId),
+        );
+        const consolidated = await this.repository.consolidateDuplicateCandidate({
+          canonicalId: canonical.record.id,
+          canonicalVersion: canonical.record.currentVersion,
+          duplicateId: duplicate.record.id,
+          duplicateVersion: duplicate.record.currentVersion,
+          sourceEventIds: newSourceEventIds,
+        });
+        if (!consolidated) continue;
+        const refreshed = await this.repository.getMemory(canonical.record.id);
+        if (!refreshed) throw new Error('memory_not_found');
+        canonical.record = refreshed.record;
+        canonical.current = refreshed.current;
+      }
+    }
   }
 
   private assertNotSecret(content: string, sensitivity: string): void {

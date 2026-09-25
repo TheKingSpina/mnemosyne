@@ -14,15 +14,18 @@ Thank you for helping improve Mnemosyne.
 ```bash
 npm install
 npm run verify
+npm run e2e:synthetic
 ```
 
 The project uses TypeScript, npm workspaces, Vitest, ESLint, and Prettier.
+Run `npm run license:check` when dependencies change.
 
 ## Pull requests
 
 - explain the user-visible behavior;
 - add or update deterministic tests for behavior changes;
-- run `npm run verify`;
+- run `npm run verify` and the relevant Docker/E2E checks;
+- run `npm run license:check` for dependency changes;
 - update documentation when contracts or configuration change;
 - do not change the memory model or API meaning without a migration plan.
 

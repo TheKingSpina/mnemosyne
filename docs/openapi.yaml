@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Mnemosyne REST API
-  version: 0.0.0
+  version: 0.1.0
   description: >-
     API monoutente per il Mnemosyne. PostgreSQL è la fonte autorevole; Redis,
     pgvector e Neo4j sono proiezioni derivate.

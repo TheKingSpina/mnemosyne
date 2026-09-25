@@ -1,0 +1,94 @@
+[
+  {
+    "id": "project-conventions",
+    "projectId": "eval-retrieval",
+    "memories": [
+      {
+        "key": "package-manager",
+        "content": "Il progetto usa pnpm",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "workspace",
+        "content": "Il workspace usa npm workspaces",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "database",
+        "content": "Il database autorevole è PostgreSQL",
+        "kind": "fact",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      }
+    ],
+    "queries": [
+      {
+        "query": "pnpm",
+        "expectedKeys": ["package-manager"],
+        "limit": 3
+      },
+      {
+        "query": "workspace",
+        "expectedKeys": ["workspace"],
+        "limit": 3
+      },
+      {
+        "query": "argomento assente",
+        "expectedKeys": [],
+        "limit": 3
+      }
+    ]
+  },
+  {
+    "id": "scope-isolation",
+    "projectId": "eval-retrieval",
+    "memories": [
+      {
+        "key": "global-style",
+        "content": "Preferisco risposte concise",
+        "kind": "preference",
+        "scope": { "type": "global", "id": "personal" }
+      },
+      {
+        "key": "project-style",
+        "content": "Il progetto preferisce esempi sintetici",
+        "kind": "preference",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      }
+    ],
+    "queries": [
+      {
+        "query": "prefer",
+        "expectedKeys": ["global-style", "project-style"],
+        "limit": 5
+      }
+    ]
+  },
+  {
+    "id": "pending-exclusion",
+    "projectId": "eval-retrieval",
+    "memories": [
+      {
+        "key": "approved",
+        "content": "Il progetto usa pnpm",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "pending",
+        "content": "Il progetto usa Bun",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-retrieval" },
+        "lifecycle": "pending"
+      }
+    ],
+    "queries": [
+      {
+        "query": "Bun",
+        "expectedKeys": [],
+        "limit": 3
+      }
+    ]
+  }
+]

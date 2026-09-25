@@ -1,6 +1,6 @@
 {
   "name": "@mnemosyne/postgres",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,8 +14,8 @@
     "check": "tsc --build --pretty false"
   },
   "dependencies": {
-    "@mnemosyne/contracts": "0.0.0",
-    "@mnemosyne/core": "0.0.0",
+    "@mnemosyne/contracts": "0.1.0",
+    "@mnemosyne/core": "0.1.0",
     "pg": "^8.23.0"
   }
 }

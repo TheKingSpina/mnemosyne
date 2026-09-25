@@ -332,6 +332,17 @@ describe('Mnemosyne API authorization', () => {
     });
   });
 
+  it('coerces admin pagination parameters from query strings', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+    const response = await fetch(`${baseUrl}/v1/admin/memories?q=&limit=100&offset=0`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ limit: 100, offset: 0 });
+  });
+
   it('exposes balanced retention status and runs retention only for the owner', async () => {
     const { server } = createTestServer();
     const baseUrl = await listen(server);

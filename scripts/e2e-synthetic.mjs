@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, URLSearchParams } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -54,6 +56,7 @@ const environment = {
 };
 const apiUrl = `http://127.0.0.1:${ports.api}`;
 let stackStarted = false;
+let backupTempDirectory;
 
 try {
   stackStarted = true;
@@ -87,6 +90,7 @@ try {
       process.stderr.write('Synthetic end-to-end cleanup failed\n');
     }
   }
+  if (backupTempDirectory) await rm(backupTempDirectory, { recursive: true, force: true });
 }
 
 async function runLifecycle() {
@@ -128,7 +132,7 @@ async function runLifecycle() {
           eventId: 'e2e-event-2',
           type: 'message',
           role: 'user',
-          content: 'Ricorda che preferisco risposte concise',
+          content: 'Ricorda che il progetto non usa npm',
           occurredAt: '2026-01-20T10:01:00.000Z',
           explicitMemoryRequest: true,
         },
@@ -137,7 +141,7 @@ async function runLifecycle() {
     status: 202,
   });
   await waitForJob(secondEvent.jobIds[0]);
-  const secondPending = await waitForPending(session.sessionId, 'preferisco risposte concise');
+  const secondPending = await waitForPending(session.sessionId, 'il progetto non usa npm');
   const second = await review(secondPending, 'e2e-review-second');
 
   const context = await api('/v1/context/resolve', {
@@ -153,7 +157,7 @@ async function runLifecycle() {
   const search = await api(
     `/v1/memories?${new URLSearchParams({
       sessionId: session.sessionId,
-      q: 'risposte concise',
+      q: 'non usa npm',
     })}`,
     { token: harnessToken },
   );
@@ -182,6 +186,7 @@ async function runLifecycle() {
   const exported = await api('/v1/admin/exports/corpus', { token: ownerToken });
   assert(exported.forgetLedger.length === 0);
   assert(exported.memories.length === 2);
+  assert(exported.conflicts.length === 1);
 
   await searchToCreateCache(session.sessionId, second.memory.memoryId);
   const prepared = await api(
@@ -204,7 +209,7 @@ async function runLifecycle() {
   const afterForget = await api(
     `/v1/memories?${new URLSearchParams({
       sessionId: session.sessionId,
-      q: 'risposte concise',
+      q: 'non usa npm',
     })}`,
     { token: harnessToken },
   );
@@ -216,12 +221,56 @@ async function runLifecycle() {
     !finalExport.memories.some((memory) => memory.current.memoryId === second.memory.memoryId),
   );
   assert(finalExport.forgetLedger.length === 1);
+  assert(finalExport.conflicts.length === 0);
+  const closed = await api(`/v1/sessions/${encodeURIComponent(session.sessionId)}/close`, {
+    token: harnessToken,
+    method: 'POST',
+    key: 'e2e-close-session',
+    body: {},
+    status: 202,
+  });
+  await waitForJob(closed.jobId);
+  await verifyBackupLifecycle();
   return {
     export: finalExport,
     sourceCorpusRevision: finalExport.corpusRevision,
     firstId: first.memory.memoryId,
     secondId: second.memory.memoryId,
   };
+}
+
+async function verifyBackupLifecycle() {
+  backupTempDirectory = await mkdtemp(join(tmpdir(), 'mnemosyne-e2e-backup-'));
+  const passphrasePath = join(backupTempDirectory, 'backup.pass');
+  const backupPath = join(backupTempDirectory, 'e2e.dump');
+  await writeFile(passphrasePath, 'synthetic-e2e-backup-passphrase-long-enough\n', { mode: 0o600 });
+  execFileSync(
+    process.execPath,
+    [
+      resolve(root, 'scripts/backup-postgres.mjs'),
+      '--output',
+      backupPath,
+      '--verify-restore',
+      '--encrypt',
+      '--passphrase-file',
+      passphrasePath,
+    ],
+    { cwd: root, env: environment, stdio: 'inherit' },
+  );
+  execFileSync(
+    process.execPath,
+    [
+      resolve(root, 'scripts/restore-postgres.mjs'),
+      '--input',
+      backupPath,
+      '--target-database',
+      'mnemosyne_e2e_restored',
+      '--confirm',
+      '--passphrase-file',
+      passphrasePath,
+    ],
+    { cwd: root, env: environment, stdio: 'inherit' },
+  );
 }
 
 async function restoreAndVerify(lifecycle) {
@@ -278,7 +327,7 @@ async function searchToCreateCache(sessionId, memoryId) {
   const search = await api(
     `/v1/memories?${new URLSearchParams({
       sessionId,
-      q: 'risposte concise',
+      q: 'non usa npm',
     })}`,
     { token: harnessToken },
   );
@@ -291,7 +340,10 @@ async function waitForJob(jobId) {
     const job = await api(`/v1/jobs/${encodeURIComponent(jobId)}`, { token: harnessToken });
     if (job.status === 'succeeded') return;
     if (job.status === 'failed' || job.status === 'quarantined') {
-      throw new Error(`job_${job.status}`);
+      const attempts = await api(`/v1/admin/jobs/${encodeURIComponent(jobId)}/attempts`, {
+        token: ownerToken,
+      });
+      throw new Error(`job_${job.status}:${JSON.stringify(attempts)}`);
     }
     await sleep(250);
   }

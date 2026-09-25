@@ -1,5 +1,6 @@
 # Local agent/runtime data
 .ori/
+screenshot/
 
 # Environment and secrets
 .env
@@ -31,3 +32,4 @@ volumes/
 
 # Generated evaluation output
 evals/results/
+artifacts/
