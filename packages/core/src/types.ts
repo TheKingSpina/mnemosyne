@@ -185,6 +185,12 @@ export interface MemoryRepository {
   removeMemory(id: string): Promise<void>;
   runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
+  searchCurrentMemories?(input: {
+    query: string;
+    limit: number;
+    scopes: Scope[];
+  }): Promise<MemoryRevision[]>;
+  getCurrentMemoriesByIds?(ids: string[]): Promise<MemoryRevision[]>;
   listAllEvents(): Promise<EventRecord[]>;
   listAllMemoryRevisions(): Promise<Array<{ memoryId: string; revision: MemoryRevision }>>;
   listForgetLedger(): Promise<Array<{ memoryId: string; forgottenAt: string }>>;

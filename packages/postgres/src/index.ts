@@ -6,6 +6,7 @@ import type {
   OpenSessionInput,
   ProposeMemoryInput,
   RecordEventsInput,
+  Scope,
 } from '@mnemosyne/contracts';
 import type {
   ConflictRecord,
@@ -719,6 +720,39 @@ export class PostgresMemoryRepository implements MemoryRepository {
     const result = await this.database.query<MemoryRevisionRow>(
       `SELECT r.* FROM memories m JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
        WHERE m.lifecycle = 'accepted' ORDER BY m.updated_at DESC`,
+    );
+    return result.rows.map((row) => this.revisionFromRow(row));
+  }
+
+  async searchCurrentMemories(input: {
+    query: string;
+    limit: number;
+    scopes: Scope[];
+  }): Promise<MemoryRevision[]> {
+    const scopeKeys = input.scopes.map((scope) => `${scope.type}:${scope.id}`);
+    if (input.query.trim().length === 0 || scopeKeys.length === 0 || input.limit < 1) return [];
+    const result = await this.database.query<MemoryRevisionRow & { rank: number }>(
+      `SELECT r.*, ts_rank_cd(to_tsvector('simple', r.content), websearch_to_tsquery('simple', $1)) AS rank
+       FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+       WHERE m.lifecycle = 'accepted'
+         AND to_tsvector('simple', r.content) @@ websearch_to_tsquery('simple', $1)
+         AND (r.scope_type || ':' || r.scope_id) = ANY($2::text[])
+       ORDER BY rank DESC, r.memory_id ASC
+       LIMIT $3`,
+      [input.query, scopeKeys, input.limit],
+    );
+    return result.rows.map((row) => this.revisionFromRow(row));
+  }
+
+  async getCurrentMemoriesByIds(ids: string[]): Promise<MemoryRevision[]> {
+    if (ids.length === 0) return [];
+    const result = await this.database.query<MemoryRevisionRow>(
+      `SELECT r.* FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+       WHERE m.lifecycle = 'accepted' AND r.memory_id = ANY($1::text[])
+       ORDER BY r.memory_id ASC`,
+      [ids],
     );
     return result.rows.map((row) => this.revisionFromRow(row));
   }

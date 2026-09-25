@@ -5,13 +5,25 @@
     "memories": [
       {
         "key": "package-manager",
-        "content": "Il progetto usa pnpm",
+        "content": "pnpm installa le dipendenze del progetto",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "dependency-policy",
+        "content": "Le dipendenze del progetto sono installate con pnpm",
         "kind": "convention",
         "scope": { "type": "project", "id": "eval-retrieval" }
       },
       {
         "key": "workspace",
         "content": "Il workspace usa npm workspaces",
+        "kind": "convention",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "npm-registry",
+        "content": "Il registry npm è configurato per il workspace",
         "kind": "convention",
         "scope": { "type": "project", "id": "eval-retrieval" }
       },
@@ -24,19 +36,88 @@
     ],
     "queries": [
       {
-        "query": "pnpm",
-        "expectedKeys": ["package-manager"],
-        "limit": 3
+        "query": "pnpm installa",
+        "expectedKeys": ["package-manager", "dependency-policy"],
+        "gradedKeys": { "package-manager": 3, "dependency-policy": 2 },
+        "limit": 2,
+        "budgetTokens": 800
       },
       {
-        "query": "workspace",
-        "expectedKeys": ["workspace"],
-        "limit": 3
+        "query": "npm workspaces",
+        "expectedKeys": ["workspace", "npm-registry"],
+        "gradedKeys": { "workspace": 3, "npm-registry": 2 },
+        "limit": 2,
+        "budgetTokens": 800
+      },
+      {
+        "query": "database autorevole",
+        "expectedKeys": ["database"],
+        "gradedKeys": { "database": 3 },
+        "limit": 1,
+        "budgetTokens": 400
       },
       {
         "query": "argomento assente",
         "expectedKeys": [],
         "limit": 3
+      },
+      {
+        "query": "il",
+        "expectedKeys": [],
+        "limit": 3
+      }
+    ]
+  },
+  {
+    "id": "ranking-specificity",
+    "projectId": "eval-retrieval",
+    "memories": [
+      {
+        "key": "api-database",
+        "content": "Il database del gateway API usa PostgreSQL",
+        "kind": "fact",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "worker-queue",
+        "content": "Il worker usa una coda PostgreSQL",
+        "kind": "fact",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "cache-gateway",
+        "content": "Il gateway API usa una cache Redis per le risposte",
+        "kind": "fact",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      },
+      {
+        "key": "gateway-protocol",
+        "content": "Il gateway API usa il protocollo HTTP con Redis per il traffico",
+        "kind": "fact",
+        "scope": { "type": "project", "id": "eval-retrieval" }
+      }
+    ],
+    "queries": [
+      {
+        "query": "redis cache gateway",
+        "expectedKeys": ["cache-gateway", "gateway-protocol"],
+        "gradedKeys": { "cache-gateway": 3, "gateway-protocol": 1 },
+        "limit": 2,
+        "budgetTokens": 800
+      },
+      {
+        "query": "database PostgreSQL",
+        "expectedKeys": ["api-database", "worker-queue"],
+        "gradedKeys": { "api-database": 3, "worker-queue": 1 },
+        "limit": 2,
+        "budgetTokens": 800
+      },
+      {
+        "query": "protocollo HTTP",
+        "expectedKeys": ["gateway-protocol"],
+        "gradedKeys": { "gateway-protocol": 3 },
+        "limit": 1,
+        "budgetTokens": 400
       }
     ]
   },
@@ -59,9 +140,11 @@
     ],
     "queries": [
       {
-        "query": "prefer",
-        "expectedKeys": ["global-style", "project-style"],
-        "limit": 5
+        "query": "progetto preferisce",
+        "expectedKeys": ["project-style", "global-style"],
+        "gradedKeys": { "project-style": 2, "global-style": 1 },
+        "limit": 2,
+        "budgetTokens": 600
       }
     ]
   },
