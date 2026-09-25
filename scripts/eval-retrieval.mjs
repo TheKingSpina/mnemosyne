@@ -28,6 +28,7 @@ const metrics = {
   queries: 0,
   judgedQueries: 0,
   unjudgedQueries: 0,
+  reviewedQueries: 0,
   passedQueries: 0,
   recallAtK: 0,
   precisionAtK: 0,
@@ -49,6 +50,7 @@ for (const testCase of dataset) {
   metrics.queries += result.queries;
   metrics.judgedQueries += result.judgedQueries;
   metrics.unjudgedQueries += result.unjudgedQueries;
+  metrics.reviewedQueries += result.reviewedQueries;
   metrics.passedQueries += result.passedQueries;
   recallTotal += result.recallTotal;
   precisionTotal += result.precisionTotal;
@@ -138,6 +140,7 @@ async function runCase(testCase) {
   let passedQueries = 0;
   let judgedQueries = 0;
   let unjudgedQueries = 0;
+  let reviewedQueries = 0;
   for (const query of testCase.queries) {
     const startedAt = performance.now();
     const [found, context] = await Promise.all([
@@ -181,6 +184,7 @@ async function runCase(testCase) {
     const judged = graded.size > 0;
     if (judged) judgedQueries += 1;
     else unjudgedQueries += 1;
+    if (query.reviewed) reviewedQueries += 1;
     const ndcgPassed = ndcg === null || ndcg >= 1 - 1e-9;
     const contextNdcgPassed = contextNdcg === null || contextNdcg >= 1 - 1e-9;
     const passed =
@@ -199,6 +203,7 @@ async function runCase(testCase) {
     budgetViolations += budgetExceeded;
     queryResults.push({
       query: query.query,
+      reviewed: Boolean(query.reviewed),
       expectedKeys: expected,
       gradedKeys: Object.fromEntries(graded),
       actualKeys: actual,
@@ -217,6 +222,7 @@ async function runCase(testCase) {
     queries: queryResults.length,
     judgedQueries,
     unjudgedQueries,
+    reviewedQueries,
     passedQueries,
     recallTotal,
     precisionTotal,

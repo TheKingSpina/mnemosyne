@@ -26,7 +26,7 @@ npm run eval:retrieval
 npm run eval:all
 ```
 
-The retrieval dataset uses graded relevance, distractor memories, multi-relevant queries, stopword-only queries and no-match queries. The runner reports search and context nDCG, pending-context leaks, budget compliance and latency percentiles. Evaluation output contains fixture keys and metrics, not fixture text.
+The retrieval dataset uses graded relevance, explicit reviewed judgments for ambiguous candidates, distractor memories, multi-relevant queries, stopword-only queries and no-match queries. The runner reports reviewed-query coverage, search and context nDCG, pending-context leaks, budget compliance and latency percentiles. Evaluation output contains fixture keys and metrics, not fixture text.
 
 To verify that the gate can detect a broken ordering:
 

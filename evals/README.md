@@ -15,6 +15,7 @@ The command builds the workspaces, runs `evals/datasets/governance-v1.json` and 
 - candidate precision and recall;
 - kind and scope accuracy;
 - retrieval precision, recall and graded nDCG for both search and context;
+- a reviewed, graded ambiguity case with explicit relevance judgments;
 - a discriminative multi-relevant ordering case with distractors;
 - a deliberate legacy-order contrast check that must fail when ranking is broken;
 - context budget compliance and pending exclusion;

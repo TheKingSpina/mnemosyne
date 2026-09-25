@@ -71,6 +71,8 @@
   {
     "id": "ranking-specificity",
     "projectId": "eval-retrieval",
+    "reviewed": true,
+    "judgmentSet": "reviewed-v1",
     "memories": [
       {
         "key": "api-database",
@@ -100,6 +102,7 @@
     "queries": [
       {
         "query": "redis cache gateway",
+        "reviewed": true,
         "expectedKeys": ["cache-gateway", "gateway-protocol"],
         "gradedKeys": { "cache-gateway": 3, "gateway-protocol": 1 },
         "limit": 2,
@@ -107,6 +110,7 @@
       },
       {
         "query": "database PostgreSQL",
+        "reviewed": true,
         "expectedKeys": ["api-database", "worker-queue"],
         "gradedKeys": { "api-database": 3, "worker-queue": 1 },
         "limit": 2,
@@ -114,10 +118,19 @@
       },
       {
         "query": "protocollo HTTP",
+        "reviewed": true,
         "expectedKeys": ["gateway-protocol"],
         "gradedKeys": { "gateway-protocol": 3 },
         "limit": 1,
         "budgetTokens": 400
+      },
+      {
+        "query": "API gateway cache",
+        "reviewed": true,
+        "expectedKeys": ["cache-gateway", "gateway-protocol", "api-database"],
+        "gradedKeys": { "cache-gateway": 3, "gateway-protocol": 1, "api-database": 1 },
+        "limit": 3,
+        "budgetTokens": 900
       }
     ]
   },
