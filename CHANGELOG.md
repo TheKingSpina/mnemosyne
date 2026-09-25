@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Search and context results now use deterministic hybrid ranking with token-aware lexical matching, BM25/IDF, phrase and proximity bonuses, local semantic fusion, thresholds and stable tie-breaking.
+- PostgreSQL search uses the existing full-text index with bounded scope-aware candidate retrieval; the in-memory backend keeps the same ranking contract.
+- Retrieval evaluation now uses graded, order-sensitive cases and fails under the legacy ordering baseline.
+
+### Changed
+
+- The dashboard graph uses a lightweight native canvas renderer with separated clusters, stable hover behavior, no hover tooltip and persistent clicked-node highlighting.
+- MCP uses the local deterministic embedding provider and PostgreSQL semantic index by default; OpenRouter remains disabled.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
