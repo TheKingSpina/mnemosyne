@@ -768,12 +768,6 @@
         <div id="page-title" class="sub"></div>
         <div class="auth">
           <input
-            id="api-origin"
-            aria-label="API origin"
-            placeholder="/api/backend"
-            style="max-width: 240px"
-          />
-          <input
             id="owner-token"
             aria-label="Owner token"
             type="password"
@@ -1037,7 +1031,7 @@
         selectedJob: null,
       };
       const $ = (id) => document.getElementById(id);
-      const apiOrigin = () => $('api-origin').value.trim().replace(/\/$/, '') || '/api/backend';
+      const apiOrigin = () => '/api/backend';
       const token = () => $('owner-token').value.trim();
       const showMessage = (text, error = false) => {
         const el = $('message');
@@ -2059,11 +2053,9 @@
           return;
         }
         sessionStorage.setItem('mnemosyne-owner-token', token());
-        sessionStorage.setItem('mnemosyne-api-origin', apiOrigin());
         loadOverview();
       };
       $('owner-token').value = sessionStorage.getItem('mnemosyne-owner-token') || '';
-      $('api-origin').value = sessionStorage.getItem('mnemosyne-api-origin') || '/api/backend';
       $('graph-refresh').onclick = loadGraph;
       const refreshGraphView = () => {
         state.graph = buildGraphView();
