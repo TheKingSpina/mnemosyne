@@ -187,6 +187,8 @@ npm run sbom:generate
 npm run e2e:synthetic
 ```
 
+Retrieval ranking, evaluation gates and operational limits are documented in [`docs/retrieval-ranking.md`](docs/retrieval-ranking.md). The retrieval runner supports a deliberate `--legacy-order` contrast check; it is not a production mode.
+
 Run the API locally against the Compose PostgreSQL instance:
 
 ```bash

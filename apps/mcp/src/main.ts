@@ -1,6 +1,12 @@
-import { CoreMemoryService, createAccessPolicy, type AccessPolicy } from '@mnemosyne/core';
-import { PostgresMemoryRepository } from '@mnemosyne/postgres';
+import {
+  CoreMemoryService,
+  DeterministicEmbeddingProvider,
+  createAccessPolicy,
+  type AccessPolicy,
+} from '@mnemosyne/core';
+import { PostgresMemoryRepository, PostgresSemanticSearchIndex } from '@mnemosyne/postgres';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Pool } from 'pg';
 import { createMcpServer } from './server.js';
 import { createMcpHttpServer } from './http.js';
 
@@ -29,8 +35,18 @@ if (!Number.isSafeInteger(maxSessions) || maxSessions <= 0) {
 if (!Number.isSafeInteger(sessionIdleTimeoutMs) || sessionIdleTimeoutMs < 1_000) {
   throw new Error('MCP_SESSION_IDLE_TIMEOUT_MS must be at least 1000');
 }
-const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
-const service = new CoreMemoryService(repository, { forgetSecret });
+const pool = new Pool({ connectionString });
+const repository = await PostgresMemoryRepository.fromPool(pool);
+const embeddingProvider = new DeterministicEmbeddingProvider();
+const semanticSearchIndex = new PostgresSemanticSearchIndex(pool, {
+  profile: embeddingProvider.profile,
+  dimensions: embeddingProvider.dimensions,
+});
+const service = new CoreMemoryService(repository, {
+  forgetSecret,
+  embeddingProvider,
+  semanticSearchIndex,
+});
 
 if (process.env.MCP_TRANSPORT !== 'http') {
   const server = createMcpServer(service, stdioProfile);

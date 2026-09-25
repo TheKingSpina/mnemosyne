@@ -16,6 +16,45 @@ function createService() {
   });
 }
 
+function createSearchService() {
+  const provider = new DeterministicEmbeddingProvider(32);
+  const semanticSearchIndex = new InMemorySemanticSearchIndex({
+    profile: provider.profile,
+    dimensions: provider.dimensions,
+  });
+  return {
+    service: new CoreMemoryService(new InMemoryRepository(), {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      embeddingProvider: provider,
+      semanticSearchIndex,
+    }),
+  };
+}
+
+async function proposeAccepted(
+  service: CoreMemoryService,
+  sessionId: string,
+  content: string,
+): Promise<string> {
+  const result = await service.proposeMemory(
+    {
+      sessionId,
+      content,
+      kind: 'fact',
+      scope: projectScope,
+      epistemicBasis: 'verified',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    },
+    { actor: 'owner', explicitDirective: true },
+  );
+  if (result.status !== 'accepted' || !result.memoryId) throw new Error('fixture_not_accepted');
+  return result.memoryId;
+}
+
 describe('CoreMemoryService', () => {
   it('stores an explicit project memory and returns it in a later session', async () => {
     const service = createService();
@@ -50,6 +89,34 @@ describe('CoreMemoryService', () => {
     expect(context.context[0]?.version).toBe(1);
   });
 
+  it('ranks specific matches first and returns no results without a match', async () => {
+    const { service } = createSearchService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+    await proposeAccepted(service, session.sessionId, 'Il database del gateway API usa PostgreSQL');
+    await proposeAccepted(
+      service,
+      session.sessionId,
+      'Il gateway API usa una cache Redis per le risposte',
+    );
+    await proposeAccepted(service, session.sessionId, 'Il worker usa una coda PostgreSQL');
+
+    const ranked = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'cache Redis',
+      limit: 3,
+      offset: 0,
+    });
+    expect(ranked[0]?.content).toBe('Il gateway API usa una cache Redis per le risposte');
+    expect(ranked.some((memory) => memory.content.includes('coda PostgreSQL'))).toBe(false);
+
+    const noMatch = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'zzzqqqxyz',
+      limit: 10,
+      offset: 0,
+    });
+    expect(noMatch).toEqual([]);
+  });
   it('does not expose a pending global preference until review', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });
