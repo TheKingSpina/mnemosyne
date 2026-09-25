@@ -54,7 +54,7 @@ tailscale serve status
 
 Usa l’URL HTTPS mostrato da `tailscale serve status`. Non usare `tailscale funnel` per Mnemosyne. Restringi l’ACL Tailscale al solo utente e ai dispositivi autorizzati.
 
-Apri la dashboard, lascia API origin `/api/backend` e inserisci il valore di `MNEMOSYNE_OWNER_TOKEN` letto dal file `.env` sul mini. Il token resta nel browser solo per la sessione.
+Apri la dashboard; il proxy interno `/api/backend` è implicito e non richiede alcun inserimento. Inserisci il valore di `MNEMOSYNE_OWNER_TOKEN` letto dal file `.env` sul mini. Il token resta nel browser solo per la sessione.
 
 ## 4. Verifica
 

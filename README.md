@@ -109,7 +109,7 @@ Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different rando
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
 
-The owner web console is published by Compose at `http://127.0.0.1:8080` when Docker runs on the same Mac. Leave the console API origin as `/api/backend`; the `web` container proxies requests to the internal API service. If Docker runs on another host, set `WEB_BIND_HOST=0.0.0.0` (or the host LAN address) in `.env`, open `http://<docker-host>:8080`, and protect the port with firewall/TLS. Enter `MNEMOSYNE_OWNER_TOKEN` in the console; it is kept only in browser session storage.
+The owner web console is published by Compose at `http://127.0.0.1:8080` when Docker runs on the same Mac. The dashboard uses the internal `/api/backend` proxy implicitly; the `web` container forwards requests to the API service, so no API-origin field is required. If Docker runs on another host, set `WEB_BIND_HOST=0.0.0.0` (or the host LAN address) in `.env`, open `http://<docker-host>:8080`, and protect the port with firewall/TLS. Enter `MNEMOSYNE_OWNER_TOKEN` in the console; it is kept only in browser session storage.
 
 Redis is a rebuildable derived cache. If it is unavailable, retrieval continues
 from PostgreSQL and lexical/semantic fallback; cached search results are accepted
