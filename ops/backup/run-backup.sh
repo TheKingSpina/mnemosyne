@@ -7,6 +7,19 @@ if [ -n "${MNEMOSYNE_BACKUP_ENV_FILE:-}" ]; then
   set +a
 fi
 
+# `docker compose` interpolates every service in compose.yaml, not only postgres,
+# so the child process needs the deployment values or the exec fails on unrelated
+# services. compose.yaml requires NEO4J_PASSWORD, POSTGRES_PASSWORD,
+# MNEMOSYNE_FORGET_SECRET, MNEMOSYNE_OWNER_TOKEN, and MNEMOSYNE_HARNESS_TOKEN, so
+# all of them stay in the environment for the duration of the run. The provider
+# key is not required and is dropped.
+if [ -n "${MNEMOSYNE_DEPLOY_ENV_FILE:-}" ]; then
+  set -a
+  . "${MNEMOSYNE_DEPLOY_ENV_FILE}"
+  set +a
+  unset OPENROUTER_API_KEY
+fi
+
 : "${MNEMOSYNE_REPO:?MNEMOSYNE_REPO is required}"
 : "${MNEMOSYNE_BACKUP_DIR:?MNEMOSYNE_BACKUP_DIR is required}"
 : "${MNEMOSYNE_BACKUP_PASSPHRASE_FILE:?MNEMOSYNE_BACKUP_PASSPHRASE_FILE is required}"

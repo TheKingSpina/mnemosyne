@@ -19,7 +19,10 @@ MNEMOSYNE_REPO=/absolute/path/to/mnemosyne
 MNEMOSYNE_BACKUP_DIR=/absolute/path/to/backups
 MNEMOSYNE_BACKUP_PASSPHRASE_FILE=/absolute/path/to/mnemosyne-backup.pass
 MNEMOSYNE_BACKUP_ENV_FILE=/absolute/path/to/mnemosyne-backup.env
+MNEMOSYNE_DEPLOY_ENV_FILE=/absolute/path/to/mnemosyne/.env
 ```
+
+`MNEMOSYNE_DEPLOY_ENV_FILE` is required on any real deployment. The backup command runs `docker compose` with `--env-file /dev/null` so it never depends on the deployment environment implicitly, and `docker compose` interpolates every service in `compose.yaml` even for `exec postgres`. Without the deployment values in the environment, the run fails on unrelated services with `required variable NEO4J_PASSWORD is missing a value`. `run-backup.sh` sources that file and drops the provider key afterwards; the other secrets stay in the environment because compose needs them to interpolate the file.
 
 ## macOS launchd
 
