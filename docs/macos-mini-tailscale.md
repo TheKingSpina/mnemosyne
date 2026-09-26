@@ -92,7 +92,36 @@ npm run backup:postgres -- \
 
 Usa una passphrase file con permessi `0600`, conservata fuori dal repository. Verifica periodicamente il restore con `npm run restore:postgres` in un database target vuoto.
 
-## 7. Aggiornamenti e rollback
+Il comando di backup richiede `MNEMOSYNE_DEPLOY_ENV_FILE` nell'ambiente: `docker compose` interpola tutti i servizi di `compose.yaml` anche per un `exec postgres`, quindi senza i valori di deployment il dump fallisce su `neo4j` o `worker`. I template in `ops/backup/` lo caricano da `run-backup.sh`; vedi [`ops/backup/README.md`](../ops/backup/README.md).
+
+Un backup sul disco del mini non è un backup: copia il `.dump` e il suo `.manifest.json` fuori dal mini, su storage cifrato.
+
+## 7. Persistenza dopo reboot
+
+I servizi Compose hanno già `restart: unless-stopped`, quindi i container tornano da soli quando il daemon riparte. Restano due casi che il daemon non copre: un runtime mai avviato e uno stack lasciato indietro da un crash. `ops/host/` copre entrambi.
+
+```bash
+cat ~/Mnemosyne/ops/host/README.md   # render dei template + bootstrap launchd
+```
+
+In sintesi, sull'host devono esserci tre LaunchAgent in `~/Library/LaunchAgents`:
+
+| Label                   | Effetto                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `com.mnemosyne.runtime` | Al login avvia OrbStack se il socket manca e lancia `docker compose up -d`.                            |
+| `com.mnemosyne.health`  | Ogni 5 minuti sonda `/health/ready` e la dashboard; dopo 2 fallimenti consecutivi riconcilia lo stack. |
+| `com.mnemosyne.backup`  | Ogni notte alle 02:00 dump cifrato con verifica restore e retention.                                   |
+
+I log stanno in `~/Library/Logs/mnemosyne/`. Per lo stato:
+
+```bash
+launchctl list | grep mnemosyne
+tail -f ~/Library/Logs/mnemosyne/mnemosyne-health.log
+```
+
+Abilita anche l'opzione "start at login" di OrbStack: il LaunchAgent è la rete di sicurezza, non il sostituto. L'auto-login deve restare attivo, altrimenti nessun agente parte dopo un riavvio. L'unica verifica completa è un riavvio reale: dopo il rientro controlla `docker compose ps --all`, `/health/ready` e la dashboard via tailnet.
+
+## 8. Aggiornamenti e rollback
 
 Prima di un aggiornamento esegui un backup verificato e annota il commit corrente. Dopo `git pull`:
 
