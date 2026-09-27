@@ -41,7 +41,7 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Documentation: [`docs/retrieval-ranking.md`](docs/retrieval-ranking.md).
 - Historical pre-cleanup live benchmark, using 12 distinctive three-word probes: keyword hit@1 `83.3%`, hit@5 `83.3%`, hit@10 `91.7%`, MRR@10 `0.847`; noisy probes have the same values; verbatim is `100%` top-1/top-10; no-match queries return zero results; top-10 Jaccard mean `0.068`, max `0.818`; search p50/p95 `7.45/18.59 ms`; context p50/p95 `12.89/33.67 ms`.
 - One live probe remains genuinely ambiguous because several memories share the same evidence. This is measured and accepted as a known relevance limit, not an infrastructure failure.
-- Offline gates: `npm run verify` passes 157 tests with 1 skipped; `npm run eval:all` passes governance `9/9` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails, proving the gate detects broken ordering.
+- Offline gates: `npm run verify` passes 168 tests with 1 skipped; `npm run eval:all` passes governance `9/9` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails, proving the gate detects broken ordering.
 
 ### Dashboard and MCP status
 
@@ -55,7 +55,13 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - `GET /v1/admin/capabilities` reports only what the answering process can attest to, and names that process in `reporter`. The values are process-scoped, not deployment-scoped: `redis: true` from the API and `redis: false` from MCP are both correct, because the API owns a cache and MCP does not. Read `reporter` before drawing a conclusion about the deployment. API and MCP do not own the extraction provider, the Neo4j projection or the retention timer, so those come from a worker heartbeat in the new `runtime_capabilities` table, written every `WORKER_CAPABILITY_HEARTBEAT_MS` (default 60s) and trusted only for `MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS` (default 300). Keep the heartbeat shorter than the TTL, or capabilities read unknown while the worker is alive.
 - Capabilities have three states. `null` means unobserved, never disabled, and every `null` is named with a reason in `gaps`. `operations.backupVerified` is always `null` because backups run outside the process. `workerObservedAt` says how fresh the worker's contribution is.
 - Previously `neo4j` and `openRouterConfigured` were hardcoded to `false` and pinned with `z.literal`, so the endpoint asserted facts about a process that cannot see them. Do not reintroduce hardcoded capability values, and do not pin a field that some process can genuinely observe differently.
-- The live JSONB round trip through Zod is covered by `verifyRuntimeCapabilities` in the synthetic E2E, not by unit tests. That E2E has not been executed since this change was made; run `npm run e2e:synthetic` on the mini or in CI before relying on it.
+- The live JSONB round trip through Zod is covered by `verifyRuntimeCapabilities` in the synthetic E2E, not by unit tests. That E2E has been executed against real PostgreSQL and pgvector and passes.
+
+### Outbox retention status
+
+- `corpus_outbox` rows were marked `processed_at` and never deleted, with no pruning anywhere except a full wipe during a corpus restore. The table grew without bound: 4,720 rows and 2.1 MB after roughly eleven hours on the mini, all of them processed. The in-memory backend removes rows in `markOutboxProcessed`, so the leak was invisible to every test that does not use PostgreSQL.
+- The balanced retention run now prunes processed rows older than `processedOutboxEventDays`, default 3, and reports the count as `deleted.processedOutboxEvents`.
+- That pruning is deliberately excluded from the corpus revision bump. The outbox is derived projection feed, not corpus content, so bumping would invalidate every cached search in the deployment over rows nobody can see. Two tests assert both halves of that: outbox-only pruning does not bump, corpus-content deletion still does.
 
 ### Host keep-alive and backup
 
@@ -66,13 +72,57 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Backups live on the mini's own disk. The operator decided to keep them there, so a disk failure takes data and backups together.
 - The opencode MCP configuration lives in `~/.config/opencode/opencode.jsonc`, not in the repository: the endpoint is a per-machine tailnet host and the credential path is under `$HOME`.
 
+### Retrieval telemetry status
+
+- `GET /v1/admin/telemetry/retrieval` (also `mnemosyne telemetry`, MCP `memory_admin_retrieval_telemetry`) reports aggregate retrieval counters for the process that answers: which path served each query, candidate and result distributions, top score bands, cache hits, and semantic unavailability. Read `reporter` first, because the API and MCP rank independently and keep separate counts.
+- Privacy boundary, enforced by the schema shape rather than by convention: every leaf is a count or a score band. No query text, no memory id, no scope, no corpus content can be recorded, because there is no field that could carry one. A test asserts this against the serialized snapshot.
+- Counters are in-process only and never persisted, so there is no new storage, no migration, and nothing to forget later. The deliberate cost is no history.
+
+### Load test status
+
+`node scripts/load-test.mjs` runs against a throwaway pgvector container with a random name and a random port, removed on exit. Data is generated, so it needs no approved scope and never recreates the removed seed. Measured on 27 September 2026 with 10,000 memories, `shared_buffers=256MB`, 24 pooled clients:
+
+| Phase                        | Result                        |
+| ---------------------------- | ----------------------------- |
+| Governed single-item propose | 74/s, p50 10.4 ms, max 298 ms |
+| Bulk repository fill         | 304/s                         |
+| Embedding reindex of 10,000  | 22.6 s                        |
+| Outbox after 10,000 writes   | 20,000 rows, all unprocessed  |
+
+Search and context latency by concurrency, 40 requests each:
+
+| Concurrency | Search p50 | Search p95 | Context p50 |
+| ----------- | ---------- | ---------- | ----------- |
+| 1           | 137 ms     | 154 ms     | 153 ms      |
+| 4           | 238 ms     | 282 ms     | 285 ms      |
+| 8           | 327 ms     | 415 ms     | 347 ms      |
+| 16          | 520 ms     | 921 ms     | 550 ms      |
+
+- The headline is the comparison with production, not the concurrency table: the live corpus of 96 memories answers a search in about 9 ms, while 10,000 synthetic memories at concurrency 1 take 137 ms. That is roughly 15x slower for 100x the data, so the current ranking does not degrade gracefully with corpus size.
+- The cause is known and structural: the candidate pool is bounded to 1,000, BM25 is recomputed for every candidate, and `PostgresSemanticSearchIndex` selects neighbours with pgvector and then recomputes cosine in JavaScript, so the semantic path pays a JS-side vector pass per query.
+- Throughput still improves with concurrency up to about 8 and then plateaus, so this is queueing plus genuinely slower queries, not thrashing. Zero errors at every level.
+- This measured latency, not relevance, at scale. Whether ranking accuracy also degrades with 100x more distractors is untested and is a separate question.
+
+### Live relevance benchmark
+
+`node scripts/bench-live-retrieval.mjs` is read-only and generates probes from the corpus, so it prints only aggregates and never content. It runs three profiles because a single number would be misleading. Measured on the live 96-memory corpus on 27 September 2026:
+
+| Profile                                 | hit@1 | hit@5 | hit@10 | MRR@10 |
+| --------------------------------------- | ----- | ----- | ------ | ------ |
+| `sharp3`, three most distinctive terms  | 100%  | 100%  | 100%   | 1.000  |
+| `sharp2`, two distinctive terms         | 100%  | 100%  | 100%   | 1.000  |
+| `muted3`, three least distinctive terms | 13.3% | 33.3% | 66.7%  | 0.262  |
+
+- `sharp3` and `sharp2` are close to verbatim, because the probe terms are drawn from the target memory itself. They are a contract check on the ranking, not a relevance result, and the 100% must not be read as one.
+- `muted3` is the stress case: terms pushed toward the noise floor, where a lexical system should be expected to struggle.
+- The gap between the profiles is the honest shape of a BM25 plus hashed-bag-of-words system, and it is why a hand-judged probe set is still the only way to say where the system actually sits. Only the owner can judge what a real user would type.
+
 ### Recommended follow-up
 
-1. Add privacy-safe retrieval telemetry (candidate counts, FTS/semantic path, score bands) without logging queries or corpus content.
-2. Grow the small reviewed live relevance set if a stricter top-1 target is required.
-3. Run a concurrency/load test against a future explicitly approved large scope; do not recreate the removed seed.
+1. Grow the hand-judged relevance set, now that there is a measured gradient to place it against.
+2. Decide whether 1,000-candidate ranking plus a JS-side cosine pass is acceptable at the corpus size the system is actually heading towards.
 
-The embedding reindex/health follow-up is done; see the embedding recovery status below.
+The embedding reindex/health and load-test follow-ups are done; see the sections above.
 
 ### Embedding recovery status
 

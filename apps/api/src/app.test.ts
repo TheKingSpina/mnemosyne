@@ -459,6 +459,7 @@ describe('Mnemosyne API authorization', () => {
       rejectedCandidateDays: 7,
       supersededRevisionDays: 90,
       retractedMemoryDays: 30,
+      processedOutboxEventDays: 3,
     });
     expect(ownerRun.status).toBe(200);
     expect(run.profile).toBe('balanced');
@@ -469,6 +470,7 @@ describe('Mnemosyne API authorization', () => {
       supersededRevisions: 0,
       retractedMemories: 0,
       conflicts: 0,
+      processedOutboxEvents: 0,
     });
     expect(replay.status).toBe(200);
     expect(replayedRun).toEqual(run);

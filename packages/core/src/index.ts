@@ -17,4 +17,5 @@ export {
 export * from './provider-errors.js';
 export * from './semantic-search.js';
 export * from './retrieval-ranking.js';
+export * from './retrieval-telemetry.js';
 export * from './corpus-cache.js';

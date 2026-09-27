@@ -215,6 +215,16 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
     );
 
     server.registerTool(
+      'memory_admin_retrieval_telemetry',
+      {
+        description:
+          'Read aggregate retrieval counters for this process: which path served each query, candidate and result distributions, top score bands. Counts and bands only, never queries or content.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () => result(service.getRetrievalTelemetry()),
+    );
+
+    server.registerTool(
       'memory_admin_embedding_health',
       {
         description:

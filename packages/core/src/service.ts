@@ -54,6 +54,7 @@ import {
   type SessionConsolidationOutput,
   type Scope,
   type SearchMemoriesInput,
+  type RetrievalTelemetry,
   type EmbeddingIndexHealthOutput,
   type EmbeddingReindexOutput,
 } from '@mnemosyne/contracts';
@@ -75,6 +76,7 @@ import {
 } from './retrieval-ranking.js';
 import type { EmbeddingProvider, SemanticSearchIndex } from './semantic-search.js';
 import { corpusCacheKeyPrefix, type CorpusCache } from './corpus-cache.js';
+import { RetrievalTelemetryCollector } from './retrieval-telemetry.js';
 import type {
   ConflictRecord,
   CorpusRevision,
@@ -96,10 +98,12 @@ export interface CoreMemoryServiceOptions {
   corpusCacheTtlSeconds?: number;
   runtimeCapabilityTtlSeconds?: number;
   reporter?: string;
+  telemetry?: RetrievalTelemetryCollector;
 }
 
 export class CoreMemoryService implements MemoryService {
   private readonly now: () => Date;
+  private readonly telemetry: RetrievalTelemetryCollector;
 
   constructor(
     private readonly repository: MemoryRepository,
@@ -109,6 +113,7 @@ export class CoreMemoryService implements MemoryService {
       throw new Error('forget_secret_too_short');
     }
     this.now = options.now ?? (() => new Date());
+    this.telemetry = options.telemetry ?? new RetrievalTelemetryCollector();
   }
 
   /**
@@ -176,6 +181,14 @@ export class CoreMemoryService implements MemoryService {
    * diagnostic half of the reindex story; restoreCorpus still does not rebuild
    * embeddings on its own.
    */
+  /**
+   * Aggregate retrieval counters, in memory only. Read `reporter` before
+   * comparing: the API and MCP rank independently and each keeps its own counts.
+   */
+  getRetrievalTelemetry(): RetrievalTelemetry {
+    return this.telemetry.snapshot(this.options.reporter ?? 'unspecified');
+  }
+
   async getEmbeddingIndexHealth(): Promise<EmbeddingIndexHealthOutput> {
     const provider = this.options.embeddingProvider;
     const index = this.options.semanticSearchIndex;
@@ -440,7 +453,17 @@ export class CoreMemoryService implements MemoryService {
     const cached = await this.cachedCorpusResult(cacheKey, revision);
     if (cached) {
       const revalidated = await this.revalidateCachedMemories(cached);
-      if (revalidated) return revalidated;
+      if (revalidated) {
+        this.telemetry.recordSearch({
+          candidateCount: revalidated.length,
+          resultCount: revalidated.length,
+          topScore: 0,
+          lexical: false,
+          semantic: false,
+          cached: true,
+        });
+        return revalidated;
+      }
     }
     if (analysis.terms.length === 0) {
       await this.cacheCorpusResult(cacheKey, [], revision);
@@ -453,9 +476,16 @@ export class CoreMemoryService implements MemoryService {
       limit: Math.max(validated.limit, validated.offset + validated.limit),
       scopeFilter: validated.scope,
     });
-    const result = ranked
-      .slice(validated.offset, validated.offset + validated.limit)
-      .map((candidate) => candidate.memory);
+    const window = ranked.slice(validated.offset, validated.offset + validated.limit);
+    this.telemetry.recordSearch({
+      candidateCount: ranked.length,
+      resultCount: window.length,
+      topScore: window[0]?.score ?? 0,
+      lexical: window.some((candidate) => candidate.lexicalScore > 0),
+      semantic: window.some((candidate) => candidate.semanticScore > 0),
+      cached: false,
+    });
+    const result = window.map((candidate) => candidate.memory);
     await this.cacheCorpusResult(cacheKey, result, revision);
     return result;
   }
@@ -483,6 +513,7 @@ export class CoreMemoryService implements MemoryService {
     const revision = await this.repository.getCorpusRevision();
     const conflicts = await this.repository.listAllConflicts();
     const relevantMemoryIds = new Set(relevantCandidates.map(({ memory }) => memory.memoryId));
+    this.telemetry.recordContextResolution(selected.length);
     const semanticAvailable =
       this.options.embeddingProvider !== undefined &&
       this.options.semanticSearchIndex !== undefined;
@@ -786,6 +817,7 @@ export class CoreMemoryService implements MemoryService {
         rejectedCandidateDays: balancedRetentionPolicy.rejectedCandidateDays,
         supersededRevisionDays: balancedRetentionPolicy.supersededRevisionDays,
         retractedMemoryDays: balancedRetentionPolicy.retractedMemoryDays,
+        processedOutboxEventDays: balancedRetentionPolicy.processedOutboxEventDays,
       },
       lastRunAt: state.lastRunAt,
     };
@@ -801,6 +833,7 @@ export class CoreMemoryService implements MemoryService {
       rejectedCandidates: days(balancedRetentionPolicy.rejectedCandidateDays),
       supersededRevisions: days(balancedRetentionPolicy.supersededRevisionDays),
       retractedMemories: days(balancedRetentionPolicy.retractedMemoryDays),
+      processedOutboxEvents: days(balancedRetentionPolicy.processedOutboxEventDays),
     };
     const deleted = await this.repository.runBalancedRetention(cutoffs);
     const completedAt = this.now();
@@ -1004,6 +1037,7 @@ export class CoreMemoryService implements MemoryService {
       const hits = await index.search({ embedding: await provider.embed(query), limit });
       return hits.filter((hit) => hit.score > 0.05);
     } catch (error) {
+      this.telemetry.recordSemanticUnavailable();
       if (process.env.NODE_ENV !== 'test') {
         const code = error instanceof Error ? error.message : 'unknown_error';
         console.debug(`semantic_search_unavailable:${code.replace(/[^A-Za-z0-9_.:-]/gu, '_')}`);

@@ -9,6 +9,23 @@ export default tseslint.config(
   {
     files: ['**/*.js', '**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      globals: {
+        // Node's own globals, plus the web platform globals the operational
+        // scripts use (fetch, URL, URLSearchParams). Declaring them here beats
+        // working around a missing-undef rule with globalThis in every script.
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        fetch: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearTimeout: 'readonly',
+        clearInterval: 'readonly',
+      },
+    },
   },
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,

@@ -84,6 +84,7 @@ describe('OpenAPI contract', () => {
       '/v1/admin/client-tokens',
       '/v1/admin/client-tokens/{name}/revoke',
       '/v1/admin/capabilities',
+      '/v1/admin/telemetry/retrieval',
       '/v1/admin/embeddings/health',
       '/v1/admin/embeddings/reindex',
       '/v1/admin/memories',

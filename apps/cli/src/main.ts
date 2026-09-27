@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import {
   adminCapabilitiesOutputSchema,
+  retrievalTelemetryOutputSchema,
   embeddingIndexHealthOutputSchema,
   embeddingReindexOutputSchema,
   adminJobsOutputSchema,
@@ -48,6 +49,10 @@ async function run(name: string, args: string[]): Promise<void> {
   }
   if (name === 'capabilities') {
     printJson(await request('/v1/admin/capabilities', adminCapabilitiesOutputSchema));
+    return;
+  }
+  if (name === 'telemetry') {
+    printJson(await request('/v1/admin/telemetry/retrieval', retrievalTelemetryOutputSchema));
     return;
   }
   if (name === 'embeddings-health') {
@@ -250,6 +255,7 @@ function printHelp(): void {
       'mnemosyne capabilities',
       'mnemosyne retention',
       'mnemosyne retention-run --yes',
+      'mnemosyne telemetry',
       'mnemosyne embeddings-health',
       'mnemosyne embeddings-reindex --yes',
       'mnemosyne search <session-id> <query> [limit] [offset]',

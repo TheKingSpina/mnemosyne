@@ -43,6 +43,7 @@ import type {
   SearchMemoriesInput,
   SessionConsolidationOutput,
   WorkerRuntimeCapabilities,
+  RetrievalTelemetry,
   EmbeddingIndexHealthOutput,
   EmbeddingReindexOutput,
 } from '@mnemosyne/contracts';
@@ -120,6 +121,7 @@ export interface ProposalContext {
 
 export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
+  getRetrievalTelemetry(): RetrievalTelemetry;
   getEmbeddingIndexHealth(): Promise<EmbeddingIndexHealthOutput>;
   reindexEmbeddings(): Promise<EmbeddingReindexOutput>;
   listCorpusExport(): Promise<CorpusExport>;
@@ -263,6 +265,7 @@ export interface BalancedRetentionCutoffs {
   rejectedCandidates: string;
   supersededRevisions: string;
   retractedMemories: string;
+  processedOutboxEvents: string;
 }
 
 export interface RetentionRunCounts {
@@ -272,6 +275,7 @@ export interface RetentionRunCounts {
   supersededRevisions: number;
   retractedMemories: number;
   conflicts: number;
+  processedOutboxEvents: number;
 }
 
 export interface RetentionState {

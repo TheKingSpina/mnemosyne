@@ -524,6 +524,9 @@ export const balancedRetentionPolicy = {
   rejectedCandidateDays: 7,
   supersededRevisionDays: 90,
   retractedMemoryDays: 30,
+  // Processed outbox rows are derived projection feed, not corpus content, so
+  // they need a much shorter window than anything the owner can see.
+  processedOutboxEventDays: 3,
 } as const;
 
 export const retentionStatusOutputSchema = z.object({
@@ -535,6 +538,7 @@ export const retentionStatusOutputSchema = z.object({
     rejectedCandidateDays: z.number().int().positive(),
     supersededRevisionDays: z.number().int().positive(),
     retractedMemoryDays: z.number().int().positive(),
+    processedOutboxEventDays: z.number().int().positive(),
   }),
   lastRunAt: z.string().datetime({ offset: true }).optional(),
 });
@@ -558,6 +562,9 @@ export const retentionRunOutputSchema = z.object({
     supersededRevisions: z.number().int().nonnegative(),
     retractedMemories: z.number().int().nonnegative(),
     conflicts: z.number().int().nonnegative(),
+    // The outbox is a derived projection feed, so pruning it does not change the
+    // corpus and must not count towards the corpus revision bump.
+    processedOutboxEvents: z.number().int().nonnegative(),
   }),
 });
 export type RetentionRunOutput = z.infer<typeof retentionRunOutputSchema>;
@@ -630,6 +637,34 @@ export const adminCapabilitiesOutputSchema = z.object({
   gaps: z.array(capabilityGapSchema),
 });
 export type AdminCapabilitiesOutput = z.infer<typeof adminCapabilitiesOutputSchema>;
+
+const candidateBucketSchema = z.enum(['0', '1-5', '6-20', '21-100', '101-1000', '1000+']);
+const resultBucketSchema = z.enum(['0', '1-5', '6-20', '21+']);
+const scoreBandSchema = z.enum(['0', '0-0.2', '0.2-0.5', '0.5-1', '1']);
+
+/**
+ * Aggregate retrieval behaviour. Deliberately shaped so no field can carry a
+ * query, a memory id or corpus content: everything is a count or a score band.
+ */
+export const retrievalTelemetryOutputSchema = z.object({
+  reporter: z.string().min(1),
+  searches: z.number().int().nonnegative(),
+  contextResolutions: z.number().int().nonnegative(),
+  cacheHits: z.number().int().nonnegative(),
+  cacheMisses: z.number().int().nonnegative(),
+  semanticUnavailable: z.number().int().nonnegative(),
+  paths: z.object({
+    lexicalOnly: z.number().int().nonnegative(),
+    semanticOnly: z.number().int().nonnegative(),
+    hybrid: z.number().int().nonnegative(),
+    empty: z.number().int().nonnegative(),
+  }),
+  candidates: z.record(candidateBucketSchema, z.number().int().nonnegative()),
+  results: z.record(resultBucketSchema, z.number().int().nonnegative()),
+  topScoreBands: z.record(scoreBandSchema, z.number().int().nonnegative()),
+  note: z.string().min(1),
+});
+export type RetrievalTelemetry = z.infer<typeof retrievalTelemetryOutputSchema>;
 
 export const embeddingProfileCountSchema = z.object({
   profile: z.string().min(1),

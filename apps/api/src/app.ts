@@ -355,6 +355,10 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, await service.getAdminCapabilities());
     return;
   }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/telemetry/retrieval') {
+    sendJson(response, 200, service.getRetrievalTelemetry());
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/embeddings/health') {
     sendJson(response, 200, await service.getEmbeddingIndexHealth());
     return;

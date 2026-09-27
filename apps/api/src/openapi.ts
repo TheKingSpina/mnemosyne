@@ -1,5 +1,6 @@
 import {
   adminCapabilitiesOutputSchema,
+  retrievalTelemetryOutputSchema,
   embeddingIndexHealthOutputSchema,
   embeddingReindexOutputSchema,
   clientTokenListOutputSchema,
@@ -625,6 +626,20 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/telemetry/retrieval': {
+      get: operation({
+        tags: ['Administration'],
+        operationId: 'getRetrievalTelemetry',
+        summary: 'Contatori aggregati di retrieval del processo rispondente',
+        requiredProfile: 'owner',
+        responses: {
+          200: jsonResponse('Telemetria di retrieval.', schemaRef('RetrievalTelemetry')),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/embeddings/health': {
       get: operation({
         tags: ['Administration'],
@@ -954,6 +969,7 @@ export const openApiDocument: Oas3_1Definition = {
       JobView: schemaRefValue(jobViewSchema),
       AdminOverviewOutput: schemaRefValue(adminOverviewOutputSchema),
       AdminCapabilitiesOutput: schemaRefValue(adminCapabilitiesOutputSchema),
+      RetrievalTelemetry: schemaRefValue(retrievalTelemetryOutputSchema),
       EmbeddingIndexHealthOutput: schemaRefValue(embeddingIndexHealthOutputSchema),
       EmbeddingReindexOutput: schemaRefValue(embeddingReindexOutputSchema),
       IssuedClientTokenOutput: schemaRefValue(issuedClientTokenOutputSchema),

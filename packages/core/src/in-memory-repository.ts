@@ -450,6 +450,11 @@ export class InMemoryRepository implements MemoryRepository {
       supersededRevisions,
       retractedMemories: retractedMemories.length,
       conflicts: conflicts.length,
+      // Already zero here: this backend removes rows in markOutboxProcessed
+      // rather than marking them, so there is nothing left for retention to
+      // prune. The PostgreSQL backend keeps them and prunes on this window,
+      // which is why the leak was invisible to every in-memory test.
+      processedOutboxEvents: 0,
     };
   }
 

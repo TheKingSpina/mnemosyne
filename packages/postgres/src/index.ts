@@ -745,6 +745,15 @@ export class PostgresMemoryRepository implements MemoryRepository {
            AND r.created_at < $1::timestamptz`,
         [cutoffs.supersededRevisions],
       );
+      // The outbox is a projection feed: rows are marked processed but never
+      // removed, so the table would grow without bound and nothing else ever
+      // deletes it. Prune anything already processed and older than the
+      // retention window, keeping a window of history for inspection.
+      const outbox = await client.query(
+        `DELETE FROM corpus_outbox
+         WHERE processed_at IS NOT NULL AND processed_at < $1::timestamptz`,
+        [cutoffs.processedOutboxEvents],
+      );
       const deleted = {
         closedSessionEvents: events.rowCount ?? 0,
         pendingCandidates: pending.rowCount ?? 0,
@@ -752,9 +761,18 @@ export class PostgresMemoryRepository implements MemoryRepository {
         supersededRevisions: superseded.rowCount ?? 0,
         retractedMemories: retracted.rowCount ?? 0,
         conflicts: conflicts.rowCount ?? 0,
+        processedOutboxEvents: outbox.rowCount ?? 0,
       };
-      const deletionCount = Object.values(deleted).reduce((total, count) => total + count, 0);
-      if (deletionCount > 0) await this.bumpCorpus(client, 'retention.applied', 'corpus');
+      // Outbox pruning is deliberately excluded: it removes derived rows, not
+      // corpus content, so it must not invalidate every cached search.
+      const corpusDeletions =
+        deleted.closedSessionEvents +
+        deleted.pendingCandidates +
+        deleted.rejectedCandidates +
+        deleted.supersededRevisions +
+        deleted.retractedMemories +
+        deleted.conflicts;
+      if (corpusDeletions > 0) await this.bumpCorpus(client, 'retention.applied', 'corpus');
       await client.query('COMMIT');
       return deleted;
     } catch (error) {
