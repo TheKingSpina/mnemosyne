@@ -151,6 +151,7 @@ const BASE_WORDS = [
  * stemmer still has work to do.
  */
 const morphemeCount = Number(flag('morphemes', '64'));
+const sharedTerm = !args.includes('--no-shared-term');
 const VOCABULARY = Array.from(
   { length: BASE_WORDS.length * morphemeCount },
   (_, index) =>
@@ -164,7 +165,11 @@ const contentFor = (index) => {
   const a = VOCABULARY[index % VOCABULARY.length];
   const b = VOCABULARY[(index * 7 + 3) % VOCABULARY.length];
   const c = VOCABULARY[(index * 13 + 5) % VOCABULARY.length];
-  return `load fixture ${1000 + (index % 8999)}: ${a} ${b} ${c} stage ${index % 97}`;
+  // shared fills every memory with a term that matches the whole corpus; the
+  // full-text query is an OR, so one such token makes every probe match 100% of
+  // the corpus and the benchmark measures a pathological shape instead of a real one.
+  const shared = sharedTerm ? ` stage ${index % 97}` : '';
+  return `load fixture ${1000 + (index % 8999)}: ${a} ${b} ${c}${shared}`;
 };
 
 // Distinct probes, so a "distinct" phase is genuinely all cache misses.

@@ -88,6 +88,7 @@ const BASE_WORDS = [
   'lease',
   'worker',
 ];
+const sharedTerm = !args.includes('--no-shared-term');
 const VOCABULARY = Array.from(
   { length: BASE_WORDS.length * 64 },
   (_, index) =>
@@ -97,7 +98,8 @@ const contentFor = (index) => {
   const a = VOCABULARY[index % VOCABULARY.length];
   const b = VOCABULARY[(index * 7 + 3) % VOCABULARY.length];
   const c = VOCABULARY[(index * 13 + 5) % VOCABULARY.length];
-  return `fixture ${1000 + (index % 8999)} ${a} ${b} ${c} stage ${index % 97}`;
+  const shared = sharedTerm ? ` stage ${index % 97}` : '';
+  return `fixture ${1000 + (index % 8999)} ${a} ${b} ${c}${shared}`;
 };
 
 async function main() {
