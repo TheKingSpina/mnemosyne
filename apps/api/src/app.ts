@@ -558,6 +558,11 @@ function isStateChangingRoute(url: URL, method: string | undefined): boolean {
   if (method !== 'POST') return false;
   if (url.pathname === '/v1/context/resolve') return false;
   if (url.pathname.endsWith('/forget/prepare')) return false;
+  // Credential writes are not replayable business operations: the mint response
+  // carries the token in plaintext and must never be persisted in the
+  // idempotency table, and a duplicate name is rejected instead of rotated.
+  if (url.pathname === '/v1/admin/client-tokens') return false;
+  if (/^\/v1\/admin\/client-tokens\/[^/]+\/revoke$/u.test(url.pathname)) return false;
   return true;
 }
 

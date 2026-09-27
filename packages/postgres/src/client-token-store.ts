@@ -1,5 +1,5 @@
 import type { IssuedClientToken, ClientTokenStore } from '@mnemosyne/core';
-import { issuedClientTokenSchema } from '@mnemosyne/core';
+import { DomainError, issuedClientTokenSchema } from '@mnemosyne/core';
 import type { MemoryActor } from '@mnemosyne/contracts';
 import type { Pool, QueryResultRow } from 'pg';
 
@@ -24,16 +24,25 @@ export class PostgresClientTokenStore implements ClientTokenStore {
     const result = await this.pool.query<ClientTokenRow>(
       `INSERT INTO client_tokens (id, name, token_hash, token_prefix, role)
        VALUES (gen_random_uuid()::text, $1, $2, $3, 'owner')
-       ON CONFLICT (name) DO UPDATE
-         SET token_hash = EXCLUDED.token_hash,
-             token_prefix = EXCLUDED.token_prefix,
-             role = EXCLUDED.role,
-             revoked_at = NULL,
-             created_at = now()
+       ON CONFLICT (name) DO NOTHING
        RETURNING id, name, token_prefix, role, created_at, last_used_at, revoked_at`,
       [input.name, input.tokenHash, input.prefix],
     );
-    return toIssued(result.rows[0]);
+    const row = result.rows[0];
+    if (row) return toIssued(row);
+    // A name that already exists stays a conflict while its token is active: a
+    // silent rotation would invalidate a client that is still using it. Once
+    // revoked, the same name can be issued again.
+    const existing = await this.pool.query<ClientTokenRow>(
+      `UPDATE client_tokens
+       SET token_hash = $2, token_prefix = $3, role = 'owner', revoked_at = NULL, created_at = now()
+       WHERE name = $1 AND revoked_at IS NOT NULL
+       RETURNING id, name, token_prefix, role, created_at, last_used_at, revoked_at`,
+      [input.name, input.tokenHash, input.prefix],
+    );
+    const reactivated = existing.rows[0];
+    if (reactivated) return toIssued(reactivated);
+    throw new DomainError('client_token_name_taken', 'Client token name already exists', 409);
   }
 
   async list(): Promise<IssuedClientToken[]> {

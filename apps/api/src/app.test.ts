@@ -865,3 +865,66 @@ describe('Mnemosyne API client tokens', () => {
     expect(JSON.stringify(await store.list())).not.toContain(generated.token);
   });
 });
+
+describe('Mnemosyne API client tokens and idempotency', () => {
+  it('mints without an idempotency key even when writes require one', async () => {
+    const { server } = createTestServer({ requireIdempotencyKey: true });
+    const baseUrl = await listen(server);
+
+    const minted = await fetch(`${baseUrl}/v1/admin/client-tokens`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'opencode' }),
+    });
+    const payload = (await minted.json()) as { token: string };
+    expect(minted.status).toBe(201);
+    expect(payload.token.startsWith('mnc_')).toBe(true);
+
+    const session = await fetch(`${baseUrl}/v1/sessions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ projectId: 'synthetic-project' }),
+    });
+    await session.text();
+    expect(session.status).toBe(400);
+  });
+
+  it('refuses to rotate a live token and accepts the name again after revocation', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+    const post = (name: string) =>
+      fetch(`${baseUrl}/v1/admin/client-tokens`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${ownerToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ name }),
+      });
+
+    const first = (await (await post('opencode')).json()) as { token: string };
+    const duplicate = await post('opencode');
+    await duplicate.json();
+    expect(duplicate.status).toBe(409);
+
+    const revoked = await fetch(`${baseUrl}/v1/admin/client-tokens/opencode/revoke`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    });
+    await revoked.text();
+    expect(revoked.status).toBe(200);
+
+    const reissued = (await (await post('opencode')).json()) as { token: string };
+    expect(reissued.token).not.toBe(first.token);
+  });
+});
