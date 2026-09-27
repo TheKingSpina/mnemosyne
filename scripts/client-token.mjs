@@ -33,8 +33,6 @@ if (!args['base-url']) {
 
 const baseUrl = args['base-url'].replace(/\/+$/u, '');
 const ownerToken = await resolveOwnerToken(args);
-const out = [];
-
 async function call(method, path, body) {
   const response = await globalThis.fetch(`${baseUrl}${path}`, {
     method,
@@ -56,7 +54,6 @@ async function call(method, path, body) {
 
 if (args.list) {
   const payload = await call('GET', '/v1/admin/client-tokens');
-  out.push(...payload.tokens);
   if (args.json) {
     process.stdout.write(`${JSON.stringify(payload.tokens, null, 2)}\n`);
   } else if (payload.tokens.length === 0) {
@@ -74,7 +71,6 @@ if (args.list) {
     `/v1/admin/client-tokens/${encodeURIComponent(args.revoke)}/revoke`,
     {},
   );
-  out.push(revoked);
   if (args.json) {
     process.stdout.write(`${JSON.stringify(revoked, null, 2)}\n`);
   } else {
@@ -82,7 +78,6 @@ if (args.list) {
   }
 } else if (args.name) {
   const minted = await call('POST', '/v1/admin/client-tokens', { name: args.name });
-  out.push(minted);
   if (args.out) {
     await writeSecret(args.out, `${minted.token}\n`);
   }

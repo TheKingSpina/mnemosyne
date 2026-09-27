@@ -17,7 +17,7 @@ The first vertical slice provides:
 - PostgreSQL persistence with `pgvector`-ready storage;
 - a REST API;
 - persistent PostgreSQL-backed replay for REST writes with `Idempotency-Key`;
-- an MCP server over `stdio` and Streamable HTTP with bearer authentication;
+- an MCP server over `stdio` and Streamable HTTP with bearer authentication, per-client revocable tokens, or an anonymous harness profile behind a private perimeter;
 - a local owner web console for overview, search, review, history, conflicts, and context preview;
 - a recoverable extraction worker with leases, retries, and quarantine;
 - an owner-only canonical corpus export with no-store download semantics;
@@ -105,11 +105,15 @@ policy. If either provider setting is present, both are required. Set
 local extractor only for classified provider failures; `openrouter` disables
 that fallback.
 
-Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; the bearer token selects the owner or harness profile, while `MCP_PROFILE` applies only to stdio. Configure `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` for DNS-rebinding protection, and use `MCP_SESSION_IDLE_TIMEOUT_MS` to expire inactive sessions. Every `POST`, `GET`, and `DELETE` request must use the bearer token for its identity. HTTP session state is process-local: use one MCP replica or sticky routing until a shared transport store is introduced. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
+Set `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` to two different random values of at least 32 characters. For remote Streamable HTTP, set `MCP_TRANSPORT=http`; the bearer token selects the owner or harness profile, while `MCP_PROFILE` applies only to stdio. Configure `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` for DNS-rebinding protection, and use `MCP_SESSION_IDLE_TIMEOUT_MS` to expire inactive sessions. HTTP session state is process-local: use one MCP replica or sticky routing until a shared transport store is introduced. The port remains bound to `127.0.0.1` by default, so put it behind the private network and TLS layer described below.
+
+Authentication is opt-in for MCP. With `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` a request without an `Authorization` header is accepted as `MNEMOSYNE_MCP_ANONYMOUS_PROFILE` (`harness` by default), which registers only the non-owner tools, so forget, export, review and the admin tools do not exist for that session. Only set that profile to `owner` when the perimeter is already the tailnet ACL, and understand that `memory_forget` becomes reachable from every device on the tailnet. A header is always verified when present: a valid token escalates to its profile, an invalid or revoked one returns `401` rather than downgrading silently.
+
+Per-client credentials can be minted from the client side with `npm run token:client -- --base-url <api> --name <slug> [--out <file> | --list | --revoke <slug>]`. They are stored as a SHA-256 hash plus a displayable prefix, the plaintext is returned exactly once, and revoking one client leaves the static tokens and the other clients untouched. See [`docs/macos-mini-tailscale.md`](docs/macos-mini-tailscale.md) for the full remote setup.
 
 The API is bound to `127.0.0.1` by default. Do not expose it publicly. For remote access, use an authenticated private network such as Tailscale or WireGuard and a TLS reverse proxy.
 
-The owner web console is published by Compose at `http://127.0.0.1:8080` when Docker runs on the same Mac. The dashboard uses the internal `/api/backend` proxy implicitly; the `web` container forwards requests to the API service, so no API-origin field is required. If Docker runs on another host, set `WEB_BIND_HOST=0.0.0.0` (or the host LAN address) in `.env`, open `http://<docker-host>:8080`, and protect the port with firewall/TLS. Enter `MNEMOSYNE_OWNER_TOKEN` in the console; it is kept only in browser session storage.
+The owner web console is published by Compose at `http://127.0.0.1:$WEB_PORT` (8080 by default) when Docker runs on the same Mac; pick a free port in `.env` when something else already uses it. The dashboard uses the internal `/api/backend` proxy implicitly; the `web` container forwards requests to the API service, so no API-origin field is required. If Docker runs on another host, set `WEB_BIND_HOST=0.0.0.0` (or the host LAN address) in `.env`, open `http://<docker-host>:$WEB_PORT`, and protect the port with firewall/TLS. Enter `MNEMOSYNE_OWNER_TOKEN` in the console; it is kept only in browser session storage.
 
 Redis is a rebuildable derived cache. If it is unavailable, retrieval continues
 from PostgreSQL and lexical/semantic fallback; cached search results are accepted

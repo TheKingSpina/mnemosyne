@@ -818,7 +818,7 @@ memory_projection_status
 
 Le autorizzazioni sono verificate dal server, non dalle sole annotazioni MCP o dall'elenco dei tool.
 
-Le credenziali `MNEMOSYNE_OWNER_TOKEN` e `MNEMOSYNE_HARNESS_TOKEN` sono distinte e obbligatorie per REST e Streamable HTTP. Il profilo `harness` può usare sessioni, eventi, contesto, ricerca e proposte, ma non può eseguire review, correzioni, revoca o forget. Il profilo `owner` può eseguire anche le operazioni amministrative. La visibilità dei tool è solo una misura di ergonomia: la policy viene verificata nel callback del tool.
+Le credenziali `MNEMOSYNE_OWNER_TOKEN` e `MNEMOSYNE_HARNESS_TOKEN` sono distinte. Per REST e Streamable HTTP sono obbligatorie per impostazione predefinita; l'obbligo è disattivabile con `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` per un deployment il cui perimetro è già una ACL esterna, nel qual caso il chiamante senza header assume `MNEMOSYNE_MCP_ANONYMOUS_PROFILE` (`harness` per impostazione predefinita). I token per client emessi dal lato owner (`POST /v1/admin/client-tokens`) sono alternative ai token statici e hanno oggi solo il ruolo `owner`. Il profilo `harness` può usare sessioni, eventi, contesto, ricerca e proposte, ma non può eseguire review, correzioni, revoca o forget. Il profilo `owner` può eseguire anche le operazioni amministrative. Un header `Authorization` presente viene sempre verificato: un token valido assume il proprio profilo, uno non valido o revocato riceve `401` invece di degradare al profilo anonimo. La visibilità dei tool è solo una misura di ergonomia: la policy viene verificata nel callback del tool.
 
 ### 13.3 Esempi di tool
 

@@ -4,12 +4,13 @@
 
 Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and private Tailscale access. The detailed runbook is [`docs/macos-mini-tailscale.md`](docs/macos-mini-tailscale.md).
 
-## Current handoff — 2026-09-25
+## Current handoff — 2026-09-27
 
 ### Repository and Git
 
-- `main` contains merged PR #4 (merge commit `def4665`); all required CI checks were green before merge.
+- `main` tracks `origin/main` with no local divergence and no side branches; the per-client token work (`9567535`, `310dca3`) and the credential-path fix are merged.
 - Retrieval commits: `8b5becc` (hybrid ranking), `7de9187` (dashboard/MCP wiring), `29c3ef9` (reviewed relevance judgments), `609e63e` (handoff documentation).
+- 2026-09-27 operational commits: `10a128d` (scheduled backup reads the deployment env), `b866f47` (host keep-alive agents and persistence docs), `7d68519` (bounded docker calls, runtime recycle), `ed7274a` (anonymous MCP opt-out), `7552d00` (anonymous callers scoped to harness), `597c671` (opencode config lives in the user profile).
 - Use `main` as the base for new work and preserve any uncommitted changes before switching branches.
 - Host tools: Node `v25.8.2`, npm `11.11.1`, OrbStack/Docker, Tailscale App `1.88.3` (an update is available). The repository requires Node `>=22.12`; npm may print an engine warning for Node 25 even though verification passes.
 
@@ -22,7 +23,8 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
   - dashboard: `https://mac-mini-di-alessandro-2.tail82e37f.ts.net/`
   - MCP: `https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp`
 - `.env` remains local with mode `0600`; it was not modified, printed, or committed. OpenRouter remains disabled.
-- Rebuild retrieval changes with `env -u OPENROUTER_API_KEY -u OPENROUTER_MODEL docker compose up --build -d api worker mcp`; rebuild the dashboard with the same environment and `web`.
+- Rebuild with `env -u OPENROUTER_API_KEY -u OPENROUTER_MODEL docker compose up --build -d api worker mcp`; add `web` for the dashboard. Over SSH the build fails on the Docker credential helper because the login keychain cannot be unlocked in a non-interactive session: back up `~/.docker/config.json`, delete `credsStore` and `credHelpers`, build, then restore the file. A public base image needs no credentials.
+- The host is reached with `ssh mnemosyne-mini`; the alias uses a dedicated ed25519 key, not a password.
 
 ### Seed cleanup status
 
@@ -39,7 +41,7 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Documentation: [`docs/retrieval-ranking.md`](docs/retrieval-ranking.md).
 - Historical pre-cleanup live benchmark, using 12 distinctive three-word probes: keyword hit@1 `83.3%`, hit@5 `83.3%`, hit@10 `91.7%`, MRR@10 `0.847`; noisy probes have the same values; verbatim is `100%` top-1/top-10; no-match queries return zero results; top-10 Jaccard mean `0.068`, max `0.818`; search p50/p95 `7.45/18.59 ms`; context p50/p95 `12.89/33.67 ms`.
 - One live probe remains genuinely ambiguous because several memories share the same evidence. This is measured and accepted as a known relevance limit, not an infrastructure failure.
-- Offline gates: `npm run verify` passes 116 tests with 1 skipped; `npm run eval:all` passes governance `7/7` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails with nDCG `0.9405` and `9/11`, proving the gate detects broken ordering.
+- Offline gates: `npm run verify` passes 134 tests with 1 skipped; `npm run eval:all` passes governance `7/7` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails with nDCG `0.9405` and `9/11`, proving the gate detects broken ordering.
 
 ### Dashboard and MCP status
 
@@ -47,6 +49,15 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - MCP uses the local deterministic embedding provider and PostgreSQL semantic index. On the Mac mini, `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` with `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=harness` disables HTTP authentication so clients need only the URL; the tailnet ACL is the perimeter, and the owner-only tools (forget, export, correct, retract, review, `memory_admin_*`) are not registered for that profile at all. Never set the anonymous profile to `owner` without an explicit reason. A supplied `Authorization` header is always verified: a per-client token escalates to `owner`, an invalid or revoked one gets `401` instead of a silent downgrade.
 - Per-client credentials are minted from the client side with `npm run token:client -- --base-url <api> --name <slug> [--out <file> | --list | --revoke <slug>]`, talking to `POST /v1/admin/client-tokens` with `MNEMOSYNE_OWNER_TOKEN`. Only the SHA-256 hash and a displayable prefix are stored, the plaintext is returned once, and every token currently has the `owner` role.
 - MCP DNS-rebinding protection remains configured for the Tailscale hostname; do not broaden `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` without an explicit reason.
+
+### Host keep-alive and backup
+
+- Three launchd agents in `~/Library/LaunchAgents`, all installed and reporting exit 0: `com.mnemosyne.runtime` (RunAtLoad, starts OrbStack when the daemon is silent and reconciles the project), `com.mnemosyne.health` (every 5 minutes, probes the API and the dashboard, repairs after 2 consecutive failures), `com.mnemosyne.backup` (02:00, encrypted dump with verified restore and retention).
+- Scripts and templates live in [`ops/host`](../ops/host/README.md) and [`ops/backup`](../ops/backup/README.md); logs are in `~/Library/Logs/mnemosyne/`. The backup env is `~/.mnemosyne/backup.env` (mode `0600`) and its passphrase file is `~/.mnemosyne/backup.pass`; dumps land in `~/Backups/mnemosyne`.
+- `run-backup.sh` needs `MNEMOSYNE_DEPLOY_ENV_FILE` in the backup env: `docker compose` interpolates every service even for `exec postgres`, so without the deployment values the run fails on an unrelated service. The documented command in the runbook did not work before this.
+- Two real reboot tests were run. The first left the stack unreachable for 18 minutes because OrbStack started its app but not its virtual machine, and the ensure script hung on an unbounded `docker info`. The second, after `7d68519`, recovered automatically in 87 seconds. OrbStack's post-boot start is intermittent; the bounded calls and single recycle are the mitigation, not a fix.
+- Backups live on the mini's own disk. The operator decided to keep them there, so a disk failure takes data and backups together.
+- The opencode MCP configuration lives in `~/.config/opencode/opencode.jsonc`, not in the repository: the endpoint is a per-machine tailnet host and the credential path is under `$HOME`.
 
 ### Recommended follow-up
 

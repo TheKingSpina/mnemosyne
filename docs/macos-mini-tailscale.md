@@ -8,7 +8,7 @@ Questa guida porta un Mnemosyne locale su un Mac mini Apple M1 con 8 GB di RAM e
 - Docker Desktop oppure OrbStack con Compose v2.
 - Tailscale installato e autenticato sul Mac mini.
 - Un account Tailscale con il mini aggiunto al tailnet corretto.
-- Nessun servizio Mnemosyne già in esecuzione su porte 3000, 3333, 5432, 6379, 7474 o 8080, salvo verifica.
+- Nessun servizio Mnemosyne già in esecuzione su porte 3000, 3333, 5432, 6379, 7474 o 18080, salvo verifica. La porta della dashboard è `WEB_PORT` e va scelta libera: sul mini è 18080 perché 8080 è occupata da un altro servizio.
 
 Il browser del Mac è fuori dal container: usa sempre le porte pubblicate da Compose o Tailscale Serve.
 
@@ -48,7 +48,7 @@ La dashboard resta su loopback e viene pubblicata solo tramite Tailscale Serve:
 
 ```bash
 tailscale status
-tailscale serve --bg --https=443 http://127.0.0.1:8080
+tailscale serve --bg --https=443 http://127.0.0.1:18080
 tailscale serve status
 ```
 
@@ -61,7 +61,7 @@ Apri la dashboard; il proxy interno `/api/backend` è implicito e non richiede a
 ```bash
 docker compose ps --all
 curl -fsS http://127.0.0.1:3000/health/ready
-curl -fsS http://127.0.0.1:8080/ >/dev/null
+curl -fsS http://127.0.0.1:18080/ >/dev/null
 ```
 
 Per verificare il proxy senza mostrare il token:
@@ -69,7 +69,7 @@ Per verificare il proxy senza mostrare il token:
 ```bash
 set -a; . ./.env; set +a
 curl -fsS -H "authorization: Bearer $MNEMOSYNE_OWNER_TOKEN" \
-  http://127.0.0.1:8080/api/backend/v1/admin/overview
+  http://127.0.0.1:18080/api/backend/v1/admin/overview
 ```
 
 Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel container, pubblica `127.0.0.1:3333` con Tailscale Serve e configura `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Non esporre direttamente API, PostgreSQL, Redis o Neo4j.

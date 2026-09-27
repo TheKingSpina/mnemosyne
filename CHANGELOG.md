@@ -2,11 +2,27 @@
 
 ## [Unreleased]
 
+### Added
+
+- Per-client credentials: `POST`, `GET /v1/admin/client-tokens` and `POST /v1/admin/client-tokens/{name}/revoke`, plus `npm run token:client` to mint, list and revoke them from the client machine. Only a SHA-256 hash and a displayable prefix are stored, the plaintext is returned exactly once, and every token has the `owner` role.
+- Host keep-alive for the Mac mini: launchd agents that start the container runtime at login, reconcile the Compose project, probe the API and the dashboard every 5 minutes and repair after consecutive failures, plus a scheduled encrypted PostgreSQL backup with verified restore.
+- Optional anonymous access for MCP HTTP with `MNEMOSYNE_MCP_REQUIRE_TOKEN=false`, scoped by `MNEMOSYNE_MCP_ANONYMOUS_PROFILE` so a caller without credentials can be given the harness profile while the owner-only tools stay unregistered.
+
+### Changed
+
+- Credential writes are excluded from the idempotent replay path: the mint response carries a token in plaintext and must not be persisted, and reissuing a live client name returns `409` instead of silently rotating a credential in use.
+- A presented `Authorization` header is always verified, including on an anonymous endpoint: a valid per-client token escalates to its profile and an invalid or revoked one gets `401` instead of a silent downgrade.
+- `AccessPolicy.authenticate` may return a promise, which is what lets a deployment resolve per-client tokens from PostgreSQL.
+- The runbook and README refer to the dashboard port as `WEB_PORT` (8080 by default) because the deployment moved to 18080; the documentation no longer contradicts the running configuration.
+- The opencode MCP configuration moved to `~/.config/opencode/opencode.jsonc`; the repository root `opencode.json` is ignored because it carried a per-machine endpoint and home path.
+
 ### Fixed
 
 - Search and context results now use deterministic hybrid ranking with token-aware lexical matching, BM25/IDF, phrase and proximity bonuses, local semantic fusion, thresholds and stable tie-breaking.
 - PostgreSQL search uses the existing full-text index with bounded scope-aware candidate retrieval; the in-memory backend keeps the same ranking contract.
 - Retrieval evaluation now uses graded, order-sensitive cases and fails under the legacy ordering baseline.
+- The scheduled PostgreSQL backup could never succeed against a real deployment: the backup command runs `docker compose` with `--env-file /dev/null`, and compose interpolates every service, so the run failed on an unrelated service. `run-backup.sh` now sources the deployment environment and drops the provider key.
+- The host keep-alive scripts no longer block on a wedged container runtime: every docker call is bounded with a timeout, the daemon is probed with `docker version` instead of trusting the socket file, and the runtime is recycled at most once per run.
 
 ### Changed
 

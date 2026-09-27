@@ -7,7 +7,7 @@ import {
 } from '@mnemosyne/contracts';
 import { DomainError } from './errors.js';
 
-export const CLIENT_TOKEN_PREFIX = 'mnc';
+const CLIENT_TOKEN_PREFIX = 'mnc';
 const TOKEN_BYTES = 32;
 
 /**
@@ -31,17 +31,11 @@ export function hashClientToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-export function clientTokenPrefix(token: string): string {
+function clientTokenPrefix(token: string): string {
   return token.slice(0, CLIENT_TOKEN_PREFIX.length + 9);
 }
 
-export function parseBearerToken(authorization: string | undefined): string {
-  const match = /^Bearer ([^\s]+)$/u.exec(authorization ?? '');
-  if (!match) throw unauthorized();
-  return match[1];
-}
-
-export function clientTokenHashesMatch(left: string, right: string): boolean {
+function clientTokenHashesMatch(left: string, right: string): boolean {
   const a = Buffer.from(left, 'utf8');
   const b = Buffer.from(right, 'utf8');
   if (a.length !== b.length) return false;
@@ -113,8 +107,4 @@ function toPublic(record: IssuedClientToken & { tokenHash: string }): IssuedClie
     lastUsedAt: record.lastUsedAt,
     revokedAt: record.revokedAt,
   });
-}
-
-function unauthorized(): DomainError {
-  return new DomainError('unauthorized', 'Authentication is required', 401);
 }
