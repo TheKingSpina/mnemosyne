@@ -4323,6 +4323,9 @@ components:
       properties:
         reportedAt:
           type: string
+        reporter:
+          type: string
+          minLength: 1
         workerObservedAt:
           type:
             - string
@@ -4402,6 +4405,7 @@ components:
             additionalProperties: false
       required:
         - reportedAt
+        - reporter
         - workerObservedAt
         - extraction
         - projections

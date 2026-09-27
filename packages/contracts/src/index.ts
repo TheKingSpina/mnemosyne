@@ -604,6 +604,13 @@ export type CapabilityGap = z.infer<typeof capabilityGapSchema>;
 
 export const adminCapabilitiesOutputSchema = z.object({
   reportedAt: z.string(),
+  /**
+   * Which process answered. Capabilities are scoped to the process that can
+   * attest to them, so `redis: true` from the API and `redis: false` from MCP
+   * are both correct: the API owns a cache and MCP does not. Read this field
+   * before drawing a conclusion about the deployment.
+   */
+  reporter: z.string().min(1),
   workerObservedAt: z.string().nullable(),
   extraction: z.object({
     localExtractor: z.boolean().nullable(),

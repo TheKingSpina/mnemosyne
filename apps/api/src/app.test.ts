@@ -24,8 +24,11 @@ function createTestServer(
   clientTokenStore: InMemoryClientTokenStore;
 } {
   const repository = new InMemoryRepository();
+  // Mirrors apps/api/src/main.ts so the reporter assertion below guards the real
+  // wiring rather than the default.
   const service = new CoreMemoryService(repository, {
     forgetSecret: 'forget-secret-that-is-long-enough-for-tests-0123456789',
+    reporter: 'api',
   });
   const clientTokenStore = new InMemoryClientTokenStore();
   const server = createApiServer(service, {
@@ -376,6 +379,7 @@ describe('Mnemosyne API authorization', () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as AdminCapabilitiesOutput;
+    expect(body.reporter).toBe('api');
     expect(body.workerObservedAt).toBeNull();
     expect(body.extraction).toEqual({
       localExtractor: null,

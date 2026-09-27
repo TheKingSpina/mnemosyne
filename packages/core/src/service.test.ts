@@ -1646,3 +1646,26 @@ describe('embedding index health and reindex', () => {
     expect(health.missingCount).toBe(0);
   });
 });
+
+describe('capability provenance', () => {
+  it('defaults to an explicit unspecified reporter rather than a silent one', async () => {
+    const service = new CoreMemoryService(new InMemoryRepository(), {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.reporter).toBe('unspecified');
+  });
+
+  it('names the process that answered', async () => {
+    const service = new CoreMemoryService(new InMemoryRepository(), {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      reporter: 'mcp',
+    });
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.reporter).toBe('mcp');
+  });
+});

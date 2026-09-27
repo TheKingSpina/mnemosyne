@@ -95,6 +95,7 @@ export interface CoreMemoryServiceOptions {
   corpusCache?: CorpusCache;
   corpusCacheTtlSeconds?: number;
   runtimeCapabilityTtlSeconds?: number;
+  reporter?: string;
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -144,6 +145,7 @@ export class CoreMemoryService implements MemoryService {
     });
     return {
       reportedAt,
+      reporter: this.options.reporter ?? 'unspecified',
       workerObservedAt: workerFresh ? worker.reportedAt : null,
       extraction: {
         localExtractor: workerCapabilities
