@@ -1,4 +1,11 @@
-import { CoreMemoryService, createAccessPolicy, InMemoryRepository } from '@mnemosyne/core';
+import {
+  CoreMemoryService,
+  InMemoryClientTokenStore,
+  createAccessPolicy,
+  createIssuedTokenAccessPolicy,
+  InMemoryRepository,
+  generateClientToken,
+} from '@mnemosyne/core';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApiServer } from './app.js';
@@ -13,19 +20,27 @@ function createTestServer(
   service: CoreMemoryService;
   repository: InMemoryRepository;
   server: Server;
+  clientTokenStore: InMemoryClientTokenStore;
 } {
   const repository = new InMemoryRepository();
   const service = new CoreMemoryService(repository, {
     forgetSecret: 'forget-secret-that-is-long-enough-for-tests-0123456789',
   });
+  const clientTokenStore = new InMemoryClientTokenStore();
   const server = createApiServer(service, {
     ...(options.withoutAccessPolicy
       ? {}
-      : { accessPolicy: createAccessPolicy({ ownerToken, harnessToken }) }),
+      : {
+          accessPolicy: createIssuedTokenAccessPolicy({
+            base: createAccessPolicy({ ownerToken, harnessToken }),
+            lookup: (tokenHash) => clientTokenStore.findActiveByHash(tokenHash),
+          }),
+        }),
+    clientTokenStore,
     requireIdempotencyKey: options.requireIdempotencyKey ?? false,
   });
   servers.push(server);
-  return { service, repository, server };
+  return { service, repository, server, clientTokenStore };
 }
 
 async function listen(server: Server): Promise<string> {
@@ -752,5 +767,101 @@ describe('Mnemosyne API authorization', () => {
     expect(response.status).toBe(413);
     expect(await response.json()).toMatchObject({ code: 'request_body_too_large' });
     expect(await service.getCorpusRevision()).toEqual(expect.any(String));
+  });
+});
+
+describe('Mnemosyne API client tokens', () => {
+  it('mints a client token, accepts it as owner, and revokes it', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+
+    const minted = await fetch(`${baseUrl}/v1/admin/client-tokens`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'opencode' }),
+    });
+    const token = (await minted.json()) as {
+      token: string;
+      name: string;
+      prefix: string;
+      role: string;
+    };
+
+    expect(minted.status).toBe(201);
+    expect(token.name).toBe('opencode');
+    expect(token.role).toBe('owner');
+    expect(token.token.startsWith('mnc_')).toBe(true);
+
+    const withIssuedToken = await fetch(`${baseUrl}/v1/admin/overview`, {
+      headers: { authorization: `Bearer ${token.token}` },
+    });
+    expect(withIssuedToken.status).toBe(200);
+    await withIssuedToken.text();
+
+    const harnessOnAdmin = await fetch(`${baseUrl}/v1/admin/client-tokens`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+    expect(harnessOnAdmin.status).toBe(403);
+
+    const listed = await fetch(`${baseUrl}/v1/admin/client-tokens`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const listing = (await listed.json()) as { tokens: { name: string; token?: string }[] };
+    expect(listing.tokens).toHaveLength(1);
+    expect(listing.tokens[0]?.name).toBe('opencode');
+    expect(listing.tokens[0]).not.toHaveProperty('token');
+
+    const revoked = await fetch(`${baseUrl}/v1/admin/client-tokens/opencode/revoke`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(revoked.status).toBe(200);
+
+    const afterRevoke = await fetch(`${baseUrl}/v1/admin/overview`, {
+      headers: { authorization: `Bearer ${token.token}` },
+    });
+    expect(afterRevoke.status).toBe(401);
+    await afterRevoke.text();
+
+    const missing = await fetch(`${baseUrl}/v1/admin/client-tokens/ghost/revoke`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(missing.status).toBe(404);
+    await missing.text();
+  });
+
+  it('rejects a malformed client token name', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+
+    const response = await fetch(`${baseUrl}/v1/admin/client-tokens`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Not A Slug' }),
+    });
+    await response.text();
+    expect(response.status).toBe(400);
+  });
+
+  it('mints a token that the store never returns in plaintext', async () => {
+    const store = new InMemoryClientTokenStore();
+    const generated = generateClientToken();
+    await store.issue({ name: 'cli', tokenHash: generated.hash, prefix: generated.prefix });
+    expect(JSON.stringify(await store.list())).not.toContain(generated.token);
   });
 });

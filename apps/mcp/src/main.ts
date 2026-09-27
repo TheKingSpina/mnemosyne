@@ -2,9 +2,14 @@ import {
   CoreMemoryService,
   DeterministicEmbeddingProvider,
   createAccessPolicy,
+  createIssuedTokenAccessPolicy,
   type AccessPolicy,
 } from '@mnemosyne/core';
-import { PostgresMemoryRepository, PostgresSemanticSearchIndex } from '@mnemosyne/postgres';
+import {
+  PostgresClientTokenStore,
+  PostgresMemoryRepository,
+  PostgresSemanticSearchIndex,
+} from '@mnemosyne/postgres';
 import type { MemoryActor } from '@mnemosyne/contracts';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Pool } from 'pg';
@@ -20,7 +25,7 @@ if (!connectionString || !forgetSecret || !ownerToken || !harnessToken) {
     'DATABASE_URL, MNEMOSYNE_FORGET_SECRET, MNEMOSYNE_OWNER_TOKEN, and MNEMOSYNE_HARNESS_TOKEN are required',
   );
 }
-const accessPolicy: AccessPolicy = createAccessPolicy({ ownerToken, harnessToken });
+const staticAccessPolicy: AccessPolicy = createAccessPolicy({ ownerToken, harnessToken });
 const stdioProfile = process.env.MCP_PROFILE === 'owner' ? 'owner' : 'harness';
 const maxRequestBodyBytes = Number(process.env.MCP_MAX_REQUEST_BODY_BYTES ?? 1_048_576);
 const maxSessions = Number(process.env.MCP_MAX_SESSIONS ?? 1_000);
@@ -44,6 +49,13 @@ if (!Number.isSafeInteger(sessionIdleTimeoutMs) || sessionIdleTimeoutMs < 1_000)
   throw new Error('MCP_SESSION_IDLE_TIMEOUT_MS must be at least 1000');
 }
 const pool = new Pool({ connectionString });
+const clientTokenStore = new PostgresClientTokenStore(pool);
+// A per-client token escalates the anonymous harness default to owner, so a
+// client can hold its own revocable credential instead of the shared owner one.
+const accessPolicy: AccessPolicy = createIssuedTokenAccessPolicy({
+  base: staticAccessPolicy,
+  lookup: (tokenHash) => clientTokenStore.findActiveByHash(tokenHash),
+});
 const repository = await PostgresMemoryRepository.fromPool(pool);
 const embeddingProvider = new DeterministicEmbeddingProvider();
 const semanticSearchIndex = new PostgresSemanticSearchIndex(pool, {

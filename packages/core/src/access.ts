@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { MemoryActor } from '@mnemosyne/contracts';
 import { DomainError } from './errors.js';
 
@@ -19,7 +19,7 @@ export const memoryPermissions = [
 export type MemoryPermission = (typeof memoryPermissions)[number];
 
 export interface AccessPolicy {
-  authenticate(authorization: string | undefined): MemoryActor;
+  authenticate(authorization: string | undefined): MemoryActor | Promise<MemoryActor>;
   authorize(actor: MemoryActor, permission: MemoryPermission): void;
 }
 
@@ -69,6 +69,35 @@ export function createAccessPolicy(tokens: {
 
 function validateToken(token: string, role: 'owner' | 'harness'): void {
   if (token.length < 32) throw new Error(`${role}_bearer_token_too_short`);
+}
+
+/**
+ * Keeps the static owner and harness tokens working and adds per-client tokens
+ * minted from the owner side. A minted token is only consulted when the static
+ * ones do not match, so revoking every client token never changes who the
+ * deployment owner is.
+ */
+export function createIssuedTokenAccessPolicy(input: {
+  base: AccessPolicy;
+  lookup: (tokenHash: string) => Promise<MemoryActor | null>;
+}): AccessPolicy {
+  return {
+    async authenticate(authorization) {
+      try {
+        return await input.base.authenticate(authorization);
+      } catch (error) {
+        if (!(error instanceof DomainError) || error.status !== 401) throw error;
+      }
+      const match = /^Bearer ([^\s]+)$/u.exec(authorization ?? '');
+      if (!match) throw unauthorized();
+      const role = await input.lookup(createHash('sha256').update(match[1]).digest('hex'));
+      if (!role) throw unauthorized();
+      return role;
+    },
+    authorize(actor: MemoryActor, permission: MemoryPermission): void {
+      input.base.authorize(actor, permission);
+    },
+  };
 }
 
 function secureEqual(left: string, right: string): boolean {

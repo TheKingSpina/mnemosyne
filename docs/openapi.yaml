@@ -1432,6 +1432,173 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/ApiProblem'
                   - $ref: '#/components/schemas/ApiError'
+  /v1/admin/client-tokens:
+    get:
+      tags:
+        - Administration
+      operationId: listClientTokens
+      summary: Elenca i token per client emessi
+      description: Elenca i token emessi con nome, prefisso, ruolo e ultimo uso. Il
+        testo in chiaro non viene mai restituito.
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Elenco dei token client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientTokenListOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+    post:
+      tags:
+        - Administration
+      operationId: issueClientToken
+      summary: Emette un token univoco per un client
+      description: 'Crea una credenzola dedicata a un client. Il token in chiaro viene
+        restituito una sola volta: conservalo subito, in seguito rimane solo
+        l’hash.'
+      x-required-profile: owner
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueClientTokenInput'
+      responses:
+        '201':
+          description: Token emesso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedClientTokenOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/client-tokens/{name}/revoke:
+    post:
+      tags:
+        - Administration
+      operationId: revokeClientToken
+      summary: Revoca un token per client
+      description: Il token smette di autenticare subito. Gli altri token e i token
+        statici del deployment non ne risentono.
+      x-required-profile: owner
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Nome del token da revocare.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: false
+        description: 'Corpo JSON opzionale; quando presente deve essere un oggetto
+          vuoto. Il server accetta anche un body assente. Limite massimo:
+          1,048,576 byte.'
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        '200':
+          description: Token revocato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedClientTokenOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
   /v1/admin/capabilities:
     get:
       tags:
@@ -4092,6 +4259,89 @@ components:
         - projections
         - operations
       additionalProperties: false
+    IssuedClientTokenOutput:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+        role:
+          type: string
+          const: owner
+        createdAt:
+          type: string
+        lastUsedAt:
+          type:
+            - string
+            - 'null'
+        revokedAt:
+          type:
+            - string
+            - 'null'
+        token:
+          type: string
+      required:
+        - id
+        - name
+        - prefix
+        - role
+        - createdAt
+        - lastUsedAt
+        - revokedAt
+        - token
+      additionalProperties: false
+    ClientTokenListOutput:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              prefix:
+                type: string
+              role:
+                type: string
+                const: owner
+              createdAt:
+                type: string
+              lastUsedAt:
+                type:
+                  - string
+                  - 'null'
+              revokedAt:
+                type:
+                  - string
+                  - 'null'
+            required:
+              - id
+              - name
+              - prefix
+              - role
+              - createdAt
+              - lastUsedAt
+              - revokedAt
+            additionalProperties: false
+      required:
+        - tokens
+      additionalProperties: false
+    IssueClientTokenInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: ^[a-z0-9][a-z0-9._-]*$
+      required:
+        - name
     AdminMemoriesOutput:
       type: object
       properties:

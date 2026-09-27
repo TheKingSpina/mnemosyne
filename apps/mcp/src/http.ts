@@ -112,15 +112,20 @@ async function handleMcpHttpRequest(
   }
 
   let actor: MemoryActor;
-  if (!requireToken) {
-    actor = anonymousProfile;
-  } else {
+  const suppliedCredentials =
+    typeof request.headers.authorization === 'string' && request.headers.authorization.length > 0;
+  if (suppliedCredentials || requireToken) {
+    // A presented credential is always checked, so a per-client token escalates
+    // the anonymous default. A credential that does not resolve is a failure
+    // rather than a silent downgrade.
     try {
-      actor = accessPolicy.authenticate(request.headers.authorization);
+      actor = await accessPolicy.authenticate(request.headers.authorization);
     } catch {
       response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
       return;
     }
+  } else {
+    actor = anonymousProfile;
   }
 
   const rawSessionId = request.headers['mcp-session-id'];

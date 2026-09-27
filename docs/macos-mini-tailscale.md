@@ -96,7 +96,37 @@ Verifica con `opencode mcp list` o con l’equivalente del client usato.
 
 **Cosa comporta** il profilo anonimo `harness` non registra nemmeno i tool owner-only: `memory_forget`, `memory_export`, `memory_correct`, `memory_retract`, le review e `memory_admin_*` non compaiono in `tools/list` e ogni tentativo di chiamarli risponde che il tool non esiste. Restano disponibili sessioni, eventi, `memory_context`, `memory_propose`, letture e job, che è tutto ciò che serve a un agente. Dashboard e API `/v1/admin/*` restano protette da `MNEMOSYNE_OWNER_TOKEN`.
 
-Con `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=owner` ogni chiamante anonimo diventa owner: comodo per un usopersonale, ma `memory_forget` diventa irreversibile e raggiungibile da qualunque dispositivo del tailnet. Per tornare alla protezione completa: `MNEMOSYNE_MCP_REQUIRE_TOKEN=true` nel `.env` del mini e `docker compose up -d mcp`. I client dovranno allora mandare `Authorization: Bearer` con il token **del mini**, non quello di un altro `.env`, perché ogni `npm run env:init` genera segreti nuovi.
+Se il client manda comunque un header `Authorization`, viene sempre verificato: un token valido escala a `owner`, un token sbagliato o revocato risponde `401` invece di degradare in silenzio.
+
+### Token per client
+
+Un token univoco per client si emette dal **lato client**, senza toccare il `.env` del mini. Serve il token owner per emettere, quindi la prima volta lo si copia in un file protetto:
+
+```bash
+ssh mnemosyne-mini 'sed -n "s/^MNEMOSYNE_OWNER_TOKEN=//p" ~/Mnemosyne/.env' > ~/.mnemosyne/owner.token
+chmod 600 ~/.mnemosyne/owner.token
+```
+
+Poi, dal repository:
+
+```bash
+API=https://mac-mini-di-alessandro-2.tail82e37f.ts.net/api/backend
+npm run token:client -- --base-url "$API" --name opencode --out ~/.mnemosyne/opencode.token
+npm run token:client -- --base-url "$API" --list
+npm run token:client -- --base-url "$API" --revoke opencode
+```
+
+`--name` stampa il token una sola volta e con `--out` lo scrive in un file `0600`. L’elenco mostra solo nome, prefisso, ruolo, stato e ultimo uso: il testo in chiaro non è recuperabile, in tabella finisce solo l’hash SHA-256. `--revoke` blocca un client senza toccare gli altri né i token statici del deployment. I token hanno ruolo `owner`.
+
+Nel client si referenzia il file, senza segreti in chiaro nella configurazione:
+
+```json
+"headers": { "Authorization": "Bearer {file:~/.mnemosyne/opencode.token}" }
+```
+
+Attenzione: `--out` sovrascrive un token esistente con lo stesso nome. Per ruotare la credenziale di un client, riemetti con lo stesso `--name` e cancella il vecchio file.
+
+Con `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=owner` ogni chiamante anonimo diventa owner: comodo per un uso personale, ma `memory_forget` diventa irreversibile e raggiungibile da qualunque dispositivo del tailnet. Per chiudere l'accesso anonimo: `MNEMOSYNE_MCP_REQUIRE_TOKEN=true` nel `.env` del mini e `docker compose up -d mcp`. I client dovranno allora mandare `Authorization: Bearer` con un token emesso, oppure con il token **del mini** per i client che non ne hanno uno proprio, non con quello di un altro `.env`, perché ogni `npm run env:init` genera segreti nuovi.
 
 ## 5. Risorse M1 8 GB
 

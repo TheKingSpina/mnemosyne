@@ -1,4 +1,11 @@
-import { CoreMemoryService, createAccessPolicy, InMemoryRepository } from '@mnemosyne/core';
+import {
+  CoreMemoryService,
+  InMemoryClientTokenStore,
+  InMemoryRepository,
+  createAccessPolicy,
+  createIssuedTokenAccessPolicy,
+  generateClientToken,
+} from '@mnemosyne/core';
 import type { MemoryActor } from '@mnemosyne/contracts';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -304,5 +311,70 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
     );
     const calledBody = await called.text();
     expect(calledBody).toContain('not found');
+  });
+});
+
+describe('Mnemosyne MCP with issued client tokens', () => {
+  it('lets an issued token reach the owner tools and loses access once revoked', async () => {
+    const store = new InMemoryClientTokenStore();
+    const policy = createIssuedTokenAccessPolicy({
+      base: createAccessPolicy({ ownerToken, harnessToken }),
+      lookup: (tokenHash) => store.findActiveByHash(tokenHash),
+    });
+    const service = new CoreMemoryService(new InMemoryRepository(), {
+      forgetSecret: 'forget-secret-that-is-long-enough-for-http-tests-0123456789',
+    });
+    const server = createMcpHttpServer(service, policy, {
+      requireToken: false,
+      anonymousProfile: 'harness',
+      sessionIdGenerator: () => 'issued-session',
+    });
+    servers.push(server);
+    const baseUrl = await listen(server);
+
+    const post = (body: unknown, headers: Record<string, string> = {}) =>
+      fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+
+    const issued = generateClientToken();
+    await store.issue({ name: 'opencode', tokenHash: issued.hash, prefix: issued.prefix });
+    const authorization = { authorization: `Bearer ${issued.token}` };
+
+    const initialized = await post(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'issued-client', version: '1.0.0' },
+        },
+      },
+      authorization,
+    );
+    await initialized.text();
+    expect(initialized.status).toBe(200);
+
+    const session = { 'mcp-session-id': 'issued-session', ...authorization };
+    const listed = await post({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, session);
+    const listedBody = await listed.text();
+    expect(listedBody).toContain('memory_forget');
+    expect(listedBody).toContain('memory_admin_overview');
+
+    await store.revoke('opencode');
+    const afterRevoke = await post(
+      { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} },
+      { 'mcp-session-id': 'issued-session', authorization: `Bearer ${issued.token}` },
+    );
+    await afterRevoke.text();
+    expect(afterRevoke.status).toBe(401);
   });
 });

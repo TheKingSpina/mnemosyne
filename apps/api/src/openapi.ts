@@ -1,5 +1,8 @@
 import {
   adminCapabilitiesOutputSchema,
+  clientTokenListOutputSchema,
+  issuedClientTokenOutputSchema,
+  issueClientTokenInputSchema,
   adminJobsOutputSchema,
   adminMemoriesOutputSchema,
   adminOverviewOutputSchema,
@@ -546,6 +549,66 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/client-tokens': {
+      get: operation({
+        tags: ['Administration'],
+        operationId: 'listClientTokens',
+        summary: 'Elenca i token per client emessi',
+        description:
+          'Elenca i token emessi con nome, prefisso, ruolo e ultimo uso. Il testo in chiaro non viene mai restituito.',
+        requiredProfile: 'owner',
+        responses: {
+          200: jsonResponse('Elenco dei token client.', schemaRef('ClientTokenListOutput')),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+      post: operation({
+        tags: ['Administration'],
+        operationId: 'issueClientToken',
+        summary: 'Emette un token univoco per un client',
+        description:
+          'Crea una credenzola dedicata a un client. Il token in chiaro viene restituito una sola volta: conservalo subito, in seguito rimane solo l’hash.',
+        requiredProfile: 'owner',
+        requestBody: requestBody(schemaRef('IssueClientTokenInput')),
+        responses: {
+          201: jsonResponse('Token emesso.', schemaRef('IssuedClientTokenOutput')),
+          400: errorResponse(400),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+    },
+    '/v1/admin/client-tokens/{name}/revoke': {
+      post: operation({
+        tags: ['Administration'],
+        operationId: 'revokeClientToken',
+        summary: 'Revoca un token per client',
+        description:
+          'Il token smette di autenticare subito. Gli altri token e i token statici del deployment non ne risentono.',
+        requiredProfile: 'owner',
+        parameters: [
+          {
+            name: 'name',
+            in: 'path',
+            required: true,
+            description: 'Nome del token da revocare.',
+            schema: schemaFor(idParameterSchema),
+          },
+        ],
+        requestBody: optionalRequestBody(emptyRequest),
+        responses: {
+          200: jsonResponse('Token revocato.', schemaRef('IssuedClientTokenOutput')),
+          400: errorResponse(400),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          404: errorResponse(404),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/capabilities': {
       get: operation({
         tags: ['Administration'],
@@ -853,6 +916,9 @@ export const openApiDocument: Oas3_1Definition = {
       JobView: schemaRefValue(jobViewSchema),
       AdminOverviewOutput: schemaRefValue(adminOverviewOutputSchema),
       AdminCapabilitiesOutput: schemaRefValue(adminCapabilitiesOutputSchema),
+      IssuedClientTokenOutput: schemaRefValue(issuedClientTokenOutputSchema),
+      ClientTokenListOutput: schemaRefValue(clientTokenListOutputSchema),
+      IssueClientTokenInput: schemaRefValue(issueClientTokenInputSchema, 'input'),
       AdminMemoriesOutput: schemaRefValue(adminMemoriesOutputSchema),
       AdminSessionsOutput: schemaRefValue(adminSessionsOutputSchema),
       AdminSessionDetailOutput: schemaRefValue(adminSessionDetailOutputSchema),

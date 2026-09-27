@@ -2,9 +2,11 @@ import {
   CoreMemoryService,
   DeterministicEmbeddingProvider,
   createAccessPolicy,
+  createIssuedTokenAccessPolicy,
   type CorpusCache,
 } from '@mnemosyne/core';
 import {
+  PostgresClientTokenStore,
   PostgresIdempotencyStore,
   PostgresMemoryRepository,
   PostgresSemanticSearchIndex,
@@ -47,9 +49,14 @@ const service = new CoreMemoryService(repository, {
 });
 const host = process.env.API_HOST ?? '127.0.0.1';
 const port = Number(process.env.API_PORT ?? 3000);
+const clientTokenStore = new PostgresClientTokenStore(pool);
 const server = createApiServer(service, {
-  accessPolicy: createAccessPolicy({ ownerToken, harnessToken }),
+  accessPolicy: createIssuedTokenAccessPolicy({
+    base: createAccessPolicy({ ownerToken, harnessToken }),
+    lookup: (tokenHash) => clientTokenStore.findActiveByHash(tokenHash),
+  }),
   idempotencyStore: new PostgresIdempotencyStore(pool),
+  clientTokenStore,
   requireIdempotencyKey: true,
 });
 server.listen(port, host, () => {

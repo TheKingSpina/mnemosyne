@@ -17,9 +17,12 @@ import {
 import {
   DomainError,
   InMemoryIdempotencyStore,
+  clientTokenNameSchema,
+  generateClientToken,
   hashIdempotencyPayload,
   toDomainError,
   type AccessPolicy,
+  type ClientTokenStore,
   type IdempotencyStore,
   type MemoryPermission,
   type MemoryService,
@@ -31,6 +34,8 @@ import { serializeOpenApiDocument } from './openapi.js';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 const bodylessSchema = z.object({});
+const clientTokenIssueSchema = z.object({ name: clientTokenNameSchema });
+const clientTokenRevokeSchema = z.object({ name: clientTokenNameSchema });
 const searchQuerySchema = z.object({
   sessionId: z.string().min(1),
   q: z.string().min(1),
@@ -48,6 +53,7 @@ const pendingQuerySchema = z.object({
 interface ApiServerOptions {
   accessPolicy?: AccessPolicy;
   idempotencyStore?: IdempotencyStore;
+  clientTokenStore?: ClientTokenStore;
   maxRequestBodyBytes?: number;
   requireIdempotencyKey?: boolean;
 }
@@ -73,6 +79,11 @@ export function createApiServer(service: MemoryService, options: ApiServerOption
       sendError(response, error);
     });
   });
+}
+
+function requireClientTokenStore(store: ClientTokenStore | undefined): ClientTokenStore {
+  if (!store) throw new Error('api_client_token_store_not_configured');
+  return store;
 }
 
 async function handleRequest(
@@ -109,7 +120,7 @@ async function handleRequest(
   if (url.pathname.startsWith('/v1/')) {
     const accessPolicy = options.accessPolicy;
     if (!accessPolicy) throw new Error('api_access_policy_not_configured');
-    actor = accessPolicy.authenticate(request.headers.authorization);
+    actor = await accessPolicy.authenticate(request.headers.authorization);
     const permission = permissionForPath(url.pathname, request.method);
     accessPolicy.authorize(actor, permission);
   }
@@ -128,6 +139,7 @@ async function handleRequest(
       options.maxRequestBodyBytes ?? 1_048_576,
       options.idempotencyStore,
       options.requireIdempotencyKey ?? false,
+      options.clientTokenStore,
     );
     return;
   }
@@ -144,6 +156,7 @@ async function handleAuthorizedRequest(
   maxRequestBodyBytes: number,
   idempotencyStore: IdempotencyStore | undefined,
   requireIdempotencyKey: boolean,
+  clientTokenStore: ClientTokenStore | undefined,
 ): Promise<void> {
   if (
     !isBufferedApiRequest(request) &&
@@ -159,6 +172,7 @@ async function handleAuthorizedRequest(
         response,
         url,
         maxRequestBodyBytes,
+        clientTokenStore,
       );
     await handleIdempotentPost(
       idempotencyStore,
@@ -176,6 +190,7 @@ async function handleAuthorizedRequest(
           bufferedResponse,
           url,
           maxRequestBodyBytes,
+          clientTokenStore,
         ),
       service,
     );
@@ -188,6 +203,7 @@ async function handleAuthorizedRequest(
     response,
     url,
     maxRequestBodyBytes,
+    clientTokenStore,
   );
 }
 
@@ -198,6 +214,7 @@ async function handleAuthorizedRequestUnchecked(
   response: ResponseWriter,
   url: URL,
   maxRequestBodyBytes: number,
+  clientTokenStore: ClientTokenStore | undefined,
 ): Promise<void> {
   if (request.method === 'POST' && url.pathname === '/v1/sessions') {
     const body = await readJson(request, maxRequestBodyBytes);
@@ -301,6 +318,33 @@ async function handleAuthorizedRequestUnchecked(
     const { id } = paramsSchema.parse({ id: adminConflictResolution[1] });
     bodylessSchema.parse(await readJson(request, maxRequestBodyBytes));
     sendJson(response, 200, await service.resolveConflict(id));
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/client-tokens') {
+    sendJson(response, 200, { tokens: await requireClientTokenStore(clientTokenStore).list() });
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/admin/client-tokens') {
+    const store = requireClientTokenStore(clientTokenStore);
+    const body = clientTokenIssueSchema.parse(await readJson(request, maxRequestBodyBytes));
+    const minted = generateClientToken();
+    const token = await store.issue({
+      name: body.name,
+      tokenHash: minted.hash,
+      prefix: minted.prefix,
+    });
+    sendJson(response, 201, { ...token, token: minted.token });
+    return;
+  }
+  const clientTokenRevoke = /^\/v1\/admin\/client-tokens\/([^/]+)\/revoke$/u.exec(url.pathname);
+  if (request.method === 'POST' && clientTokenRevoke) {
+    const { name } = clientTokenRevokeSchema.parse({ name: clientTokenRevoke[1] });
+    const revoked = await requireClientTokenStore(clientTokenStore).revoke(name);
+    if (!revoked) {
+      sendJson(response, 404, { code: 'client_token_not_found', message: 'Unknown client token' });
+      return;
+    }
+    sendJson(response, 200, revoked);
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/admin/overview') {

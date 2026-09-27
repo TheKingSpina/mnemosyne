@@ -196,3 +196,16 @@ CREATE TABLE IF NOT EXISTS memory_feedback (
 
 CREATE INDEX IF NOT EXISTS memory_feedback_memory_idx
   ON memory_feedback(memory_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS client_tokens (
+  id text PRIMARY KEY,
+  name text NOT NULL UNIQUE,
+  token_hash text NOT NULL,
+  token_prefix text NOT NULL,
+  role text NOT NULL CHECK (role IN ('owner')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz,
+  revoked_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS client_tokens_token_hash_idx ON client_tokens(token_hash);

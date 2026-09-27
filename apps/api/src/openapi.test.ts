@@ -81,6 +81,8 @@ describe('OpenAPI contract', () => {
       '/v1/memories/feedback',
       '/v1/jobs/{id}',
       '/v1/admin/overview',
+      '/v1/admin/client-tokens',
+      '/v1/admin/client-tokens/{name}/revoke',
       '/v1/admin/capabilities',
       '/v1/admin/memories',
       '/v1/admin/memories/{id}',

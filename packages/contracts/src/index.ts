@@ -589,5 +589,34 @@ export const adminCapabilitiesOutputSchema = z.object({
 });
 export type AdminCapabilitiesOutput = z.infer<typeof adminCapabilitiesOutputSchema>;
 
+export const clientTokenNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/u, 'client_token_name_must_be_lowercase_slug');
+
+export const issuedClientTokenSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  prefix: z.string(),
+  role: z.literal('owner'),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+});
+export type IssuedClientToken = z.infer<typeof issuedClientTokenSchema>;
+
+export const issueClientTokenInputSchema = z.object({ name: clientTokenNameSchema });
+export type IssueClientTokenInput = z.infer<typeof issueClientTokenInputSchema>;
+
+export const issuedClientTokenOutputSchema = issuedClientTokenSchema.extend({
+  token: z.string(),
+});
+export type IssuedClientTokenOutput = z.infer<typeof issuedClientTokenOutputSchema>;
+
+export const clientTokenListOutputSchema = z.object({ tokens: z.array(issuedClientTokenSchema) });
+export type ClientTokenListOutput = z.infer<typeof clientTokenListOutputSchema>;
+
 export * from './openrouter.js';
 export * from './feedback.js';
