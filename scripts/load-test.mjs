@@ -97,7 +97,7 @@ function summarise(values) {
   };
 }
 
-const VOCABULARY = [
+const BASE_WORDS = [
   'pipeline',
   'provenance',
   'threshold',
@@ -135,6 +135,30 @@ const VOCABULARY = [
   'lease',
   'worker',
 ];
+
+/**
+ * Vocabulary size is the easiest way to benchmark the wrong thing.
+ *
+ * A full-text query is an OR over its terms, so the rows PostgreSQL has to rank
+ * are the rows matching ANY term. With a 36-word vocabulary and three words per
+ * memory, a two-word probe matches roughly 1,667 of 10,000 rows and ts_rank_cd
+ * runs over all of them before the LIMIT truncates to 1,000. Real memory prose
+ * is far more discriminative, so a small vocabulary measures a worst case that
+ * no real corpus produces, and it made the ranking look far more expensive than
+ * it is.
+ *
+ * Terms are expanded into morphemes so distinctiveness is tunable and the
+ * stemmer still has work to do.
+ */
+const morphemeCount = Number(flag('morphemes', '64'));
+const VOCABULARY = Array.from(
+  { length: BASE_WORDS.length * morphemeCount },
+  (_, index) =>
+    `${BASE_WORDS[index % BASE_WORDS.length]}${Math.floor(index / BASE_WORDS.length) || ''}`,
+);
+process.stdout.write(
+  `vocabolario: ${VOCABULARY.length} termini distinti (${morphemeCount} morfemi per parola base)\n`,
+);
 
 const contentFor = (index) => {
   const a = VOCABULARY[index % VOCABULARY.length];
