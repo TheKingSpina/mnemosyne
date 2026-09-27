@@ -1,4 +1,9 @@
-import { CoreMemoryService, InMemoryRepository } from '@mnemosyne/core';
+import {
+  CoreMemoryService,
+  DeterministicEmbeddingProvider,
+  InMemoryRepository,
+  InMemorySemanticSearchIndex,
+} from '@mnemosyne/core';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,8 +16,14 @@ afterEach(async () => {
 });
 
 function createService(): CoreMemoryService {
+  const embeddingProvider = new DeterministicEmbeddingProvider();
   return new CoreMemoryService(new InMemoryRepository(), {
     forgetSecret: 'forget-secret-that-is-long-enough-for-tests-0123456789',
+    embeddingProvider,
+    semanticSearchIndex: new InMemorySemanticSearchIndex({
+      profile: embeddingProvider.profile,
+      dimensions: embeddingProvider.dimensions,
+    }),
   });
 }
 
@@ -58,6 +69,20 @@ describe('Mnemosyne MCP tool profiles', () => {
     expect(tools.map((tool) => tool.name)).toContain('memory_retention_status');
     expect(tools.map((tool) => tool.name)).toContain('memory_run_retention');
     expect(tools.map((tool) => tool.name)).toContain('memory_feedback');
+  });
+
+  it('reports semantic search capabilities for the owner profile', async () => {
+    const { client } = await connect('owner');
+    const response = await client.callTool({
+      name: 'memory_admin_capabilities',
+      arguments: {},
+    });
+
+    expect(response.isError).not.toBe(true);
+    expect(response).toHaveProperty(
+      'content.0.text',
+      expect.stringContaining('"semanticSearch":true'),
+    );
   });
 
   it('resolves a conflict through the owner MCP tool', async () => {
