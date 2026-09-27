@@ -2,6 +2,12 @@
 .ori/
 screenshot/
 
+# Personal opencode configuration: the MCP endpoint is a per-machine tailnet
+# host and the credential path lives in $HOME. Keep it in
+# ~/.config/opencode/opencode.jsonc instead. Remove this line if the project
+# ever ships a portable, shareable opencode.json.
+opencode.json
+
 # Environment and secrets
 .env
 .env.*

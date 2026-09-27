@@ -124,6 +124,24 @@ Nel client si referenzia il file, senza segreti in chiaro nella configurazione:
 "headers": { "Authorization": "Bearer {file:~/.mnemosyne/opencode.token}" }
 ```
 
+Con opencode la configurazione MCP sta in `~/.config/opencode/opencode.jsonc`, non nel repository: l’endpoint è un host del tailnet e il percorso del token è nella home, quindi è un’impostazione della macchina, non del progetto.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mnemosyne": {
+      "type": "remote",
+      "url": "https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp",
+      "headers": { "Authorization": "Bearer {file:~/.mnemosyne/opencode.token}" },
+      "enabled": true
+    }
+  }
+}
+```
+
+Verifica con `opencode mcp list` da qualsiasi directory: la configurazione globale vale ovunque, quindi un `opencode.json` nella root del repository sarebbe solo rumore e un rischio di committare valori personali.
+
 Attenzione: `--out` sovrascrive un token esistente con lo stesso nome. Per ruotare la credenziale di un client, riemetti con lo stesso `--name` e cancella il vecchio file.
 
 Con `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=owner` ogni chiamante anonimo diventa owner: comodo per un uso personale, ma `memory_forget` diventa irreversibile e raggiungibile da qualunque dispositivo del tailnet. Per chiudere l'accesso anonimo: `MNEMOSYNE_MCP_REQUIRE_TOKEN=true` nel `.env` del mini e `docker compose up -d mcp`. I client dovranno allora mandare `Authorization: Bearer` con un token emesso, oppure con il token **del mini** per i client che non ne hanno uno proprio, non con quello di un altro `.env`, perché ogni `npm run env:init` genera segreti nuovi.
