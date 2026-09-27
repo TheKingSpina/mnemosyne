@@ -80,27 +80,27 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 
 ### Load test status
 
-`node scripts/load-test.mjs` runs against a throwaway pgvector container with a random name and a random port, removed on exit. Data is generated, so it needs no approved scope and never recreates the removed seed. Measured on 27 September 2026 with 10,000 memories, `shared_buffers=256MB`, 24 pooled clients:
+`node scripts/load-test.mjs` runs against throwaway pgvector and Redis containers with random names and random ports, removed on exit. Data is generated, so it needs no approved scope and never recreates the removed seed. Measured on 27 September 2026 with 10,000 memories, `shared_buffers=256MB`, 24 pooled clients:
 
-| Phase                        | Result                        |
-| ---------------------------- | ----------------------------- |
-| Governed single-item propose | 74/s, p50 10.4 ms, max 298 ms |
-| Bulk repository fill         | 304/s                         |
-| Embedding reindex of 10,000  | 22.6 s                        |
-| Outbox after 10,000 writes   | 20,000 rows, all unprocessed  |
+| Phase                        | Result                       |
+| ---------------------------- | ---------------------------- |
+| Governed single-item propose | 212/s                        |
+| Bulk repository fill         | 545/s                        |
+| Embedding reindex of 10,000  | 17.2 s                       |
+| Outbox after 10,000 writes   | 20,000 rows, all unprocessed |
 
-Search and context latency by concurrency, 40 requests each:
+Retrieval latency with and without the Redis cache, 40 distinct queries each, 10,000 memories:
 
-| Concurrency | Search p50 | Search p95 | Context p50 |
-| ----------- | ---------- | ---------- | ----------- |
-| 1           | 137 ms     | 154 ms     | 153 ms      |
-| 4           | 238 ms     | 282 ms     | 285 ms      |
-| 8           | 327 ms     | 415 ms     | 347 ms      |
-| 16          | 520 ms     | 921 ms     | 550 ms      |
+| Shape                                          | p50        | p95        |
+| ---------------------------------------------- | ---------- | ---------- |
+| No cache, distinct queries                     | 78.6 ms    | 86.7 ms    |
+| Cache present, distinct queries, all misses    | 81.2 ms    | 89.8 ms    |
+| Cache present, 200 identical queries, all hits | **1.3 ms** | **1.8 ms** |
 
-- The headline is the comparison with production, not the concurrency table: the live corpus of 96 memories answers a search in about 9 ms, while 10,000 synthetic memories at concurrency 1 take 137 ms. That is roughly 15x slower for 100x the data, so the current ranking does not degrade gracefully with corpus size.
-- The cause is known and structural: the candidate pool is bounded to 1,000, BM25 is recomputed for every candidate, and `PostgresSemanticSearchIndex` selects neighbours with pgvector and then recomputes cosine in JavaScript, so the semantic path pays a JS-side vector pass per query.
-- Throughput still improves with concurrency up to about 8 and then plateaus, so this is queueing plus genuinely slower queries, not thrashing. Zero errors at every level.
+- The cache is decisive on repeats: 78.6 ms becomes 1.3 ms, roughly 59x. On a miss it costs about 2.6 ms, roughly 3%, which is the price of writing the entry.
+- The cache-hit path is not free, and the reason is `revalidateCachedMemories`, which issues one `getMemory` query per cached result. Measured at 10,000 memories, cache hits only: limit 5 gives p50 0.71 ms, limit 20 gives 1.24 ms, limit 50 gives 2.39 ms. That is about 0.035 ms per returned row, so the cost scales with the page size and not with the corpus. It is the dominant part of a cache hit in absolute terms and it is still under 3 ms, so it is worth knowing about rather than worth optimising now.
+- The ranking itself is the real limit, not the cache. A cold distinct query costs about 79 ms at 10,000 memories against roughly 9 ms live on the 96-memory corpus, so roughly 9x slower for 100x the data. The cause is structural: the candidate pool is bounded to 1,000, BM25 is recomputed for every candidate, and `PostgresSemanticSearchIndex` selects neighbours with pgvector and then recomputes cosine in JavaScript, so the semantic path pays a JS-side vector pass per query.
+- Concurrency at 10,000 memories was measured in an earlier run without the cache and stands: search p50 137 ms at concurrency 1, 238 ms at 4, 327 ms at 8, 520 ms at 16, with 0 errors throughout. Throughput improves to about concurrency 8 and then plateaus, so that is queueing plus genuinely slower queries, not thrashing. A later run that included the cache produced a concurrency 8 p50 of 6.5 ms, which is not believable against the 78.6 ms cold miss measured minutes earlier with distinct probes, so it is recorded here as unexplained rather than as a result.
 - This measured latency, not relevance, at scale. Whether ranking accuracy also degrades with 100x more distractors is untested and is a separate question.
 
 ### Live relevance benchmark
