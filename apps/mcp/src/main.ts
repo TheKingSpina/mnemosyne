@@ -5,6 +5,7 @@ import {
   type AccessPolicy,
 } from '@mnemosyne/core';
 import { PostgresMemoryRepository, PostgresSemanticSearchIndex } from '@mnemosyne/postgres';
+import type { MemoryActor } from '@mnemosyne/contracts';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Pool } from 'pg';
 import { createMcpServer } from './server.js';
@@ -27,9 +28,12 @@ const sessionIdleTimeoutMs = Number(process.env.MCP_SESSION_IDLE_TIMEOUT_MS ?? 1
 const allowedHosts = csvOption(process.env.MCP_ALLOWED_HOSTS);
 const allowedOrigins = csvOption(process.env.MCP_ALLOWED_ORIGINS);
 // Opt-in escape hatch for a deployment whose perimeter is already the tailnet
-// ACL. Every caller is then treated as owner, so forget and export are reachable
-// without a token. Keep the default unless the exposure is deliberate.
+// ACL. Anonymous callers get the harness profile by default, which keeps context,
+// proposals, sessions and reads working while leaving forget, correct, retract,
+// review and export behind a token.
 const requireToken = process.env.MNEMOSYNE_MCP_REQUIRE_TOKEN !== 'false';
+const anonymousProfile: MemoryActor =
+  process.env.MNEMOSYNE_MCP_ANONYMOUS_PROFILE === 'owner' ? 'owner' : 'harness';
 if (!Number.isSafeInteger(maxRequestBodyBytes) || maxRequestBodyBytes <= 0) {
   throw new Error('MCP_MAX_REQUEST_BODY_BYTES must be a positive integer');
 }
@@ -66,10 +70,11 @@ if (process.env.MCP_TRANSPORT !== 'http') {
     allowedHosts,
     allowedOrigins,
     requireToken,
+    anonymousProfile,
   });
   server.listen(port, host, () => {
     process.stdout.write(
-      `Mnemosyne MCP listening on ${host}:${port} (token ${requireToken ? 'required' : 'not required'})\n`,
+      `Mnemosyne MCP listening on ${host}:${port} (token ${requireToken ? 'required' : 'not required'}, anonymous profile ${anonymousProfile})\n`,
     );
   });
 }

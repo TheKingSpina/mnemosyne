@@ -21,6 +21,7 @@ export interface McpHttpServerOptions {
   allowedOrigins?: string[];
   sessionIdGenerator?: () => string;
   requireToken?: boolean;
+  anonymousProfile?: MemoryActor;
 }
 
 export function createMcpHttpServer(
@@ -59,6 +60,7 @@ export function createMcpHttpServer(
       service,
       accessPolicy,
       options.requireToken ?? true,
+      options.anonymousProfile ?? 'owner',
       options.sessionIdGenerator ?? (() => randomUUID()),
       maxRequestBodyBytes,
       maxSessions,
@@ -93,6 +95,7 @@ async function handleMcpHttpRequest(
   service: MemoryService,
   accessPolicy: AccessPolicy,
   requireToken: boolean,
+  anonymousProfile: MemoryActor,
   generateSessionId: () => string,
   maxRequestBodyBytes: number,
   maxSessions: number,
@@ -110,7 +113,7 @@ async function handleMcpHttpRequest(
 
   let actor: MemoryActor;
   if (!requireToken) {
-    actor = 'owner';
+    actor = anonymousProfile;
   } else {
     try {
       actor = accessPolicy.authenticate(request.headers.authorization);

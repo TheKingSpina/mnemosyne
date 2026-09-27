@@ -1,4 +1,5 @@
 import { CoreMemoryService, createAccessPolicy, InMemoryRepository } from '@mnemosyne/core';
+import type { MemoryActor } from '@mnemosyne/contracts';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -28,6 +29,7 @@ function createTestServer(
     allowedHosts?: string[];
     allowedOrigins?: string[];
     requireToken?: boolean;
+    anonymousProfile?: MemoryActor;
   } = {},
 ): Server {
   const service = new CoreMemoryService(new InMemoryRepository(), {
@@ -244,5 +246,63 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
     expect(listed.status).toBe(200);
     expect(body).toContain('memory_forget');
     expect(body).toContain('memory_admin_overview');
+  });
+
+  it('hides owner-only tools from an anonymous harness session', async () => {
+    const baseUrl = await listen(
+      createTestServer('harness-session', 1_000, {
+        requireToken: false,
+        anonymousProfile: 'harness',
+      }),
+    );
+    const post = (body: unknown, withSession: boolean) =>
+      fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+          'mcp-protocol-version': '2025-03-26',
+          ...(withSession ? { 'mcp-session-id': 'harness-session' } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+    const initialized = await post(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'anonymous-harness-client', version: '1.0.0' },
+        },
+      },
+      false,
+    );
+    await initialized.text();
+    expect(initialized.status).toBe(200);
+    expect(initialized.headers.get('mcp-session-id')).toBe('harness-session');
+
+    const listed = await post({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, true);
+    const listedBody = await listed.text();
+    expect(listed.status).toBe(200);
+    expect(listedBody).toContain('memory_open_session');
+    expect(listedBody).toContain('memory_context');
+    expect(listedBody).not.toContain('memory_forget');
+    expect(listedBody).not.toContain('memory_admin_overview');
+    expect(listedBody).not.toContain('memory_export');
+
+    const called = await post(
+      {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'memory_forget', arguments: { memoryId: 'memory-that-does-not-exist' } },
+      },
+      true,
+    );
+    const calledBody = await called.text();
+    expect(calledBody).toContain('not found');
   });
 });

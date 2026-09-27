@@ -44,7 +44,7 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 ### Dashboard and MCP status
 
 - The dashboard graph no longer loads `vis-network` at runtime. It uses a native canvas renderer with non-overlapping scope clusters, stable hover behavior, no hover tooltip, zoom/pan, filtering, and persistent clicked-node highlighting.
-- MCP uses the local deterministic embedding provider and PostgreSQL semantic index. On the Mac mini, `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` disables HTTP authentication so clients need only the URL; the tailnet ACL is the perimeter and every MCP caller is treated as `owner`, including forget and export. The dashboard and `/v1/admin/*` still require `MNEMOSYNE_OWNER_TOKEN`; harness clients use `MNEMOSYNE_HARNESS_TOKEN` and receive `403` for owner-only actions.
+- MCP uses the local deterministic embedding provider and PostgreSQL semantic index. On the Mac mini, `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` with `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=harness` disables HTTP authentication so clients need only the URL; the tailnet ACL is the perimeter, and the owner-only tools (forget, export, correct, retract, review, `memory_admin_*`) are not registered for that profile at all. Never set the anonymous profile to `owner` without an explicit reason. The dashboard and `/v1/admin/*` still require `MNEMOSYNE_OWNER_TOKEN`; harness clients use `MNEMOSYNE_HARNESS_TOKEN` and receive `403` for owner-only actions.
 - MCP DNS-rebinding protection remains configured for the Tailscale hostname; do not broaden `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` without an explicit reason.
 
 ### Recommended follow-up

@@ -78,7 +78,7 @@ Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel contai
 
 L’endpoint è quello mostrato da `tailscale serve status` e include porta e percorso, per esempio `https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp`. La protezione DNS rebinding accetta solo gli host in `MCP_ALLOWED_HOSTS`, quindi il client deve usare esattamente quel nome: l’IP del tailnet e il nome breve vengono rifiutati.
 
-Sul mini l’autenticazione MCP è disattivata di proposito con `MNEMOSYNE_MCP_REQUIRE_TOKEN=false`: il perimetro è l’ACL del tailnet e il client non deve gestire segreti. Il client si configura con la sola URL:
+Sul mini l’autenticazione MCP è disattivata di proposito con `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` e `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=harness`: il perimetro è l’ACL del tailnet e il client non deve gestire segreti. Il client si configura con la sola URL:
 
 ```json
 {
@@ -94,7 +94,9 @@ Sul mini l’autenticazione MCP è disattivata di proposito con `MNEMOSYNE_MCP_R
 
 Verifica con `opencode mcp list` o con l’equivalente del client usato.
 
-**Cosa comporta** ogni chiamante è trattato come `owner`: forget, export e `memory_admin_*` sono raggiungibili da qualunque dispositivo del tailnet, e `memory_forget` è irreversibile. Il dashboard e l’API `/v1/admin/*` restano protetti da `MNEMOSYNE_OWNER_TOKEN`. Per tornare indietro basta `MNEMOSYNE_MCP_REQUIRE_TOKEN=true` nel `.env` del mini e un `docker compose up -d mcp`: i client dovranno allora mandare `Authorization: Bearer` con il token **del mini**, non quello di un altro `.env`, perché ogni `npm run env:init` genera segreti nuovi.
+**Cosa comporta** il profilo anonimo `harness` non registra nemmeno i tool owner-only: `memory_forget`, `memory_export`, `memory_correct`, `memory_retract`, le review e `memory_admin_*` non compaiono in `tools/list` e ogni tentativo di chiamarli risponde che il tool non esiste. Restano disponibili sessioni, eventi, `memory_context`, `memory_propose`, letture e job, che è tutto ciò che serve a un agente. Dashboard e API `/v1/admin/*` restano protette da `MNEMOSYNE_OWNER_TOKEN`.
+
+Con `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=owner` ogni chiamante anonimo diventa owner: comodo per un usopersonale, ma `memory_forget` diventa irreversibile e raggiungibile da qualunque dispositivo del tailnet. Per tornare alla protezione completa: `MNEMOSYNE_MCP_REQUIRE_TOKEN=true` nel `.env` del mini e `docker compose up -d mcp`. I client dovranno allora mandare `Authorization: Bearer` con il token **del mini**, non quello di un altro `.env`, perché ogni `npm run env:init` genera segreti nuovi.
 
 ## 5. Risorse M1 8 GB
 
