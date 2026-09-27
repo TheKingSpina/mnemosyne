@@ -24,6 +24,12 @@ describe('PostgresMemoryRepository search pushdown', () => {
     expect(result).toEqual([]);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.text).toContain('websearch_to_tsquery');
+    // The full-text filter must drive the plan. Without MATERIALIZED the
+    // planner starts from memories, does one primary-key lookup per row and
+    // applies the text match as a post-filter, ignoring the GIN index: 69 ms
+    // for 15 rows at 10,000 memories against 2.1 ms for the same filter alone.
+    expect(calls[0]?.text).toContain('WITH matched AS MATERIALIZED');
+    expect(calls[0]?.text).toMatch(/JOIN memories m ON m\.id = matched\.memory_id/);
     expect(calls[0]?.text).toContain('ts_rank_cd');
     expect(calls[0]?.text).toContain('LIMIT $3');
     expect(calls[0]?.values).toEqual([

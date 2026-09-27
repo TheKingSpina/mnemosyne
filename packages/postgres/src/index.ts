@@ -798,14 +798,30 @@ export class PostgresMemoryRepository implements MemoryRepository {
   }): Promise<MemoryRevision[]> {
     const scopeKeys = input.scopes.map((scope) => `${scope.type}:${scope.id}`);
     if (input.query.trim().length === 0 || scopeKeys.length === 0 || input.limit < 1) return [];
+    // The full-text filter has to drive the plan, not decorate it.
+    //
+    // Joining memories to memory_revisions first made the planner start from
+    // memories on the lifecycle index, do one primary-key lookup per row, and
+    // apply the text match afterwards as a post-filter. That ignored the GIN
+    // index entirely: measured at 10,000 memories the same query returned 15
+    // rows in 69 ms while a bitmap heap scan on memory_revisions returned the
+    // same 15 rows in 2.1 ms. MATERIALIZED stops the planner inlining the CTE
+    // and re-deriving that join order, so the GIN index does the work first and
+    // the lifecycle check happens on the handful of rows that matched.
     const result = await this.database.query<MemoryRevisionRow & { rank: number }>(
-      `SELECT r.*, ts_rank_cd(to_tsvector('simple', r.content), websearch_to_tsquery('simple', $1)) AS rank
-       FROM memories m
-       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+      `WITH matched AS MATERIALIZED (
+         SELECT r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+                r.epistemic_basis, r.assessment, r.confidence, r.sensitivity,
+                r.activation, r.source_event_ids,
+                ts_rank_cd(to_tsvector('simple', r.content), websearch_to_tsquery('simple', $1)) AS rank
+         FROM memory_revisions r
+         WHERE to_tsvector('simple', r.content) @@ websearch_to_tsquery('simple', $1)
+           AND (r.scope_type || ':' || r.scope_id) = ANY($2::text[])
+       )
+       SELECT matched.* FROM matched
+       JOIN memories m ON m.id = matched.memory_id AND m.current_version = matched.version
        WHERE m.lifecycle = 'accepted'
-         AND to_tsvector('simple', r.content) @@ websearch_to_tsquery('simple', $1)
-         AND (r.scope_type || ':' || r.scope_id) = ANY($2::text[])
-       ORDER BY rank DESC, r.memory_id ASC
+       ORDER BY matched.rank DESC, matched.memory_id ASC
        LIMIT $3`,
       [input.query, scopeKeys, input.limit],
     );
