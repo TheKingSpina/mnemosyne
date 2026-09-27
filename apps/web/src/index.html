@@ -1667,13 +1667,27 @@
                 td(formatDate(memory.updatedAt)),
               );
               const actions = td('', 'row-actions');
-              const button = document.createElement('button');
-              button.textContent = 'Apri';
-              button.onclick = (event) => {
+              const open = document.createElement('button');
+              open.textContent = 'Apri';
+              open.onclick = (event) => {
                 event.stopPropagation();
                 showMemory(memory);
               };
-              actions.append(button);
+              actions.append(open);
+              // Reviewing from here means the queue is reachable without knowing a
+              // session id, which the review view requires and the dashboard never
+              // shows. Both views post the same decision for the same proposal.
+              if (memory.lifecycle === 'pending_approval') {
+                for (const decision of ['accept', 'reject']) {
+                  const button = document.createElement('button');
+                  button.textContent = decision === 'accept' ? 'Approva' : 'Rifiuta';
+                  button.onclick = (event) => {
+                    event.stopPropagation();
+                    review(memory, decision, loadMemories);
+                  };
+                  actions.append(button);
+                }
+              }
               row.append(actions);
               return row;
             }),
@@ -1951,17 +1965,21 @@
           showMessage(error.message, true);
         }
       };
-      const review = (memory, decision) =>
-        request(`/v1/proposals/${encodeURIComponent(memory.memoryId)}/decision`, {
-          method: 'POST',
-          headers: { 'idempotency-key': idempotencyKey() },
-          body: { expectedVersion: memory.currentVersion, decision },
-        })
-          .then(() => {
-            showMessage(decision === 'accept' ? 'Candidate approvata.' : 'Candidate rifiutata.');
-            loadReview();
-          })
-          .catch((error) => showMessage(error.message, true));
+      // The reload runs before the confirmation is shown, because every loader
+      // calls clearMessage() when it finishes and would otherwise wipe it.
+      const review = async (memory, decision, reload = loadReview) => {
+        try {
+          await request(`/v1/proposals/${encodeURIComponent(memory.memoryId)}/decision`, {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: { expectedVersion: memory.currentVersion, decision },
+          });
+          await reload();
+          showMessage(decision === 'accept' ? 'Candidate approvata.' : 'Candidate rifiutata.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
       $('connect').onclick = () => {
         if (!token()) {
           showMessage('Inserisci il token owner.', true);
