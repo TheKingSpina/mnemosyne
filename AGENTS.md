@@ -41,7 +41,7 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Documentation: [`docs/retrieval-ranking.md`](docs/retrieval-ranking.md).
 - Historical pre-cleanup live benchmark, using 12 distinctive three-word probes: keyword hit@1 `83.3%`, hit@5 `83.3%`, hit@10 `91.7%`, MRR@10 `0.847`; noisy probes have the same values; verbatim is `100%` top-1/top-10; no-match queries return zero results; top-10 Jaccard mean `0.068`, max `0.818`; search p50/p95 `7.45/18.59 ms`; context p50/p95 `12.89/33.67 ms`.
 - One live probe remains genuinely ambiguous because several memories share the same evidence. This is measured and accepted as a known relevance limit, not an infrastructure failure.
-- Offline gates: `npm run verify` passes 134 tests with 1 skipped; `npm run eval:all` passes governance `7/7` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails with nDCG `0.9405` and `9/11`, proving the gate detects broken ordering.
+- Offline gates: `npm run verify` passes 153 tests with 1 skipped; `npm run eval:all` passes governance `9/9` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails, proving the gate detects broken ordering.
 
 ### Dashboard and MCP status
 
@@ -49,6 +49,13 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - MCP uses the local deterministic embedding provider and PostgreSQL semantic index. On the Mac mini, `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` with `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=harness` disables HTTP authentication so clients need only the URL; the tailnet ACL is the perimeter, and the owner-only tools (forget, export, correct, retract, review, `memory_admin_*`) are not registered for that profile at all. Never set the anonymous profile to `owner` without an explicit reason. A supplied `Authorization` header is always verified: a per-client token escalates to `owner`, an invalid or revoked one gets `401` instead of a silent downgrade.
 - Per-client credentials are minted from the client side with `npm run token:client -- --base-url <api> --name <slug> [--out <file> | --list | --revoke <slug>]`, talking to `POST /v1/admin/client-tokens` with `MNEMOSYNE_OWNER_TOKEN`. Only the SHA-256 hash and a displayable prefix are stored, the plaintext is returned once, and every token currently has the `owner` role.
 - MCP DNS-rebinding protection remains configured for the Tailscale hostname; do not broaden `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` without an explicit reason.
+
+### Capability reporting status
+
+- `GET /v1/admin/capabilities` reports only what the answering process can attest to. API and MCP do not own the extraction provider, the Neo4j projection or the retention timer, so those come from a worker heartbeat in the new `runtime_capabilities` table, written every `WORKER_CAPABILITY_HEARTBEAT_MS` (default 60s) and trusted only for `MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS` (default 300). Keep the heartbeat shorter than the TTL, or capabilities read unknown while the worker is alive.
+- Capabilities have three states. `null` means unobserved, never disabled, and every `null` is named with a reason in `gaps`. `operations.backupVerified` is always `null` because backups run outside the process. `workerObservedAt` says how fresh the worker's contribution is.
+- Previously `neo4j` and `openRouterConfigured` were hardcoded to `false` and pinned with `z.literal`, so the endpoint asserted facts about a process that cannot see them. Do not reintroduce hardcoded capability values, and do not pin a field that some process can genuinely observe differently.
+- The live JSONB round trip through Zod is covered by `verifyRuntimeCapabilities` in the synthetic E2E, not by unit tests. That E2E has not been executed since this change was made; run `npm run e2e:synthetic` on the mini or in CI before relying on it.
 
 ### Host keep-alive and backup
 
@@ -62,9 +69,22 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 ### Recommended follow-up
 
 1. Add privacy-safe retrieval telemetry (candidate counts, FTS/semantic path, score bands) without logging queries or corpus content.
-2. Add an explicit embedding reindex/health command for post-restore recovery.
+2. ~~Add an explicit embedding reindex/health command for post-restore recovery.~~ Done: see the embedding recovery status below.
 3. Grow the small reviewed live relevance set if a stricter top-1 target is required.
 4. Run a concurrency/load test against a future explicitly approved large scope; do not recreate the removed seed.
+
+### Embedding recovery status
+
+- `restoreCorpus` still does not rebuild embeddings, but the degradation is no longer silent. `GET /v1/admin/embeddings/health` (also `mnemosyne embeddings-health`, MCP `memory_admin_embedding_health`) compares the corpus against the index for the active profile and reports `indexedForActiveProfile`, `missingCount`, `needsReindex`, plus any other profiles left over from a provider change.
+- `POST /v1/admin/embeddings/reindex` (also `mnemosyne embeddings-reindex --yes`, MCP `memory_admin_reindex_embeddings`) rebuilds every embedding and is idempotent. It throws `semantic_search_unavailable` (409) when no provider is configured rather than reporting an empty success, because a success that indexed nothing is the failure mode this exists to remove. It deliberately does not bump the corpus revision: cached searches are still valid approved memories and self-heal within the cache TTL.
+- Embedding counts come from `SemanticSearchIndex.countByProfile()`, not from the corpus repository. That is not cosmetic: in the in-memory backend the index and the repository are separate objects, and asking the repository produced a health report that was structurally always empty.
+- After any corpus restore, run the reindex. The synthetic E2E asserts this exact sequence against real PostgreSQL, including that the restore really does leave the index at zero.
+
+### Cross-scope conflict status
+
+- `areDirectlyContradictory` no longer requires matching scopes. It still requires the same `kind` and the same sentence word for word with exactly one negation, which is what keeps the false-positive surface small.
+- Two governance cases guard this: `cross-scope-contradiction-is-detected` and `cross-scope-agreement-is-not-a-conflict`. Reintroducing the scope check makes the governance gate fail, so the guard is real rather than decorative.
+- The remaining four conflict types are still declared and never produced. That is unchanged and still open.
 
 ### Cleanup guardrails
 

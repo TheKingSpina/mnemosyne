@@ -1,5 +1,7 @@
 import {
   adminCapabilitiesOutputSchema,
+  embeddingIndexHealthOutputSchema,
+  embeddingReindexOutputSchema,
   clientTokenListOutputSchema,
   issuedClientTokenOutputSchema,
   issueClientTokenInputSchema,
@@ -623,6 +625,42 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/embeddings/health': {
+      get: operation({
+        tags: ['Administration'],
+        operationId: 'getEmbeddingIndexHealth',
+        summary: 'Confronto tra corpus e indice semantico attivo',
+        requiredProfile: 'owner',
+        responses: {
+          200: jsonResponse(
+            "Stato dell'indice embedding.",
+            schemaRef('EmbeddingIndexHealthOutput'),
+          ),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+    },
+    '/v1/admin/embeddings/reindex': {
+      post: operation({
+        tags: ['Administration'],
+        operationId: 'reindexEmbeddings',
+        summary: 'Ricostruisce tutte le embedding del profilo attivo',
+        requiredProfile: 'owner',
+        idempotent: true,
+        requestBody: optionalRequestBody(emptyRequest),
+        responses: {
+          200: jsonResponse('Reindicizzazione completata.', schemaRef('EmbeddingReindexOutput')),
+          400: errorResponse(400),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          409: errorResponse(409),
+          413: errorResponse(413),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/memories': {
       get: operation({
         tags: ['Administration'],
@@ -916,6 +954,8 @@ export const openApiDocument: Oas3_1Definition = {
       JobView: schemaRefValue(jobViewSchema),
       AdminOverviewOutput: schemaRefValue(adminOverviewOutputSchema),
       AdminCapabilitiesOutput: schemaRefValue(adminCapabilitiesOutputSchema),
+      EmbeddingIndexHealthOutput: schemaRefValue(embeddingIndexHealthOutputSchema),
+      EmbeddingReindexOutput: schemaRefValue(embeddingReindexOutputSchema),
       IssuedClientTokenOutput: schemaRefValue(issuedClientTokenOutputSchema),
       ClientTokenListOutput: schemaRefValue(clientTokenListOutputSchema),
       IssueClientTokenInput: schemaRefValue(issueClientTokenInputSchema, 'input'),

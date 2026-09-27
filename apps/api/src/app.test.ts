@@ -6,6 +6,7 @@ import {
   InMemoryRepository,
   generateClientToken,
 } from '@mnemosyne/core';
+import type { AdminCapabilitiesOutput, EmbeddingIndexHealthOutput } from '@mnemosyne/contracts';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApiServer } from './app.js';
@@ -332,7 +333,41 @@ describe('Mnemosyne API authorization', () => {
     expect(detailBody.revisions.map((revision) => revision.version)).toEqual([2, 1]);
   });
 
-  it('reports missing operations and projections to the owner', async () => {
+  it('exposes embedding health and reindex to the owner only', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+
+    const health = await fetch(`${baseUrl}/v1/admin/embeddings/health`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    expect(health.status).toBe(200);
+    const body = (await health.json()) as EmbeddingIndexHealthOutput;
+    expect(body.available).toBe(false);
+    expect(body.needsReindex).toBe(false);
+    expect(body.missingCount).toBe(0);
+
+    const reindex = await fetch(`${baseUrl}/v1/admin/embeddings/reindex`, {
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'idempotency-key': 'reindex-owner',
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      body: '{}',
+    });
+    // No embedding provider is configured in this harness, so a reindex must
+    // fail loudly with a diagnosable code rather than report an empty success.
+    expect(reindex.status).toBe(409);
+    const problem = (await reindex.json()) as { code: string };
+    expect(problem.code).toBe('semantic_search_unavailable');
+
+    const asHarness = await fetch(`${baseUrl}/v1/admin/embeddings/health`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+    expect(asHarness.status).toBe(403);
+  });
+
+  it('reports worker-owned capabilities as unknown until the worker reports them', async () => {
     const { server } = createTestServer();
     const baseUrl = await listen(server);
     const response = await fetch(`${baseUrl}/v1/admin/capabilities`, {
@@ -340,11 +375,30 @@ describe('Mnemosyne API authorization', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      extraction: { localExtractor: true, openRouterConfigured: false },
-      projections: { redis: false, neo4j: false, semanticSearch: false },
-      operations: { backupVerified: false, retentionManaged: true, exportAvailable: true },
+    const body = (await response.json()) as AdminCapabilitiesOutput;
+    expect(body.workerObservedAt).toBeNull();
+    expect(body.extraction).toEqual({
+      localExtractor: null,
+      openRouterConfigured: null,
+      extractionProvider: null,
     });
+    expect(body.projections).toEqual({ redis: false, neo4j: null, semanticSearch: false });
+    expect(body.operations).toEqual({
+      backupVerified: null,
+      retentionManaged: null,
+      exportAvailable: true,
+    });
+    expect(body.gaps.map((gap) => gap.field)).toEqual(
+      expect.arrayContaining([
+        'extraction.localExtractor',
+        'extraction.openRouterConfigured',
+        'extraction.extractionProvider',
+        'projections.neo4j',
+        'operations.retentionManaged',
+        'operations.backupVerified',
+      ]),
+    );
+    expect(body.gaps.every((gap) => gap.reason.length > 0)).toBe(true);
   });
 
   it('coerces admin pagination parameters from query strings', async () => {

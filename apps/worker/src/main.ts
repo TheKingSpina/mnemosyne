@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
+import { extractionProviderNameSchema, type ExtractionProviderName } from '@mnemosyne/contracts';
 import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
-import { PostgresMemoryRepository } from '@mnemosyne/postgres';
+import { PostgresMemoryRepository, WORKER_CAPABILITY_COMPONENT } from '@mnemosyne/postgres';
 import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
 import { OpenRouterExtractor } from './provider-extractor.js';
 import { ProviderRouter } from './provider-router.js';
@@ -21,14 +22,16 @@ const backoffMs = integerOption(process.env.WORKER_BACKOFF_MS ?? '1000', 0);
 const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?? '30000', 1000);
 const workerId = process.env.WORKER_ID || `${hostname()}:${process.pid}:${randomUUID()}`;
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
-const service = new CoreMemoryService(repository, {
-  forgetSecret,
-  neo4jConfigured: Boolean(process.env.NEO4J_URI),
-});
+const service = new CoreMemoryService(repository, { forgetSecret });
 const extractor = createExtractor();
+const extractionProviderName = resolveExtractionProviderName();
 const retentionIntervalMs = integerOption(
   process.env.WORKER_RETENTION_INTERVAL_MS ?? '86400000',
   60_000,
+);
+const capabilityHeartbeatMs = integerOption(
+  process.env.WORKER_CAPABILITY_HEARTBEAT_MS ?? '60000',
+  5_000,
 );
 const worker = new ExtractionWorker({
   repository,
@@ -74,8 +77,13 @@ process.on('SIGTERM', () => stop('SIGTERM'));
 
 process.stdout.write(`Mnemosyne extraction worker ${workerId} started\n`);
 let nextRetentionRun = Date.now() + retentionIntervalMs;
+let nextCapabilityHeartbeat = 0;
 while (!stopping) {
   try {
+    if (Date.now() >= nextCapabilityHeartbeat) {
+      await publishCapabilities();
+      nextCapabilityHeartbeat = Date.now() + capabilityHeartbeatMs;
+    }
     const result = await worker.runOnce();
     await projectionSupervisor?.runOnce();
     if (retentionIntervalMs > 0 && Date.now() >= nextRetentionRun) {
@@ -113,13 +121,42 @@ function integerOption(value: string, minimum: number): number {
   return parsed;
 }
 
-function createExtractor(): ExplicitRememberExtractor | OpenRouterExtractor | ProviderRouter {
+function resolveExtractionProviderName(): ExtractionProviderName {
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = process.env.OPENROUTER_MODEL;
   const provider = process.env.EXTRACTION_PROVIDER ?? (apiKey && model ? 'openrouter' : 'local');
-  if (!['local', 'openrouter', 'openrouter-local-fallback'].includes(provider)) {
-    throw new Error('invalid_extraction_provider');
+  const parsed = extractionProviderNameSchema.safeParse(provider);
+  if (!parsed.success) throw new Error('invalid_extraction_provider');
+  return parsed.data;
+}
+
+/**
+ * Publishes the facts only this process owns, so the API and the MCP server can
+ * report them instead of guessing. Idempotent, and a failure here is logged and
+ * swallowed: losing a heartbeat must never stop extraction.
+ */
+async function publishCapabilities(): Promise<void> {
+  try {
+    await repository.reportRuntimeCapabilities(
+      WORKER_CAPABILITY_COMPONENT,
+      {
+        neo4jConfigured: neo4jProjection !== undefined,
+        openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
+        extractionProvider: extractionProviderName,
+        retentionScheduled: retentionIntervalMs > 0,
+      },
+      new Date().toISOString(),
+    );
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'unknown_capability_report_error';
+    process.stderr.write(`Mnemosyne capability heartbeat error: ${code}\n`);
   }
+}
+
+function createExtractor(): ExplicitRememberExtractor | OpenRouterExtractor | ProviderRouter {
+  const provider = resolveExtractionProviderName();
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const model = process.env.OPENROUTER_MODEL;
   if (apiKey && model) {
     const openRouter = new OpenRouterExtractor({
       apiKey,

@@ -38,6 +38,14 @@ export function toDomainError(error: unknown): DomainError {
       request_body_too_large: ['Request body is too large', 413],
       invalid_json: ['Request body must be valid JSON', 400],
       forget_secret_too_short: ['Forget secret is too short', 500],
+      semantic_search_unavailable: [
+        'Semantic search is not configured: no embedding provider is available',
+        409,
+      ],
+      semantic_search_profile_mismatch: [
+        'Embedding provider and semantic index disagree on profile or dimensions',
+        409,
+      ],
     };
     const found = messages[error.message];
     if (found) return new DomainError(error.message, found[0], found[1]);

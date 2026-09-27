@@ -1148,6 +1148,9 @@ describe('CoreMemoryService', () => {
       search: async () => {
         throw new Error('semantic_index_unavailable');
       },
+      countByProfile: async () => {
+        throw new Error('semantic_index_unavailable');
+      },
     };
     const service = new CoreMemoryService(repository, {
       forgetSecret: 'a-secure-test-secret-that-is-long-enough',
@@ -1384,5 +1387,262 @@ describe('CoreMemoryService', () => {
 
     expect(conflictIndex).toBeGreaterThanOrEqual(0);
     expect(memoryLifecycleIndexes.every((index) => index < conflictIndex)).toBe(true);
+  });
+});
+
+describe('admin capabilities', () => {
+  const forgetSecret = 'a-secure-test-secret-that-is-long-enough';
+
+  function createReportingService(
+    overrides: {
+      now?: () => Date;
+      runtimeCapabilityTtlSeconds?: number;
+    } = {},
+  ) {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret,
+      now: overrides.now,
+      runtimeCapabilityTtlSeconds: overrides.runtimeCapabilityTtlSeconds,
+    });
+    return { repository, service };
+  }
+
+  it('reports nothing it cannot observe instead of guessing', async () => {
+    const { service } = createReportingService();
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.workerObservedAt).toBeNull();
+    expect(capabilities.extraction.localExtractor).toBeNull();
+    expect(capabilities.projections.neo4j).toBeNull();
+    expect(capabilities.operations.retentionManaged).toBeNull();
+    expect(capabilities.gaps.map((gap) => gap.field)).toContain('projections.neo4j');
+  });
+
+  it('reports worker-owned capabilities from a fresh heartbeat', async () => {
+    const { repository, service } = createReportingService();
+    const reportedAt = new Date().toISOString();
+    await repository.reportRuntimeCapabilities(
+      'worker',
+      {
+        neo4jConfigured: true,
+        openRouterConfigured: false,
+        extractionProvider: 'local',
+        retentionScheduled: true,
+      },
+      reportedAt,
+    );
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.workerObservedAt).toBe(reportedAt);
+    expect(capabilities.extraction).toEqual({
+      localExtractor: true,
+      openRouterConfigured: false,
+      extractionProvider: 'local',
+    });
+    expect(capabilities.projections.neo4j).toBe(true);
+    expect(capabilities.operations.retentionManaged).toBe(true);
+    expect(capabilities.gaps.map((gap) => gap.field)).not.toContain('projections.neo4j');
+  });
+
+  it('distinguishes a disabled projection from an unobserved one', async () => {
+    const { repository, service } = createReportingService();
+    await repository.reportRuntimeCapabilities(
+      'worker',
+      {
+        neo4jConfigured: false,
+        openRouterConfigured: false,
+        extractionProvider: 'local',
+        retentionScheduled: true,
+      },
+      new Date().toISOString(),
+    );
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.projections.neo4j).toBe(false);
+    expect(capabilities.gaps.map((gap) => gap.field)).not.toContain('projections.neo4j');
+  });
+
+  it('stops trusting the worker heartbeat once it goes stale', async () => {
+    let clock = new Date('2026-09-27T10:00:00.000Z');
+    const { repository, service } = createReportingService({
+      now: () => clock,
+      runtimeCapabilityTtlSeconds: 300,
+    });
+    await repository.reportRuntimeCapabilities(
+      'worker',
+      {
+        neo4jConfigured: true,
+        openRouterConfigured: false,
+        extractionProvider: 'local',
+        retentionScheduled: true,
+      },
+      clock.toISOString(),
+    );
+
+    clock = new Date(clock.getTime() + 299_000);
+    expect((await service.getAdminCapabilities()).projections.neo4j).toBe(true);
+
+    clock = new Date(clock.getTime() + 2_000);
+    const stale = await service.getAdminCapabilities();
+    expect(stale.projections.neo4j).toBeNull();
+    expect(stale.workerObservedAt).toBeNull();
+    expect(stale.gaps.find((gap) => gap.field === 'projections.neo4j')?.reason).toContain(
+      'no worker heartbeat within 300s',
+    );
+  });
+
+  it('always reports backup verification as unobservable', async () => {
+    const { repository, service } = createReportingService();
+    await repository.reportRuntimeCapabilities(
+      'worker',
+      {
+        neo4jConfigured: true,
+        openRouterConfigured: true,
+        extractionProvider: 'openrouter',
+        retentionScheduled: true,
+      },
+      new Date().toISOString(),
+    );
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.operations.backupVerified).toBeNull();
+    expect(
+      capabilities.gaps.find((gap) => gap.field === 'operations.backupVerified')?.reason,
+    ).toContain('outside this process');
+  });
+
+  it('never reports an openrouter provider without a configured key', async () => {
+    const { repository, service } = createReportingService();
+    await repository.reportRuntimeCapabilities(
+      'worker',
+      {
+        neo4jConfigured: false,
+        openRouterConfigured: false,
+        extractionProvider: 'openrouter',
+        retentionScheduled: true,
+      },
+      new Date().toISOString(),
+    );
+
+    const capabilities = await service.getAdminCapabilities();
+
+    expect(capabilities.extraction.openRouterConfigured).toBe(false);
+    expect(capabilities.extraction.extractionProvider).toBe('openrouter');
+  });
+});
+
+describe('embedding index health and reindex', () => {
+  const forgetSecret = 'a-secure-test-secret-that-is-long-enough';
+
+  function createIndexedService() {
+    const provider = new DeterministicEmbeddingProvider(32);
+    const semanticSearchIndex = new InMemorySemanticSearchIndex({
+      profile: provider.profile,
+      dimensions: provider.dimensions,
+    });
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, {
+      forgetSecret,
+      embeddingProvider: provider,
+      semanticSearchIndex,
+    });
+    return { provider, semanticSearchIndex, repository, service };
+  }
+
+  async function seedAccepted(service: CoreMemoryService, contents: string[]): Promise<void> {
+    const session = await service.openSession({ projectId: 'reindex' });
+    for (const content of contents) {
+      const result = await service.proposeMemory(
+        {
+          sessionId: session.sessionId,
+          content,
+          kind: 'convention',
+          scope: { type: 'project', id: 'reindex' },
+          epistemicBasis: 'user_asserted',
+          assessment: 'uncontested',
+          confidence: 1,
+          sensitivity: 'normal',
+          activation: 'on_demand',
+          sourceEventIds: [],
+        },
+        { actor: 'owner', explicitDirective: true },
+      );
+      expect(result.status).toBe('accepted');
+    }
+    await service.closeSession(session.sessionId);
+  }
+
+  it('reports a healthy index when every memory is embedded', async () => {
+    const { service } = createIndexedService();
+    await seedAccepted(service, ['il progetto usa pnpm', 'il progetto usa node']);
+
+    const health = await service.getEmbeddingIndexHealth();
+
+    expect(health.available).toBe(true);
+    expect(health.profile).toBe('deterministic-v1');
+    expect(health.memoryCount).toBe(2);
+    expect(health.indexedForActiveProfile).toBe(2);
+    expect(health.missingCount).toBe(0);
+    expect(health.needsReindex).toBe(false);
+  });
+
+  it('detects the gap left by a corpus restore', async () => {
+    const provider = new DeterministicEmbeddingProvider(32);
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, { forgetSecret });
+    await seedAccepted(service, ['il progetto usa pnpm']);
+    await service.closeSession((await service.openSession({ projectId: 'reindex' })).sessionId);
+
+    // Same corpus, but the index the API owns is a fresh empty one: this is what
+    // a restore looks like, since restoreCorpus never rebuilds embeddings.
+    const rebuilt = new CoreMemoryService(new InMemoryRepository(), { forgetSecret });
+    const restored = await rebuilt.restoreCorpus(await service.listCorpusExport());
+    expect(restored.restored.memories).toBe(1);
+
+    const withEmptyIndex = new CoreMemoryService(repository, {
+      forgetSecret,
+      embeddingProvider: provider,
+      semanticSearchIndex: new InMemorySemanticSearchIndex({
+        profile: provider.profile,
+        dimensions: provider.dimensions,
+      }),
+    });
+    const before = await withEmptyIndex.getEmbeddingIndexHealth();
+    expect(before.memoryCount).toBe(1);
+    expect(before.indexedForActiveProfile).toBe(0);
+    expect(before.missingCount).toBe(1);
+    expect(before.needsReindex).toBe(true);
+
+    const result = await withEmptyIndex.reindexEmbeddings();
+    expect(result).toEqual({ scanned: 1, indexed: 1 });
+
+    const after = await withEmptyIndex.getEmbeddingIndexHealth();
+    expect(after.missingCount).toBe(0);
+    expect(after.needsReindex).toBe(false);
+  });
+
+  it('fails loudly instead of reporting an empty success when no provider exists', async () => {
+    const service = new CoreMemoryService(new InMemoryRepository(), { forgetSecret });
+    await seedAccepted(service, ['il progetto usa pnpm']);
+
+    await expect(service.reindexEmbeddings()).rejects.toThrow('semantic_search_unavailable');
+    expect((await service.getEmbeddingIndexHealth()).available).toBe(false);
+  });
+
+  it('is idempotent across repeated reindexes', async () => {
+    const { service } = createIndexedService();
+    await seedAccepted(service, ['il progetto usa pnpm', 'il progetto usa node']);
+
+    const first = await service.reindexEmbeddings();
+    const second = await service.reindexEmbeddings();
+
+    expect(first).toEqual(second);
+    const health = await service.getEmbeddingIndexHealth();
+    expect(health.missingCount).toBe(0);
   });
 });

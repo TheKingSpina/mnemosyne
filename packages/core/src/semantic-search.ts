@@ -1,3 +1,4 @@
+import type { EmbeddingProfileCount } from '@mnemosyne/contracts';
 import { createHash } from 'node:crypto';
 
 export interface EmbeddingProvider {
@@ -16,6 +17,12 @@ export interface SemanticSearchIndex {
   readonly dimensions: number;
   upsert(input: { memoryId: string; revision: number; embedding: number[] }): Promise<void>;
   remove(memoryId: string): Promise<void>;
+  /**
+   * What this index actually holds, grouped by profile. The index is the
+   * authority on its own contents, so embedding health must not be answered by
+   * the corpus store: in memory the two are separate objects.
+   */
+  countByProfile(): Promise<EmbeddingProfileCount[]>;
   search(input: { embedding: number[]; limit: number }): Promise<SemanticSearchHit[]>;
 }
 
@@ -62,6 +69,10 @@ export class InMemorySemanticSearchIndex implements SemanticSearchIndex {
 
   async remove(memoryId: string): Promise<void> {
     this.records.delete(memoryId);
+  }
+
+  async countByProfile(): Promise<EmbeddingProfileCount[]> {
+    return [{ profile: this.profile, count: this.records.size }];
   }
 
   async search(input: { embedding: number[]; limit: number }): Promise<SemanticSearchHit[]> {

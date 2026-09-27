@@ -5,6 +5,7 @@ import type {
   OpenSessionInput,
   ProposeMemoryInput,
   RecordEventsInput,
+  WorkerRuntimeCapabilities,
 } from '@mnemosyne/contracts';
 import { randomUUID, randomUUID as createRandomId } from 'node:crypto';
 import type {
@@ -26,6 +27,7 @@ import type {
   MemoryFeedbackInput,
   MemoryFeedbackOutput,
   SessionRecord,
+  RuntimeCapabilityReport,
 } from './types.js';
 import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
 
@@ -52,6 +54,23 @@ export class InMemoryRepository implements MemoryRepository {
   private corpusRevision: bigint = 1n;
   private corpusEpoch = randomUUID();
   private readonly corpusId = 'corpus';
+  private readonly runtimeCapabilities = new Map<string, RuntimeCapabilityReport>();
+
+  async countMemories(): Promise<number> {
+    return this.memories.size;
+  }
+
+  async reportRuntimeCapabilities(
+    component: string,
+    capabilities: WorkerRuntimeCapabilities,
+    reportedAt: string,
+  ): Promise<void> {
+    this.runtimeCapabilities.set(component, { component, capabilities, reportedAt });
+  }
+
+  async readRuntimeCapabilities(component: string): Promise<RuntimeCapabilityReport | null> {
+    return this.runtimeCapabilities.get(component) ?? null;
+  }
 
   async restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts> {
     const forgottenMemoryIds = new Set(input.forgetLedger.map((entry) => entry.memoryId));

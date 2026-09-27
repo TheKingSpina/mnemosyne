@@ -215,6 +215,30 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
     );
 
     server.registerTool(
+      'memory_admin_embedding_health',
+      {
+        description:
+          'Compare the corpus against the semantic index. A corpus restore does not rebuild embeddings, so this is how a silent degradation to lexical-only search becomes visible.',
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(
+          await authorized(profile, 'proposal.review', () => service.getEmbeddingIndexHealth()),
+        ),
+    );
+
+    server.registerTool(
+      'memory_admin_reindex_embeddings',
+      {
+        description:
+          'Rebuild every embedding for the active profile. Idempotent, and the supported recovery step after a corpus restore.',
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      },
+      async () =>
+        result(await authorized(profile, 'proposal.review', () => service.reindexEmbeddings())),
+    );
+
+    server.registerTool(
       'memory_admin_memories',
       {
         description: 'List owner memory views with lifecycle, kind, and scope filters.',

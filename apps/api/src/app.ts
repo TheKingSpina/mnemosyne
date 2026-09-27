@@ -355,6 +355,15 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, await service.getAdminCapabilities());
     return;
   }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/embeddings/health') {
+    sendJson(response, 200, await service.getEmbeddingIndexHealth());
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/admin/embeddings/reindex') {
+    bodylessSchema.parse(await readJson(request, maxRequestBodyBytes));
+    sendJson(response, 200, await service.reindexEmbeddings());
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/retention') {
     sendJson(response, 200, await service.getRetentionStatus());
     return;

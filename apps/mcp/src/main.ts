@@ -66,6 +66,7 @@ const service = new CoreMemoryService(repository, {
   forgetSecret,
   embeddingProvider,
   semanticSearchIndex,
+  runtimeCapabilityTtlSeconds: Number(process.env.MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS ?? 300),
 });
 
 if (process.env.MCP_TRANSPORT !== 'http') {

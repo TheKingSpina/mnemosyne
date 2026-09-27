@@ -378,6 +378,14 @@ different_subject
 semantic_tension
 ```
 
+Di questi, solo `direct_contradiction` viene prodotto oggi. È il caso stretto e ad alta
+confidenza: stesso tipo di memoria, stessa frase parola per parola, esattamente una negazione
+fra le due, **qualunque sia l'ambito** delle due. Lo scope non è un discriminante: una
+contraddizione che si vede solo allargando l'ambito resta una contraddizione, e i costi sono
+asimmetrici — un falso positivo costa una voce in revisione che l'owner risolve, un falso
+negativo lascia due affermazioni incompatibili nel corpus che il retrieval restituisce senza
+distinguere. Per questo il confronto resta esatto e non fuzzy.
+
 ### 8.9 Estrazione e revisione
 
 Una `ExtractionRun` collega:
@@ -1142,10 +1150,34 @@ Metriche principali:
 ```text
 GET /health/live
 GET /health/ready
-GET /v1/capabilities
+GET /v1/admin/capabilities
 ```
 
-`live` verifica il processo. `ready` verifica la disponibilità delle operazioni essenziali. `capabilities` descrive le funzionalità mancanti.
+`live` verifica il processo. `ready` verifica la disponibilità delle operazioni essenziali. `capabilities` descrive le funzionalità mancanti ed è riservata all'owner.
+
+#### 19.2.1 Onestà delle capability
+
+Un processo risponde solo dei fatti che possiede. API e MCP non possiedono il provider
+di estrazione, la proiezione Neo4j né il timer di retention: li leggono da un heartbeat
+che il worker scrive in `runtime_capabilities`.
+
+Ogni capability ha tre stati, non due:
+
+- `true` / `false`: osservata da questo processo, o riportata da un heartbeat ancora fresco;
+- `null`: non osservabile. Significa **sconosciuto**, mai **disabilitato**.
+
+`null` è sempre accompagnato da una voce in `gaps` che nomina il campo e il motivo, così un
+operatore non deve indovinare la differenza fra "Neo4j non configurato" e "non posso
+vedere Neo4j". Le capability non osservabili sono:
+
+- quelle del worker (`extraction.*`, `projections.neo4j`, `operations.retentionManaged`), se
+  non c'è un heartbeat entro `MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS`;
+- `operations.backupVerified`, sempre: i backup girano fuori dal processo e non sono
+  osservabili da qui.
+
+`WORKER_CAPABILITY_HEARTBEAT_MS` deve restare più corto della TTL, altrimenti le capability
+leggono `null` anche con il worker vivo. `workerObservedAt` riporta l'istante dell'ultimo
+heartbeat accettato ed è il riferimento per capire quanto è fresca l'informazione.
 
 ### 19.3 Concorrenza
 

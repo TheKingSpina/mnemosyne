@@ -5,6 +5,8 @@ import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import {
   adminCapabilitiesOutputSchema,
+  embeddingIndexHealthOutputSchema,
+  embeddingReindexOutputSchema,
   adminJobsOutputSchema,
   adminMemoriesOutputSchema,
   adminOverviewOutputSchema,
@@ -46,6 +48,21 @@ async function run(name: string, args: string[]): Promise<void> {
   }
   if (name === 'capabilities') {
     printJson(await request('/v1/admin/capabilities', adminCapabilitiesOutputSchema));
+    return;
+  }
+  if (name === 'embeddings-health') {
+    printJson(await request('/v1/admin/embeddings/health', embeddingIndexHealthOutputSchema));
+    return;
+  }
+  if (name === 'embeddings-reindex') {
+    if (!args.includes('--yes')) await confirm('Ricostruire tutte le embedding?');
+    printJson(
+      await request('/v1/admin/embeddings/reindex', embeddingReindexOutputSchema, {
+        method: 'POST',
+        headers: { 'idempotency-key': randomUUID() },
+        body: JSON.stringify({}),
+      }),
+    );
     return;
   }
   if (name === 'retention') {
@@ -233,6 +250,8 @@ function printHelp(): void {
       'mnemosyne capabilities',
       'mnemosyne retention',
       'mnemosyne retention-run --yes',
+      'mnemosyne embeddings-health',
+      'mnemosyne embeddings-reindex --yes',
       'mnemosyne search <session-id> <query> [limit] [offset]',
       'mnemosyne show <memory-id>',
       'mnemosyne memories [limit] [offset]',

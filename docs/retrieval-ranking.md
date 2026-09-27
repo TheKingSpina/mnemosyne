@@ -40,5 +40,5 @@ The legacy mode intentionally fails the scored gate when the dataset has an orde
 
 - The PostgreSQL candidate pool is bounded to protect an 8 GB Mac mini; very broad queries may require a narrower scope or more distinctive terms.
 - The deterministic embedding provider is a local lexical-semantic baseline, not a hosted model. No OpenRouter provider is enabled.
-- `restoreCorpus` does not rebuild derived embeddings. After a restore, verify the semantic projection separately and run an explicit reindex procedure; this ranking change does not add a migration.
+- `restoreCorpus` does not rebuild derived embeddings. After a restore this is now visible and recoverable instead of silent: `GET /v1/admin/embeddings/health` reports `indexedForActiveProfile`, `missingCount` and `needsReindex` for the active profile, and `POST /v1/admin/embeddings/reindex` (or `mnemosyne embeddings-reindex --yes`, or the `memory_admin_reindex_embeddings` MCP tool) rebuilds them. The health endpoint exists because the failure mode it reports is a silent degradation to lexical-only search, which is exactly the kind of thing nobody notices until relevance quietly drops.
 - The dashboard graph and Neo4j projection are independent of search ranking and are not rebuilt by this fix.

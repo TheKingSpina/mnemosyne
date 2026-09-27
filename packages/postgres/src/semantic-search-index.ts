@@ -3,6 +3,7 @@ import {
   type SemanticSearchHit,
   type SemanticSearchIndex,
 } from '@mnemosyne/core';
+import type { EmbeddingProfileCount } from '@mnemosyne/contracts';
 import type { Pool } from 'pg';
 
 export class PostgresSemanticSearchIndex implements SemanticSearchIndex {
@@ -38,6 +39,13 @@ export class PostgresSemanticSearchIndex implements SemanticSearchIndex {
 
   async remove(memoryId: string): Promise<void> {
     await this.pool.query('DELETE FROM memory_embeddings WHERE memory_id = $1', [memoryId]);
+  }
+
+  async countByProfile(): Promise<EmbeddingProfileCount[]> {
+    const result = await this.pool.query<{ profile: string; count: string }>(
+      'SELECT profile, count(*)::text AS count FROM memory_embeddings GROUP BY profile',
+    );
+    return result.rows.map((row) => ({ profile: row.profile, count: Number(row.count) }));
   }
 
   async search(input: { embedding: number[]; limit: number }): Promise<SemanticSearchHit[]> {

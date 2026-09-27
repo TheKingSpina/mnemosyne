@@ -5,15 +5,26 @@ interface Polarity {
   polarity: 'affirmed' | 'denied';
 }
 
-interface ScopedMemory {
+interface ComparableMemory {
   kind: MemoryRevision['kind'];
-  scope: MemoryRevision['scope'];
   content: string;
+  /** Accepted and deliberately not compared: see areDirectlyContradictory. */
+  scope: MemoryRevision['scope'];
 }
 
-export function areDirectlyContradictory(left: ScopedMemory, right: ScopedMemory): boolean {
+/**
+ * Flags the narrow, high-confidence case: the same claim, word for word, with
+ * exactly one negation between the two, whatever scope each side lives in.
+ *
+ * Scope is deliberately not part of the comparison. A contradiction that is only
+ * visible when you widen the scope is still a contradiction, and the costs are
+ * lopsided: a false positive costs one review item the owner resolves, while a
+ * false negative leaves two incompatible claims in the corpus where retrieval
+ * will happily return either. Bounding the false-positive surface is why the
+ * match stays exact rather than fuzzy.
+ */
+export function areDirectlyContradictory(left: ComparableMemory, right: ComparableMemory): boolean {
   if (left.kind !== right.kind) return false;
-  if (left.scope.type !== right.scope.type || left.scope.id !== right.scope.id) return false;
   const leftAssertion = parsePolarity(left.content);
   const rightAssertion = parsePolarity(right.content);
   return (

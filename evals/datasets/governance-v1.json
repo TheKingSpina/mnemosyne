@@ -93,7 +93,10 @@
       {
         "content": "Il progetto usa pnpm",
         "kind": "convention",
-        "scope": { "type": "project", "id": "eval-governance" },
+        "scope": {
+          "type": "project",
+          "id": "eval-governance"
+        },
         "epistemicBasis": "user_asserted",
         "assessment": "uncontested",
         "confidence": 1,
@@ -104,7 +107,10 @@
       {
         "content": "il progetto usa PNPM",
         "kind": "convention",
-        "scope": { "type": "project", "id": "eval-governance" },
+        "scope": {
+          "type": "project",
+          "id": "eval-governance"
+        },
         "epistemicBasis": "user_asserted",
         "assessment": "uncontested",
         "confidence": 1,
@@ -203,7 +209,10 @@
     "followUp": {
       "content": "il progetto non usa pnpm",
       "kind": "convention",
-      "scope": { "type": "project", "id": "eval-governance" },
+      "scope": {
+        "type": "project",
+        "id": "eval-governance"
+      },
       "epistemicBasis": "user_asserted",
       "assessment": "disputed",
       "confidence": 1,
@@ -230,6 +239,88 @@
       "pendingBeforeReview": 1,
       "acceptedAfterReview": 1,
       "conflicts": 1,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "cross-scope-contradiction-is-detected",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "acceptFirst": true,
+    "followUp": {
+      "content": "il progetto non usa pnpm",
+      "kind": "convention",
+      "scope": {
+        "type": "global",
+        "id": "personal"
+      },
+      "epistemicBasis": "user_asserted",
+      "assessment": "disputed",
+      "confidence": 1,
+      "sensitivity": "normal",
+      "activation": "on_demand",
+      "sourceEventIds": []
+    },
+    "events": [
+      {
+        "eventId": "cross-scope-1",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa pnpm",
+        "occurredAt": "2026-01-21T10:00:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 1,
+      "extractedContents": ["il progetto usa pnpm"],
+      "finalContents": ["il progetto non usa pnpm", "il progetto usa pnpm"],
+      "kinds": ["convention", "convention"],
+      "scopes": ["global:personal", "project:eval-governance"],
+      "pendingBeforeReview": 1,
+      "acceptedAfterReview": 1,
+      "conflicts": 1,
+      "duplicateMerges": 0
+    }
+  },
+  {
+    "id": "cross-scope-agreement-is-not-a-conflict",
+    "projectId": "eval-governance",
+    "query": "pnpm",
+    "acceptFirst": true,
+    "followUp": {
+      "content": "il progetto usa pnpm",
+      "kind": "convention",
+      "scope": {
+        "type": "global",
+        "id": "personal"
+      },
+      "epistemicBasis": "user_asserted",
+      "assessment": "disputed",
+      "confidence": 1,
+      "sensitivity": "normal",
+      "activation": "on_demand",
+      "sourceEventIds": []
+    },
+    "events": [
+      {
+        "eventId": "cross-scope-2",
+        "type": "message",
+        "role": "user",
+        "content": "Ricorda che il progetto usa pnpm",
+        "occurredAt": "2026-01-21T11:00:00.000Z",
+        "explicitMemoryRequest": true
+      }
+    ],
+    "expected": {
+      "extractedCount": 1,
+      "extractedContents": ["il progetto usa pnpm"],
+      "finalContents": ["il progetto usa pnpm"],
+      "kinds": ["convention", "convention"],
+      "scopes": ["global:personal", "project:eval-governance"],
+      "pendingBeforeReview": 1,
+      "acceptedAfterReview": 1,
+      "conflicts": 0,
       "duplicateMerges": 0
     }
   }

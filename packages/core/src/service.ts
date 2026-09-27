@@ -19,6 +19,7 @@ import {
   type AdminMemoriesOutput,
   type AdminOverviewOutput,
   type AdminCapabilitiesOutput,
+  type CapabilityGap,
   type CorpusExport,
   type CorpusRestoreResult,
   type ConflictListOutput,
@@ -53,7 +54,12 @@ import {
   type SessionConsolidationOutput,
   type Scope,
   type SearchMemoriesInput,
+  type EmbeddingIndexHealthOutput,
+  type EmbeddingReindexOutput,
 } from '@mnemosyne/contracts';
+
+/** Component name the extraction worker publishes its capabilities under. */
+export const WORKER_CAPABILITY_COMPONENT = 'worker';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
 import { containsSecret, decideProposal } from './policy.js';
@@ -88,7 +94,7 @@ export interface CoreMemoryServiceOptions {
   semanticSearchIndex?: SemanticSearchIndex;
   corpusCache?: CorpusCache;
   corpusCacheTtlSeconds?: number;
-  neo4jConfigured?: boolean;
+  runtimeCapabilityTtlSeconds?: number;
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -104,25 +110,114 @@ export class CoreMemoryService implements MemoryService {
     this.now = options.now ?? (() => new Date());
   }
 
+  /**
+   * Reports what this process can actually attest to, and null for what it
+   * cannot. Worker-owned capabilities (extraction provider, Neo4j, retention
+   * timer) are only reported when the worker has published a heartbeat that is
+   * still fresh, so a stopped worker reads as unknown instead of "disabled".
+   * Backups run outside this process entirely, so backupVerified is always null.
+   */
   async getAdminCapabilities(): Promise<AdminCapabilitiesOutput> {
+    const reportedAt = this.now().toISOString();
+    const gaps: CapabilityGap[] = [];
+    const ttlSeconds = this.options.runtimeCapabilityTtlSeconds ?? 300;
+    const worker = await this.repository.readRuntimeCapabilities(WORKER_CAPABILITY_COMPONENT);
+    const reportedAtMs = this.now().getTime();
+    const workerAgeMs = worker ? reportedAtMs - new Date(worker.reportedAt).getTime() : null;
+    const workerFresh = worker !== null && workerAgeMs !== null && workerAgeMs <= ttlSeconds * 1000;
+    const staleReason = worker
+      ? `no worker heartbeat within ${ttlSeconds}s (last reported ${worker.reportedAt})`
+      : 'no worker has published a heartbeat';
+    if (!workerFresh) {
+      gaps.push(
+        { field: 'extraction.localExtractor', reason: staleReason },
+        { field: 'extraction.openRouterConfigured', reason: staleReason },
+        { field: 'extraction.extractionProvider', reason: staleReason },
+        { field: 'projections.neo4j', reason: staleReason },
+        { field: 'operations.retentionManaged', reason: staleReason },
+      );
+    }
+    const workerCapabilities = workerFresh ? worker.capabilities : null;
+    gaps.push({
+      field: 'operations.backupVerified',
+      reason: 'backups run outside this process and are not observable here',
+    });
     return {
+      reportedAt,
+      workerObservedAt: workerFresh ? worker.reportedAt : null,
       extraction: {
-        localExtractor: true,
-        openRouterConfigured: false,
+        localExtractor: workerCapabilities
+          ? workerCapabilities.extractionProvider === 'local'
+          : null,
+        openRouterConfigured: workerCapabilities ? workerCapabilities.openRouterConfigured : null,
+        extractionProvider: workerCapabilities ? workerCapabilities.extractionProvider : null,
       },
       projections: {
         redis: this.options.corpusCache !== undefined,
-        neo4j: false,
+        neo4j: workerCapabilities ? workerCapabilities.neo4jConfigured : null,
         semanticSearch:
           this.options.embeddingProvider !== undefined &&
           this.options.semanticSearchIndex !== undefined,
       },
       operations: {
-        backupVerified: false,
-        retentionManaged: true,
+        backupVerified: null,
+        retentionManaged: workerCapabilities ? workerCapabilities.retentionScheduled : null,
         exportAvailable: true,
       },
+      gaps,
     };
+  }
+
+  /**
+   * Compares the corpus against the semantic index so a gap after a restore is
+   * visible instead of silently degrading search to lexical-only. This is the
+   * diagnostic half of the reindex story; restoreCorpus still does not rebuild
+   * embeddings on its own.
+   */
+  async getEmbeddingIndexHealth(): Promise<EmbeddingIndexHealthOutput> {
+    const provider = this.options.embeddingProvider;
+    const index = this.options.semanticSearchIndex;
+    const available = provider !== undefined && index !== undefined;
+    const [memoryCount, profileCounts] = await Promise.all([
+      this.repository.countMemories(),
+      index ? index.countByProfile() : Promise.resolve([]),
+    ]);
+    const activeProfile = provider?.profile ?? null;
+    const indexedForActiveProfile =
+      profileCounts.find((entry) => entry.profile === activeProfile)?.count ?? 0;
+    const missingCount = Math.max(0, memoryCount - indexedForActiveProfile);
+    return {
+      available,
+      profile: activeProfile,
+      dimensions: provider?.dimensions ?? null,
+      memoryCount,
+      indexedForActiveProfile,
+      missingCount,
+      otherProfiles: profileCounts.filter((entry) => entry.profile !== activeProfile),
+      needsReindex: available && missingCount > 0,
+    };
+  }
+
+  /**
+   * Rebuilds every embedding for the active profile. Deliberately fails loudly
+   * when no provider is configured: a success that indexed nothing is exactly
+   * the failure mode this exists to remove.
+   */
+  async reindexEmbeddings(): Promise<EmbeddingReindexOutput> {
+    const provider = this.options.embeddingProvider;
+    const index = this.options.semanticSearchIndex;
+    if (!provider || !index) throw new Error('semantic_search_unavailable');
+    if (provider.profile !== index.profile || provider.dimensions !== index.dimensions) {
+      throw new Error('semantic_search_profile_mismatch');
+    }
+    const views = await this.repository.listMemoryViews();
+    for (const view of views) {
+      await this.indexMemory(view.record.id, view.current.version, view.current.content);
+    }
+    // Deliberately no corpus revision bump: cached searches are still valid
+    // approved memories and self-heal within the cache TTL, whereas invalidating
+    // every cached search deployment-wide would be disproportionate here.
+    return { scanned: views.length, indexed: views.length };
   }
 
   async listCorpusExport(): Promise<CorpusExport> {

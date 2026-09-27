@@ -29,7 +29,7 @@ describe('areDirectlyContradictory', () => {
     );
   });
 
-  it('does not compare different kinds or scopes', () => {
+  it('does not compare different kinds', () => {
     expect(
       areDirectlyContradictory(base, {
         ...base,
@@ -37,11 +37,44 @@ describe('areDirectlyContradictory', () => {
         content: 'Il progetto non usa pnpm',
       }),
     ).toBe(false);
+  });
+
+  it('detects a contradiction that only becomes visible across scopes', () => {
     expect(
       areDirectlyContradictory(base, {
         ...base,
         scope: { type: 'global', id: 'personal' },
         content: 'Il progetto non usa pnpm',
+      }),
+    ).toBe(true);
+    expect(
+      areDirectlyContradictory(
+        { ...base, scope: { type: 'project', id: 'a' } },
+        {
+          ...base,
+          scope: { type: 'project', id: 'b' },
+          content: 'Il progetto non usa pnpm',
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it('still requires the claim to match word for word', () => {
+    expect(
+      areDirectlyContradictory(base, {
+        ...base,
+        scope: { type: 'global', id: 'personal' },
+        content: 'Il progetto non usa pnpm nel frontend',
+      }),
+    ).toBe(false);
+  });
+
+  it('does not treat a differently scoped agreement as a contradiction', () => {
+    expect(
+      areDirectlyContradictory(base, {
+        ...base,
+        scope: { type: 'global', id: 'personal' },
+        content: 'Il progetto usa pnpm',
       }),
     ).toBe(false);
   });

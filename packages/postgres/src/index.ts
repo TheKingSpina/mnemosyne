@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { workerRuntimeCapabilitiesSchema } from '@mnemosyne/contracts';
 import type {
   CorrectMemoryInput,
   MemoryLifecycle,
@@ -7,6 +8,7 @@ import type {
   ProposeMemoryInput,
   RecordEventsInput,
   Scope,
+  WorkerRuntimeCapabilities,
 } from '@mnemosyne/contracts';
 import type {
   ConflictRecord,
@@ -26,6 +28,7 @@ import type {
   MemoryFeedbackInput,
   MemoryFeedbackOutput,
   SessionRecord,
+  RuntimeCapabilityReport,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
@@ -35,6 +38,8 @@ export {
   reserveIdempotencyKey,
 } from './idempotency-store.js';
 export type { IdempotencyReservation } from '@mnemosyne/core';
+export type { RuntimeCapabilityReport } from '@mnemosyne/core';
+export { WORKER_CAPABILITY_COMPONENT } from '@mnemosyne/core';
 export { PostgresClientTokenStore } from './client-token-store.js';
 export { PostgresSemanticSearchIndex } from './semantic-search-index.js';
 
@@ -130,6 +135,49 @@ interface MemoryFeedbackRow extends QueryResultRow {
 
 export class PostgresMemoryRepository implements MemoryRepository {
   constructor(private readonly database: Database) {}
+
+  async countMemories(): Promise<number> {
+    const result = await this.database.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM memories',
+    );
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async reportRuntimeCapabilities(
+    component: string,
+    capabilities: WorkerRuntimeCapabilities,
+    reportedAt: string,
+  ): Promise<void> {
+    await this.database.query(
+      `INSERT INTO runtime_capabilities (component, capabilities, reported_at)
+       VALUES ($1, $2::jsonb, $3)
+       ON CONFLICT (component) DO UPDATE
+       SET capabilities = EXCLUDED.capabilities, reported_at = EXCLUDED.reported_at`,
+      [component, JSON.stringify(capabilities), reportedAt],
+    );
+  }
+
+  async readRuntimeCapabilities(component: string): Promise<RuntimeCapabilityReport | null> {
+    const result = await this.database.query<{
+      component: string;
+      capabilities: unknown;
+      reported_at: Date;
+    }>(
+      `SELECT component, capabilities, reported_at
+       FROM runtime_capabilities
+       WHERE component = $1`,
+      [component],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const parsed = workerRuntimeCapabilitiesSchema.safeParse(row.capabilities);
+    if (!parsed.success) return null;
+    return {
+      component: row.component,
+      capabilities: parsed.data,
+      reportedAt: new Date(row.reported_at).toISOString(),
+    };
+  }
 
   async restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts> {
     const client = await this.client();

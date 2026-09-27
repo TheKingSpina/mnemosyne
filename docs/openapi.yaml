@@ -1637,6 +1637,116 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/ApiProblem'
                   - $ref: '#/components/schemas/ApiError'
+  /v1/admin/embeddings/health:
+    get:
+      tags:
+        - Administration
+      operationId: getEmbeddingIndexHealth
+      summary: Confronto tra corpus e indice semantico attivo
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Stato dell'indice embedding.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingIndexHealthOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/embeddings/reindex:
+    post:
+      tags:
+        - Administration
+      operationId: reindexEmbeddings
+      summary: Ricostruisce tutte le embedding del profilo attivo
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        description: 'Corpo JSON opzionale; quando presente deve essere un oggetto
+          vuoto. Il server accetta anche un body assente. Limite massimo:
+          1,048,576 byte.'
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        '200':
+          description: Reindicizzazione completata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingReindexOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
   /v1/admin/memories:
     get:
       tags:
@@ -4211,16 +4321,35 @@ components:
     AdminCapabilitiesOutput:
       type: object
       properties:
+        reportedAt:
+          type: string
+        workerObservedAt:
+          type:
+            - string
+            - 'null'
         extraction:
           type: object
           properties:
             localExtractor:
-              type: boolean
+              type:
+                - boolean
+                - 'null'
             openRouterConfigured:
-              type: boolean
+              type:
+                - boolean
+                - 'null'
+            extractionProvider:
+              anyOf:
+                - type: string
+                  enum:
+                    - local
+                    - openrouter
+                    - openrouter-local-fallback
+                - type: 'null'
           required:
             - localExtractor
             - openRouterConfigured
+            - extractionProvider
           additionalProperties: false
         projections:
           type: object
@@ -4228,8 +4357,9 @@ components:
             redis:
               type: boolean
             neo4j:
-              type: boolean
-              const: false
+              type:
+                - boolean
+                - 'null'
             semanticSearch:
               type: boolean
           required:
@@ -4241,23 +4371,112 @@ components:
           type: object
           properties:
             backupVerified:
-              type: boolean
-              const: false
+              type:
+                - boolean
+                - 'null'
             retentionManaged:
-              type: boolean
-              const: true
+              type:
+                - boolean
+                - 'null'
             exportAvailable:
               type: boolean
-              const: true
           required:
             - backupVerified
             - retentionManaged
             - exportAvailable
           additionalProperties: false
+        gaps:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                minLength: 1
+              reason:
+                type: string
+                minLength: 1
+            required:
+              - field
+              - reason
+            additionalProperties: false
       required:
+        - reportedAt
+        - workerObservedAt
         - extraction
         - projections
         - operations
+        - gaps
+      additionalProperties: false
+    EmbeddingIndexHealthOutput:
+      type: object
+      properties:
+        available:
+          type: boolean
+        profile:
+          type:
+            - string
+            - 'null'
+        dimensions:
+          anyOf:
+            - type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            - type: 'null'
+        memoryCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        indexedForActiveProfile:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        missingCount:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        otherProfiles:
+          type: array
+          items:
+            type: object
+            properties:
+              profile:
+                type: string
+                minLength: 1
+              count:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+            required:
+              - profile
+              - count
+            additionalProperties: false
+        needsReindex:
+          type: boolean
+      required:
+        - available
+        - profile
+        - dimensions
+        - memoryCount
+        - indexedForActiveProfile
+        - missingCount
+        - otherProfiles
+        - needsReindex
+      additionalProperties: false
+    EmbeddingReindexOutput:
+      type: object
+      properties:
+        scanned:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        indexed:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - scanned
+        - indexed
       additionalProperties: false
     IssuedClientTokenOutput:
       type: object

@@ -189,6 +189,7 @@ async function runLifecycle() {
   assert(exported.conflicts.length === 1);
 
   await searchToCreateCache(session.sessionId, second.memory.memoryId);
+  await verifyRuntimeCapabilities();
   const prepared = await api(
     `/v1/memories/${encodeURIComponent(second.memory.memoryId)}/forget/prepare`,
     {
@@ -299,6 +300,33 @@ async function restoreAndVerify(lifecycle) {
   const retention = await api('/v1/admin/retention', { token: ownerToken });
   assert(feedback.items.length === 0);
   assert(retention.lastRunAt === undefined);
+
+  // A restore brings the corpus back but not the embeddings, so this is the
+  // exact spot where search used to degrade to lexical-only with no signal.
+  // The reindex command is the supported recovery, and health must be able to
+  // say when it is needed.
+  const beforeReindex = await api('/v1/admin/embeddings/health', { token: ownerToken });
+  assert(beforeReindex.available === true, 'embedding_health_unavailable');
+  assert(beforeReindex.profile === 'deterministic-v1');
+  assert(beforeReindex.memoryCount === 1, `unexpected_memory_count:${beforeReindex.memoryCount}`);
+  assert(beforeReindex.indexedForActiveProfile === 0, 'restore_should_not_carry_embeddings');
+  assert(beforeReindex.missingCount === 1);
+  assert(beforeReindex.needsReindex === true, 'needs_reindex_not_reported');
+
+  const reindexed = await api('/v1/admin/embeddings/reindex', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-reindex',
+    body: {},
+  });
+  assert(reindexed.scanned === 1, `unexpected_reindex_scan:${reindexed.scanned}`);
+  assert(reindexed.indexed === 1);
+
+  const afterReindex = await api('/v1/admin/embeddings/health', { token: ownerToken });
+  assert(afterReindex.indexedForActiveProfile === 1, 'reindex_did_not_populate_index');
+  assert(afterReindex.missingCount === 0);
+  assert(afterReindex.needsReindex === false);
+  assert(afterReindex.otherProfiles.length === 0);
 }
 
 async function review(pending, key) {
@@ -321,6 +349,27 @@ async function waitForPending(sessionId, content) {
     await sleep(250);
   }
   throw new Error(`pending_not_found:${content}`);
+}
+
+async function verifyRuntimeCapabilities() {
+  // The worker owns the extraction provider, Neo4j and the retention timer, and
+  // publishes them as a heartbeat row. This exercises the real jsonb round trip
+  // through Zod, which no unit test can cover.
+  const deadline = Date.now() + 30_000;
+  let capabilities = null;
+  while (Date.now() < deadline) {
+    capabilities = await api('/v1/admin/capabilities', { token: ownerToken });
+    if (capabilities.workerObservedAt !== null) break;
+    await sleep(250);
+  }
+  assert(capabilities.workerObservedAt !== null, 'worker_capability_heartbeat_missing');
+  assert(capabilities.projections.neo4j === true, 'neo4j_capability_not_true');
+  assert(capabilities.extraction.extractionProvider === 'local', 'unexpected_extraction_provider');
+  assert(capabilities.operations.retentionManaged === true, 'retention_capability_not_true');
+  assert(capabilities.operations.backupVerified === null, 'backup_verified_must_be_null');
+  const gapFields = capabilities.gaps.map((gap) => gap.field);
+  assert(gapFields.includes('operations.backupVerified'), 'backup_gap_missing');
+  assert(!gapFields.includes('projections.neo4j'), 'neo4j_should_not_be_a_gap');
 }
 
 async function searchToCreateCache(sessionId, memoryId) {

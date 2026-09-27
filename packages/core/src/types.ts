@@ -42,6 +42,9 @@ import type {
   Scope,
   SearchMemoriesInput,
   SessionConsolidationOutput,
+  WorkerRuntimeCapabilities,
+  EmbeddingIndexHealthOutput,
+  EmbeddingReindexOutput,
 } from '@mnemosyne/contracts';
 
 export type { MemoryFeedbackInput, MemoryFeedbackOutput } from '@mnemosyne/contracts';
@@ -117,6 +120,8 @@ export interface ProposalContext {
 
 export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
+  getEmbeddingIndexHealth(): Promise<EmbeddingIndexHealthOutput>;
+  reindexEmbeddings(): Promise<EmbeddingReindexOutput>;
   listCorpusExport(): Promise<CorpusExport>;
   restoreCorpus(input: CorpusExport): Promise<CorpusRestoreResult>;
   submitFeedback(input: MemoryFeedbackInput): Promise<MemoryFeedbackOutput>;
@@ -151,7 +156,20 @@ export interface MemoryService {
   getCorpusRevision(): Promise<string>;
 }
 
+export interface RuntimeCapabilityReport {
+  component: string;
+  capabilities: WorkerRuntimeCapabilities;
+  reportedAt: string;
+}
+
 export interface MemoryRepository {
+  reportRuntimeCapabilities(
+    component: string,
+    capabilities: WorkerRuntimeCapabilities,
+    reportedAt: string,
+  ): Promise<void>;
+  readRuntimeCapabilities(component: string): Promise<RuntimeCapabilityReport | null>;
+  countMemories(): Promise<number>;
   restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts>;
   createSession(input: OpenSessionInput): Promise<SessionRecord>;
   findSession(id: string): Promise<SessionRecord | null>;

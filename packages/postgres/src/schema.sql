@@ -209,3 +209,14 @@ CREATE TABLE IF NOT EXISTS client_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS client_tokens_token_hash_idx ON client_tokens(token_hash);
+
+-- Heartbeat published by the extraction worker. The API and the MCP server own
+-- neither the extraction provider nor the Neo4j projection nor the retention
+-- timer, so they read these facts from here instead of reporting them blind.
+-- reported_at is what makes staleness detectable: a stopped worker goes quiet
+-- and its capabilities read as unknown rather than as disabled.
+CREATE TABLE IF NOT EXISTS runtime_capabilities (
+  component text PRIMARY KEY,
+  capabilities jsonb NOT NULL,
+  reported_at timestamptz NOT NULL
+);

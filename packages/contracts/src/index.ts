@@ -571,23 +571,87 @@ export const sessionConsolidationOutputSchema = z.object({
 });
 export type SessionConsolidationOutput = z.infer<typeof sessionConsolidationOutputSchema>;
 
+export const extractionProviderNameSchema = z.enum([
+  'local',
+  'openrouter',
+  'openrouter-local-fallback',
+]);
+export type ExtractionProviderName = z.infer<typeof extractionProviderNameSchema>;
+
+/**
+ * Capabilities that only the worker process can know: it owns the extraction
+ * provider, the Neo4j projection and the retention timer. The API and the MCP
+ * server report these only when the worker has published a fresh heartbeat.
+ */
+export const workerRuntimeCapabilitiesSchema = z.object({
+  neo4jConfigured: z.boolean(),
+  openRouterConfigured: z.boolean(),
+  extractionProvider: extractionProviderNameSchema,
+  retentionScheduled: z.boolean(),
+});
+export type WorkerRuntimeCapabilities = z.infer<typeof workerRuntimeCapabilitiesSchema>;
+
+/**
+ * A capability the responding process could not observe, and why. A null
+ * capability value always has a matching entry here: null means "unknown",
+ * never "absent".
+ */
+export const capabilityGapSchema = z.object({
+  field: z.string().min(1),
+  reason: z.string().min(1),
+});
+export type CapabilityGap = z.infer<typeof capabilityGapSchema>;
+
 export const adminCapabilitiesOutputSchema = z.object({
+  reportedAt: z.string(),
+  workerObservedAt: z.string().nullable(),
   extraction: z.object({
-    localExtractor: z.boolean(),
-    openRouterConfigured: z.boolean(),
+    localExtractor: z.boolean().nullable(),
+    openRouterConfigured: z.boolean().nullable(),
+    extractionProvider: extractionProviderNameSchema.nullable(),
   }),
   projections: z.object({
     redis: z.boolean(),
-    neo4j: z.literal(false),
+    neo4j: z.boolean().nullable(),
     semanticSearch: z.boolean(),
   }),
   operations: z.object({
-    backupVerified: z.literal(false),
-    retentionManaged: z.literal(true),
-    exportAvailable: z.literal(true),
+    backupVerified: z.boolean().nullable(),
+    retentionManaged: z.boolean().nullable(),
+    exportAvailable: z.boolean(),
   }),
+  gaps: z.array(capabilityGapSchema),
 });
 export type AdminCapabilitiesOutput = z.infer<typeof adminCapabilitiesOutputSchema>;
+
+export const embeddingProfileCountSchema = z.object({
+  profile: z.string().min(1),
+  count: z.number().int().nonnegative(),
+});
+export type EmbeddingProfileCount = z.infer<typeof embeddingProfileCountSchema>;
+
+/**
+ * Compares what the corpus needs indexed against what the semantic index holds
+ * for the active profile. Exists because a corpus restore does not rebuild
+ * embeddings, and that used to degrade search silently to lexical-only.
+ */
+export const embeddingIndexHealthOutputSchema = z.object({
+  available: z.boolean(),
+  profile: z.string().nullable(),
+  dimensions: z.number().int().positive().nullable(),
+  memoryCount: z.number().int().nonnegative(),
+  indexedForActiveProfile: z.number().int().nonnegative(),
+  missingCount: z.number().int().nonnegative(),
+  otherProfiles: z.array(embeddingProfileCountSchema),
+  needsReindex: z.boolean(),
+});
+export type EmbeddingIndexHealthOutput = z.infer<typeof embeddingIndexHealthOutputSchema>;
+
+export const embeddingReindexOutputSchema = z.object({
+  scanned: z.number().int().nonnegative(),
+  indexed: z.number().int().nonnegative(),
+});
+export type EmbeddingReindexOutput = z.infer<typeof embeddingReindexOutputSchema>;
 
 export const clientTokenNameSchema = z
   .string()
