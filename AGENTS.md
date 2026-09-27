@@ -41,11 +41,11 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Documentation: [`docs/retrieval-ranking.md`](docs/retrieval-ranking.md).
 - Historical pre-cleanup live benchmark, using 12 distinctive three-word probes: keyword hit@1 `83.3%`, hit@5 `83.3%`, hit@10 `91.7%`, MRR@10 `0.847`; noisy probes have the same values; verbatim is `100%` top-1/top-10; no-match queries return zero results; top-10 Jaccard mean `0.068`, max `0.818`; search p50/p95 `7.45/18.59 ms`; context p50/p95 `12.89/33.67 ms`.
 - One live probe remains genuinely ambiguous because several memories share the same evidence. This is measured and accepted as a known relevance limit, not an infrastructure failure.
-- Offline gates: `npm run verify` passes 153 tests with 1 skipped; `npm run eval:all` passes governance `9/9` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails, proving the gate detects broken ordering.
+- Offline gates: `npm run verify` passes 155 tests with 1 skipped; `npm run eval:all` passes governance `9/9` and retrieval `11/11` with nDCG `1.0`, including four reviewed judgment queries. The deliberate `node scripts/eval-retrieval.mjs --legacy-order` check fails, proving the gate detects broken ordering.
 
 ### Dashboard and MCP status
 
-- The dashboard graph no longer loads `vis-network` at runtime. It uses a native canvas renderer with non-overlapping scope clusters, stable hover behavior, no hover tooltip, zoom/pan, filtering, and persistent clicked-node highlighting.
+- The dashboard graph no longer uses `vis-network` at all. The dependency, the path resolution, the `visNetworkPath` option and the `/vis-network.min.js` route are gone, along with the dead SVG renderer. It uses a native canvas renderer with non-overlapping scope clusters, stable hover behavior, no hover tooltip, zoom/pan, filtering, and persistent clicked-node highlighting.
 - MCP uses the local deterministic embedding provider and PostgreSQL semantic index. On the Mac mini, `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` with `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=harness` disables HTTP authentication so clients need only the URL; the tailnet ACL is the perimeter, and the owner-only tools (forget, export, correct, retract, review, `memory_admin_*`) are not registered for that profile at all. Never set the anonymous profile to `owner` without an explicit reason. A supplied `Authorization` header is always verified: a per-client token escalates to `owner`, an invalid or revoked one gets `401` instead of a silent downgrade.
 - Per-client credentials are minted from the client side with `npm run token:client -- --base-url <api> --name <slug> [--out <file> | --list | --revoke <slug>]`, talking to `POST /v1/admin/client-tokens` with `MNEMOSYNE_OWNER_TOKEN`. Only the SHA-256 hash and a displayable prefix are stored, the plaintext is returned once, and every token currently has the `owner` role.
 - MCP DNS-rebinding protection remains configured for the Tailscale hostname; do not broaden `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` without an explicit reason.
@@ -69,9 +69,10 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 ### Recommended follow-up
 
 1. Add privacy-safe retrieval telemetry (candidate counts, FTS/semantic path, score bands) without logging queries or corpus content.
-2. ~~Add an explicit embedding reindex/health command for post-restore recovery.~~ Done: see the embedding recovery status below.
-3. Grow the small reviewed live relevance set if a stricter top-1 target is required.
-4. Run a concurrency/load test against a future explicitly approved large scope; do not recreate the removed seed.
+2. Grow the small reviewed live relevance set if a stricter top-1 target is required.
+3. Run a concurrency/load test against a future explicitly approved large scope; do not recreate the removed seed.
+
+The embedding reindex/health follow-up is done; see the embedding recovery status below.
 
 ### Embedding recovery status
 

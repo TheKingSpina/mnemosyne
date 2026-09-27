@@ -1206,11 +1206,6 @@ export class CoreMemoryService implements MemoryService {
     return left.type === right.type && left.id === right.id;
   }
 
-  private lexicalScore(memory: MemoryRevision, terms: string[]): number {
-    const content = memory.content.toLocaleLowerCase();
-    return terms.reduce((score, term) => score + (content.includes(term) ? 1 : 0), 0);
-  }
-
   private normalizedContent(content: string): string {
     return content.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
   }

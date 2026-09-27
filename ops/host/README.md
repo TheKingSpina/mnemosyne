@@ -17,6 +17,29 @@ A socket file is not proof of a working runtime: OrbStack can be running with it
 
 ## Environment variables
 
+The two scripts take different variables. `MNEMOSYNE_REPO`, `MNEMOSYNE_DOCKER_SOCKET` and
+`MNEMOSYNE_RUNTIME_APP` are required by both and have no default.
+
+`mnemosyne-ensure-runtime.sh`:
+
+| Variable                         | Default    | Meaning                                                                   |
+| -------------------------------- | ---------- | ------------------------------------------------------------------------- |
+| `MNEMOSYNE_RUNTIME_WAIT_SECONDS` | `300`      | How long to wait for the runtime to answer before giving up.              |
+| `MNEMOSYNE_DOCKER_PROBE_SECONDS` | `20`       | Hard limit on a single `docker` call, enforced with a `kill -9` watchdog. |
+| `MNEMOSYNE_RUNTIME_PROCESS`      | `OrbStack` | App bundle name passed to `open -g -a`.                                   |
+
+`mnemosyne-healthcheck.sh`:
+
+| Variable                          | Default                              | Meaning                                                                                                    |
+| --------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `MNEMOSYNE_API_HEALTH_URL`        | `http://127.0.0.1:3000/health/ready` | Readiness probe target.                                                                                    |
+| `MNEMOSYNE_WEB_HEALTH_URL`        | `http://127.0.0.1:18080/`            | Dashboard probe target.                                                                                    |
+| `MNEMOSYNE_PROBE_TIMEOUT_SECONDS` | `10`                                 | `curl --max-time` for each probe. Only the health check uses this; the ensure script has no such variable. |
+| `MNEMOSYNE_FAILURE_THRESHOLD`     | `2`                                  | Consecutive failures before a repair is attempted.                                                         |
+| `MNEMOSYNE_STATE_DIR`             | `~/.mnemosyne`                       | Where the failure counter is kept.                                                                         |
+
+A minimal install therefore only needs the three shared variables plus the two health URLs:
+
 ```text
 MNEMOSYNE_REPO=/absolute/path/to/mnemosyne
 MNEMOSYNE_DOCKER_SOCKET=/absolute/path/to/docker.sock
@@ -24,8 +47,6 @@ MNEMOSYNE_RUNTIME_APP=/Applications/OrbStack.app
 MNEMOSYNE_API_HEALTH_URL=http://127.0.0.1:3000/health/ready
 MNEMOSYNE_WEB_HEALTH_URL=http://127.0.0.1:18080/
 ```
-
-Optional: `MNEMOSYNE_RUNTIME_WAIT_SECONDS` (default `180`), `MNEMOSYNE_PROBE_TIMEOUT_SECONDS` (default `10`), `MNEMOSYNE_FAILURE_THRESHOLD` (default `2`), `MNEMOSYNE_STATE_DIR` (default `~/.mnemosyne`).
 
 The runtime is started with `open -g -a`, so the mini must be logged in. Confirm the runtime also has its own "start at login" option enabled; the launchd job is the safety net, not the replacement.
 

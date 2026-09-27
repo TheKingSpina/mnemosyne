@@ -205,7 +205,7 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
     expect(malformed.status).toBe(400);
   });
 
-  it('requires a bearer token by default and accepts an anonymous owner when disabled', async () => {
+  it('requires a bearer token by default and gives anonymous callers the harness profile', async () => {
     const anonymousRequest = (baseUrl: string) =>
       fetch(`${baseUrl}/mcp`, {
         method: 'POST',
@@ -249,6 +249,47 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
       },
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
     });
+    const body = await listed.text();
+    expect(listed.status).toBe(200);
+    expect(body).toContain('memory_context');
+    expect(body).not.toContain('memory_forget');
+    expect(body).not.toContain('memory_admin_overview');
+  });
+
+  it('grants an anonymous owner only when the caller asks for it explicitly', async () => {
+    const baseUrl = await listen(
+      createTestServer('anonymous-owner-session', 1_000, {
+        requireToken: false,
+        anonymousProfile: 'owner',
+      }),
+    );
+    const post = (body: unknown, withSession: boolean) =>
+      fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+          'mcp-protocol-version': '2025-03-26',
+          ...(withSession ? { 'mcp-session-id': 'anonymous-owner-session' } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+    await post(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'anonymous-owner-client', version: '1.0.0' },
+        },
+      },
+      false,
+    ).then((response) => response.text());
+
+    const listed = await post({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, true);
     const body = await listed.text();
     expect(listed.status).toBe(200);
     expect(body).toContain('memory_forget');
@@ -311,6 +352,48 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
     );
     const calledBody = await called.text();
     expect(calledBody).toContain('not found');
+  });
+
+  it('defaults the anonymous profile to harness without being told', async () => {
+    // The default has to be the unprivileged profile. If it regressed to owner,
+    // relaxing requireToken alone would hand every anonymous caller forget,
+    // export, review and every memory_admin_* tool.
+    const baseUrl = await listen(
+      createTestServer('default-profile-session', 1_000, { requireToken: false }),
+    );
+    const post = (body: unknown, withSession: boolean) =>
+      fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+          'mcp-protocol-version': '2025-03-26',
+          ...(withSession ? { 'mcp-session-id': 'default-profile-session' } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+    await post(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'anonymous-default-client', version: '1.0.0' },
+        },
+      },
+      false,
+    ).then((response) => response.text());
+
+    const listed = await post({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }, true);
+    const listedBody = await listed.text();
+    expect(listed.status).toBe(200);
+    expect(listedBody).toContain('memory_context');
+    expect(listedBody).not.toContain('memory_forget');
+    expect(listedBody).not.toContain('memory_admin_overview');
+    expect(listedBody).not.toContain('memory_export');
   });
 });
 

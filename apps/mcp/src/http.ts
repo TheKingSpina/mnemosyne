@@ -60,7 +60,11 @@ export function createMcpHttpServer(
       service,
       accessPolicy,
       options.requireToken ?? true,
-      options.anonymousProfile ?? 'owner',
+      // Defaults to harness, not owner: the less privileged profile is the one
+      // that should survive a refactor of the caller. An owner default here
+      // would hand every anonymous caller the forget, export, review and
+      // memory_admin_* tools the moment requireToken is relaxed.
+      options.anonymousProfile ?? 'harness',
       options.sessionIdGenerator ?? (() => randomUUID()),
       maxRequestBodyBytes,
       maxSessions,
