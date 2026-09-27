@@ -74,6 +74,32 @@ curl -fsS -H "authorization: Bearer $MNEMOSYNE_OWNER_TOKEN" \
 
 Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel container, pubblica `127.0.0.1:3333` con Tailscale Serve e configura `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Non esporre direttamente API, PostgreSQL, Redis o Neo4j.
 
+### Client MCP su un’altra macchina
+
+L’endpoint è quello mostrato da `tailscale serve status` e include porta e percorso, per esempio `https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp`. La protezione DNS rebinding accetta solo gli host in `MCP_ALLOWED_HOSTS`, quindi il client deve usare esattamente quel nome: l’IP del tailnet e il nome breve vengono rifiutati.
+
+Il token deve essere **quello del mini**. Ogni `npm run env:init` genera segreti nuovi, quindi un `.env` presente su un’altra macchina non autentica nulla e il server risponde `401`. Copialo in un file protetto e riferiscilo dalla configurazione del client, senza scriverlo nel file di configurazione:
+
+```bash
+ssh mnemosyne-mini 'sed -n "s/^MNEMOSYNE_OWNER_TOKEN=//p" ~/Mnemosyne/.env' > ~/.mnemosyne/mcp.token
+chmod 600 ~/.mnemosyne/mcp.token
+```
+
+```json
+{
+  "mcp": {
+    "mnemosyne": {
+      "type": "remote",
+      "url": "https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp",
+      "headers": { "Authorization": "Bearer {file:~/.mnemosyne/mcp.token}" },
+      "enabled": true
+    }
+  }
+}
+```
+
+`MNEMOSYNE_HARNESS_TOKEN` funziona anche per l’MCP ma è limitato al profilo harness: forget, export e le amministrazioni rispondono `403`. Verifica con `opencode mcp list` o con l’equivalente del client usato.
+
 ## 5. Risorse M1 8 GB
 
 Neo4j è il servizio più pesante. Il Compose imposta già heap e page cache contenuti. Assegna a Docker/OrbStack circa 4–6 GB, lascia memoria al sistema e non eseguire build TypeScript pesanti sul mini mentre il servizio è attivo. Se Neo4j non serve, avvia solo `postgres redis api web`; l’assenza di Neo4j non influisce sul dashboard.
