@@ -26,6 +26,10 @@ const maxSessions = Number(process.env.MCP_MAX_SESSIONS ?? 1_000);
 const sessionIdleTimeoutMs = Number(process.env.MCP_SESSION_IDLE_TIMEOUT_MS ?? 1_800_000);
 const allowedHosts = csvOption(process.env.MCP_ALLOWED_HOSTS);
 const allowedOrigins = csvOption(process.env.MCP_ALLOWED_ORIGINS);
+// Opt-in escape hatch for a deployment whose perimeter is already the tailnet
+// ACL. Every caller is then treated as owner, so forget and export are reachable
+// without a token. Keep the default unless the exposure is deliberate.
+const requireToken = process.env.MNEMOSYNE_MCP_REQUIRE_TOKEN !== 'false';
 if (!Number.isSafeInteger(maxRequestBodyBytes) || maxRequestBodyBytes <= 0) {
   throw new Error('MCP_MAX_REQUEST_BODY_BYTES must be a positive integer');
 }
@@ -61,9 +65,12 @@ if (process.env.MCP_TRANSPORT !== 'http') {
     enableDnsRebindingProtection: allowedHosts !== undefined || allowedOrigins !== undefined,
     allowedHosts,
     allowedOrigins,
+    requireToken,
   });
   server.listen(port, host, () => {
-    process.stdout.write(`Mnemosyne MCP listening on ${host}:${port}\n`);
+    process.stdout.write(
+      `Mnemosyne MCP listening on ${host}:${port} (token ${requireToken ? 'required' : 'not required'})\n`,
+    );
   });
 }
 

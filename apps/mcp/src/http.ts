@@ -20,6 +20,7 @@ export interface McpHttpServerOptions {
   allowedHosts?: string[];
   allowedOrigins?: string[];
   sessionIdGenerator?: () => string;
+  requireToken?: boolean;
 }
 
 export function createMcpHttpServer(
@@ -57,6 +58,7 @@ export function createMcpHttpServer(
       sessions,
       service,
       accessPolicy,
+      options.requireToken ?? true,
       options.sessionIdGenerator ?? (() => randomUUID()),
       maxRequestBodyBytes,
       maxSessions,
@@ -90,6 +92,7 @@ async function handleMcpHttpRequest(
   sessions: Map<string, McpHttpSession>,
   service: MemoryService,
   accessPolicy: AccessPolicy,
+  requireToken: boolean,
   generateSessionId: () => string,
   maxRequestBodyBytes: number,
   maxSessions: number,
@@ -106,11 +109,15 @@ async function handleMcpHttpRequest(
   }
 
   let actor: MemoryActor;
-  try {
-    actor = accessPolicy.authenticate(request.headers.authorization);
-  } catch {
-    response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
-    return;
+  if (!requireToken) {
+    actor = 'owner';
+  } else {
+    try {
+      actor = accessPolicy.authenticate(request.headers.authorization);
+    } catch {
+      response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
+      return;
+    }
   }
 
   const rawSessionId = request.headers['mcp-session-id'];

@@ -27,6 +27,7 @@ function createTestServer(
     enableDnsRebindingProtection?: boolean;
     allowedHosts?: string[];
     allowedOrigins?: string[];
+    requireToken?: boolean;
   } = {},
 ): Server {
   const service = new CoreMemoryService(new InMemoryRepository(), {
@@ -193,5 +194,55 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
 
     expect(unknown.status).toBe(404);
     expect(malformed.status).toBe(400);
+  });
+
+  it('requires a bearer token by default and accepts an anonymous owner when disabled', async () => {
+    const anonymousRequest = (baseUrl: string) =>
+      fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            clientInfo: { name: 'anonymous-test-client', version: '1.0.0' },
+          },
+        }),
+      });
+
+    const guardedBaseUrl = await listen(createTestServer('guarded-session'));
+    const rejected = await anonymousRequest(guardedBaseUrl);
+    await rejected.text();
+    expect(rejected.status).toBe(401);
+
+    const openBaseUrl = await listen(
+      createTestServer('anonymous-session', 1_000, { requireToken: false }),
+    );
+    const accepted = await anonymousRequest(openBaseUrl);
+    await accepted.text();
+    expect(accepted.status).toBe(200);
+    const sessionId = accepted.headers.get('mcp-session-id');
+    expect(sessionId).toBe('anonymous-session');
+
+    const listed = await fetch(`${openBaseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+        'mcp-protocol-version': '2025-03-26',
+        'mcp-session-id': 'anonymous-session',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+    });
+    const body = await listed.text();
+    expect(listed.status).toBe(200);
+    expect(body).toContain('memory_forget');
+    expect(body).toContain('memory_admin_overview');
   });
 });
