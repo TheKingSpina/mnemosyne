@@ -13,6 +13,8 @@ These templates keep a Mnemosyne deployment reachable on a Mac mini: they start 
 
 Both scripts are idempotent and log one line per action to stdout, which launchd redirects to `__LOG_DIR__`.
 
+A socket file is not proof of a working runtime: OrbStack can be running with its virtual machine down and the socket still in place, which is exactly how a reboot leaves the stack unreachable. The ensure script therefore probes `docker version` with a hard timeout instead of trusting the socket, and every docker call is bounded so a wedged daemon fails fast instead of hanging the launchd job. The runtime is recycled at most once per run, so a single bad probe cannot start a restart loop.
+
 ## Environment variables
 
 ```text
