@@ -35,3 +35,27 @@ export class RedisCorpusCache implements CorpusCache {
     }
   }
 }
+
+export type CorpusCacheConnector = (url: string) => Promise<CorpusCache>;
+
+/**
+ * Resolves the optional corpus cache for a process. The API and MCP both call
+ * this so the two cannot drift apart: an unconfigured REDIS_URL and an
+ * unreachable Redis both mean "no cache", never a crash at startup.
+ *
+ * The degradation is silent by design, which is exactly why the capability
+ * report has to be read from the process that answers: a missing cache is
+ * reported as `projections.redis: false` rather than raising, and a caller
+ * that never checks it will not notice that it lost the cache.
+ */
+export async function connectCorpusCache(
+  url: string | undefined,
+  connect: CorpusCacheConnector = (value) => RedisCorpusCache.connect(value),
+): Promise<CorpusCache | undefined> {
+  if (!url) return undefined;
+  try {
+    return await connect(url);
+  } catch {
+    return undefined;
+  }
+}

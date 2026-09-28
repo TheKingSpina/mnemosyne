@@ -94,6 +94,7 @@ services:
       MNEMOSYNE_HARNESS_TOKEN: ${MNEMOSYNE_HARNESS_TOKEN}
       MCP_PROFILE: ${MCP_PROFILE:-}
       MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS: ${MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS:-300}
+      REDIS_URL: redis://redis:6379
       MCP_TRANSPORT: ${MCP_TRANSPORT:-stdio}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: ${MCP_PORT:-3333}
@@ -108,6 +109,8 @@ services:
       - '127.0.0.1:${MCP_HTTP_PORT:-3333}:${MCP_PORT:-3333}'
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   web:

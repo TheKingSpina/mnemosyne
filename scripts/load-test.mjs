@@ -77,7 +77,7 @@ const { PostgresMemoryRepository, PostgresSemanticSearchIndex } = await import(
   new URL('../packages/postgres/dist/index.js', import.meta.url).pathname
 );
 const { RedisCorpusCache } = await import(
-  new URL('../apps/api/dist/redis-cache.js', import.meta.url).pathname
+  new URL('../packages/redis/dist/index.js', import.meta.url).pathname
 );
 const { Pool } = await import('pg');
 

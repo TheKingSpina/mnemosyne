@@ -146,6 +146,8 @@ Attenzione: `--out` sovrascrive un token esistente con lo stesso nome. Per ruota
 
 Con `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=owner` ogni chiamante anonimo diventa owner: comodo per un uso personale, ma `memory_forget` diventa irreversibile e raggiungibile da qualunque dispositivo del tailnet. Per chiudere l'accesso anonimo: `MNEMOSYNE_MCP_REQUIRE_TOKEN=true` nel `.env` del mini e `docker compose up -d mcp`. I client dovranno allora mandare `Authorization: Bearer` con un token emesso, oppure con il token **del mini** per i client che non ne hanno uno proprio, non con quello di un altro `.env`, perché ogni `npm run env:init` genera segreti nuovi.
 
+MCP ora possiede anche la cache dei risultati di ricerca, come l'API, e per questo `mcp` dipende da `redis` in Compose: `docker compose up -d mcp` avvia Redis se non è già attivo. La cache accelera le query ripetute identiche, che sono la norma per un harness che rilegge gli stessi ambiti; sulle query nuove è un costo lieve. Se Redis non è raggiungibile MCP non parte male, si degrada a ranking senza cache, e la cosa è visibile come `projections.redis: false` in `/v1/admin/capabilities` con `reporter: "mcp"`. Redis resta esposto solo su loopback e non va pubblicato.
+
 ## 5. Risorse M1 8 GB
 
 Neo4j è il servizio più pesante. Il Compose imposta già heap e page cache contenuti. Assegna a Docker/OrbStack circa 4–6 GB, lascia memoria al sistema e non eseguire build TypeScript pesanti sul mini mentre il servizio è attivo. Se Neo4j non serve, avvia solo `postgres redis api web`; l’assenza di Neo4j non influisce sul dashboard.

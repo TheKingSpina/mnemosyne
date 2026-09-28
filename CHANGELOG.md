@@ -7,6 +7,7 @@
 - Per-client credentials: `POST`, `GET /v1/admin/client-tokens` and `POST /v1/admin/client-tokens/{name}/revoke`, plus `npm run token:client` to mint, list and revoke them from the client machine. Only a SHA-256 hash and a displayable prefix are stored, the plaintext is returned exactly once, and every token has the `owner` role.
 - Host keep-alive for the Mac mini: launchd agents that start the container runtime at login, reconcile the Compose project, probe the API and the dashboard every 5 minutes and repair after consecutive failures, plus a scheduled encrypted PostgreSQL backup with verified restore.
 - Optional anonymous access for MCP HTTP with `MNEMOSYNE_MCP_REQUIRE_TOKEN=false`, scoped by `MNEMOSYNE_MCP_ANONYMOUS_PROFILE` so a caller without credentials can be given the harness profile while the owner-only tools stay unregistered.
+- The Redis corpus cache moved from `apps/api` to `packages/redis`, mirroring `packages/postgres`, and MCP now owns a cache too. Harnesses re-read the same scopes within a task, and the repeated reads were not being cached: 25 MCP searches, 15 of them byte-identical repeats, wrote no Redis keys at all, while one API search wrote one. Both processes resolve the cache through the same `connectCorpusCache`, which degrades to no cache on an unset or unreachable `REDIS_URL` instead of failing startup.
 
 ### Changed
 

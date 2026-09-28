@@ -9,6 +9,7 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/postgres/package.json packages/postgres/package.json
+COPY packages/redis/package.json packages/redis/package.json
 RUN npm ci
 
 FROM dependencies AS build
@@ -28,6 +29,7 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/postgres/package.json packages/postgres/package.json
+COPY packages/redis/package.json packages/redis/package.json
 RUN npm ci --omit=dev --ignore-scripts
 RUN npm pkg delete devDependencies
 

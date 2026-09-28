@@ -5,6 +5,7 @@
     { "path": "./packages/contracts" },
     { "path": "./packages/core" },
     { "path": "./packages/postgres" },
+    { "path": "./packages/redis" },
     { "path": "./apps/api" },
     { "path": "./apps/cli" },
     { "path": "./apps/mcp" },

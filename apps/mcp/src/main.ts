@@ -10,6 +10,7 @@ import {
   PostgresMemoryRepository,
   PostgresSemanticSearchIndex,
 } from '@mnemosyne/postgres';
+import { connectCorpusCache } from '@mnemosyne/redis';
 import type { MemoryActor } from '@mnemosyne/contracts';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Pool } from 'pg';
@@ -62,10 +63,16 @@ const semanticSearchIndex = new PostgresSemanticSearchIndex(pool, {
   profile: embeddingProvider.profile,
   dimensions: embeddingProvider.dimensions,
 });
+// Harnesses re-read the same scopes repeatedly within a task, so MCP caches
+// ranked results exactly like the API does. An unset or unreachable REDIS_URL
+// degrades to no cache rather than failing startup, and the degradation is
+// visible as `projections.redis: false` with `reporter: "mcp"`.
+const corpusCache = await connectCorpusCache(process.env.REDIS_URL);
 const service = new CoreMemoryService(repository, {
   forgetSecret,
   embeddingProvider,
   semanticSearchIndex,
+  corpusCache,
   runtimeCapabilityTtlSeconds: Number(process.env.MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS ?? 300),
   reporter: 'mcp',
 });
