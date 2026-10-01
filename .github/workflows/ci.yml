@@ -200,7 +200,7 @@ jobs:
           subject-path: artifacts/mnemosyne-source.tar.gz
 
       - name: Attest SBOM
-        uses: actions/attest-sbom@v2
+        uses: actions/attest-sbom@v4
         with:
           subject-path: artifacts/mnemosyne-sbom.cdx.json
           predicate-type: https://cyclonedx.org/bom
