@@ -16,6 +16,6 @@
   "dependencies": {
     "@mnemosyne/contracts": "0.1.0",
     "@mnemosyne/core": "0.1.0",
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   }
 }
