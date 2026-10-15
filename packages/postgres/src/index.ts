@@ -309,7 +309,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
            SET name = EXCLUDED.name,
                description = EXCLUDED.description,
                updated_at = EXCLUDED.updated_at`,
-          [project.id, project.name, project.description ?? null, project.createdAt, project.updatedAt],
+          [
+            project.id,
+            project.name,
+            project.description ?? null,
+            project.createdAt,
+            project.updatedAt,
+          ],
         );
       }
       for (const area of input.areas) {
