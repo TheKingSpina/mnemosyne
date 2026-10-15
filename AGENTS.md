@@ -194,3 +194,13 @@ A deployment is complete only when the intended containers are running/healthy, 
 ## Documentation
 
 Keep the Mac/Tailscale runbook, `.env.example`, Compose, backup templates, and release documentation synchronized when deployment behavior changes.
+
+## Parallel v2 graph-model work (pointer only)
+
+A graph-model v2 lives on the local branch `feat/v2-graph-model` and is
+parallel and separate from everything above: projects and areas as real
+entities, weighted arcs, scope-enum retirement, project/area roots in the
+Neo4j projection. Its state is recorded in `docs/v2-handoff.md`, its design
+in `docs/v2-graph-model-plan.md`. Nothing on that branch is pushed, nothing
+targets the mini, and `main` stays the deployment. Do not mix the two lines
+of work: mini operations stay on `main` at the pinned commit above.
