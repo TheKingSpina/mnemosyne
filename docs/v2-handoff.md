@@ -3,7 +3,7 @@
 - **Branch:** `feat/v2-graph-model`, local only, never pushed
 - **`main`:** `a5d357c`, untouched, identical to `origin/main`
 - **Working tree:** clean
-- **Last updated:** 2026-10-16
+- **Last updated:** 2026-10-16 (gaps closed)
 - **Design document:** [`v2-graph-model-plan.md`](./v2-graph-model-plan.md) — current
 - **Spec:** [`assistante-memoriale-spec.md`](./assistante-memoriale-spec.md) §§7/8.7/9.2/10.4/12.1/13.2 — current
 
@@ -45,6 +45,10 @@ that were still open at the previous handoff.
 | `0701ffd` | Spec, README and changelog describe the v2 that was built                                              |
 | `abcd2fc` | The synthetic flow accounts for the third lifecycle memory                                             |
 | `8480e08` | Eval datasets use the personal project instead of global                                               |
+| `8561371` | Restored projects keep their names                                                                     |
+| `b72ec97` | The dashboard draws projects and the arcs between them                                                 |
+| `7485661` | Areas link to their project in the Neo4j projection                                                    |
+| `47c9200` | AGENTS.md points at the parallel v2 work                                                               |
 
 ## Decisions that are not obvious from the code
 
@@ -104,21 +108,23 @@ what the E2E is for.
   and two memories created through the API, `rebuild()` asserted node and edge
   counts in Neo4j, every scratch row deleted afterwards
 
-## Known gaps, in the order they should be closed
+## Known gaps
 
-1. **Project arcs are counted, not drawn, in the dashboard.** The graph has no
-   project nodes, so there is nothing to attach them to. Drawing them means
-   adding project nodes to the dashboard layout, which is the dashboard half of
-   projection step 5, not a bug.
-2. **Restored projects lose their names.** The restore provisions projects by id
-   with the id as the name; areas keep full rows, projects do not. Harmless for
-   identity, lossy for display, and recorded here rather than discovered later.
-3. **No `Area → Project` edge in Neo4j.** The plan lists only `IN_PROJECT` and
-   `IN_AREA`. Areas carry `projectId` as a property, so the membership is
-   queryable, but the graph does not walk it.
-4. **`AGENTS.md` deliberately does not mention the v2.** It is the Mac mini
-   runbook and the v2 is parallel and separate. If the v2 ever merges toward
-   `main`, that file is the first thing to reconcile.
+All four minor gaps named here are closed: project arcs are drawn in a band
+of their own above the scope clusters (`GET /v1/admin/projects` feeds it),
+restored projects keep their names (full rows upserted, export as truth on
+conflict), areas link with `(Area)-[:PART_OF]->(Project)`, and `AGENTS.md`
+carries a pointer-only section with the rule that mini operations stay on
+`main`.
+
+What remains is future work, not debt:
+
+1. **Merge strategy toward `main`, if ever.** The branch is local-only by
+   decision. Merging touches the mini deployment and needs an explicit call,
+   a migration story for the existing corpus, and a cutover plan.
+2. **Dashboard project layer depth.** Project nodes exist only for projects
+   that touch an arc; a corpus with hundreds of arc-less projects shows none.
+   Widening that is a product choice about clutter, not a missing piece.
 
 ## How to work on this
 
