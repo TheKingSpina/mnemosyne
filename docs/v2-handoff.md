@@ -3,8 +3,9 @@
 - **Branch:** `feat/v2-graph-model`, local only, never pushed
 - **`main`:** `a5d357c`, untouched, identical to `origin/main`
 - **Working tree:** clean
-- **Last updated:** 2026-10-15
-- **Design document:** [`v2-graph-model-plan.md`](./v2-graph-model-plan.md) — **partly stale, see Known gaps**
+- **Last updated:** 2026-10-16
+- **Design document:** [`v2-graph-model-plan.md`](./v2-graph-model-plan.md) — current
+- **Spec:** [`assistante-memoriale-spec.md`](./assistante-memoriale-spec.md) §§7/8.7/9.2/10.4/12.1/13.2 — current
 
 This project is parallel and separate from the deployed system. The Mac mini stays on
 `main` and is explicitly out of scope: no backfill, no dual-read period, no backward
@@ -18,7 +19,11 @@ compatibility. Schema changes here are breaking and local.
    whoever creates them. `memory_revisions.area_id` references them, and a trigger
    enforces that the area belongs to the memory's project.
 3. **Weighted arcs between nodes.** `memory_arcs` and `project_arcs`, governed like
-   memories, projected into Neo4j as `LINK`, and part of the corpus export.
+   memories, projected into Neo4j as `LINK`, part of the corpus export, and drawn in
+   the owner dashboard graph.
+
+All three are done, including the scope-enum retirement and the projection roots
+that were still open at the previous handoff.
 
 ## What is done, commit by commit
 
@@ -31,6 +36,15 @@ compatibility. Schema changes here are breaking and local.
 | `939e10f` | `memories.project_id` NOT NULL and immutable; project carried in the export                            |
 | `de31e63` | `scope_type`/`scope_id` dropped; scope derived from `area_id`/`session_id`                             |
 | `0434e88` | `memory_arcs`, `project_arcs`, `hierarchical_relation`, cycle prevention, projection, export, API, MCP |
+| `d7849b8` | This handoff, first version                                                                            |
+| `97bdc83` | The plan describes the arcs that were actually built                                                   |
+| `6ce82f7` | The dashboard draws memory arcs; `GET /v1/admin/arcs` lists them all                                   |
+| `ead27be` | Scope type `global` retired in favour of the personal project                                          |
+| `4056448` | Project and area roots in the Neo4j projection                                                         |
+| `5afc21b` | Areas travel in the corpus export and restore                                                          |
+| `0701ffd` | Spec, README and changelog describe the v2 that was built                                              |
+| `abcd2fc` | The synthetic flow accounts for the third lifecycle memory                                             |
+| `8480e08` | Eval datasets use the personal project instead of global                                               |
 
 ## Decisions that are not obvious from the code
 
@@ -56,51 +70,67 @@ planner ignore the GIN index, measured at 69 ms against 2.1 ms for the same filt
 10,000 memories. The copy is written by a trigger that overwrites whatever a caller
 supplied, so it cannot disagree. That trade keeps a measured 29x.
 
-**The corpus export carries projects and arcs.** Both are corpus content, not graph
-internals. Without them a restore returns a corpus with no roots and no relations and
-says nothing about it. This was the bug pattern hit twice while building it: the restore
-broke first on missing projects, then on missing project ids.
+**The corpus export carries projects, areas and arcs.** All three are corpus content,
+not graph internals. Each gap announced itself the same way: the restore broke on
+missing projects, then on missing project ids, then — once the first area-scoped
+memory went through a restore — on a missing area with a 500 from the area trigger.
+A restore that silently drops any of them returns a corpus that fails its own
+invariants and says nothing about it.
+
+**Retiring `global` was a rename, not a resemanticisation.** `global` was readable
+and writable from every session, so project `personal` stays readable and writable
+from every session: the scope list carries it as policy and the write path keeps the
+same carve-out. Removing the write path inside a rename would have broken
+"ricorda globalmente" with a loud `scope_not_available`, which is a behaviour change
+smuggled into a contract change. The scope enum is now `session | project | area`.
+
+**Cypher needs `WITH` between `SET` and `MATCH`.** The area-edge query put `MATCH`
+after `SET`, which Neo4j refuses. The write threw on every attempt, the outbox batch
+never marked processed, and the Area node never appeared while everything else
+looked fine. Build and unit tests cannot see this — there is no Cypher parsing
+anywhere — and the synthetic E2E caught it because it polls the live graph. That is
+what the E2E is for.
 
 ## Verified state
 
-All green at `0434e88`:
-
-- `npm run verify` — 204 passed, 1 skipped
-- `npm run e2e:synthetic` — OK, including psql assertions for the schema constraints,
-  project immutability, cross-project scope isolation, influence cycles allowed and
-  hierarchy cycles refused
-- `npm run eval:all` — governance 9/9, retrieval 11/11 at nDCG 1.0, dataset hash
-  unchanged at `618867745ccf`
+- `npm run verify` — 205 passed, 1 skipped
+- `npm run e2e:synthetic` — OK, with a third area-scoped lifecycle memory: one
+  Project node, one Area node, three `IN_PROJECT` edges and one `IN_AREA` edge
+  polled from the live graph, plus the schema-constraint psql assertions
+- `npm run eval:all` — governance 9/9, retrieval 11/11 at nDCG 1.0; the retrieval
+  dataset hash moved `618867745ccf` → `fe1369c0cd5e` because the judged sets now
+  use project `personal`, and the hash is reported, not pinned
+- Projection roots verified live against the laptop stack: scratch project, area
+  and two memories created through the API, `rebuild()` asserted node and edge
+  counts in Neo4j, every scratch row deleted afterwards
 
 ## Known gaps, in the order they should be closed
 
-1. **The dashboard does not show arcs.** They exist end to end through the API, but the
-   graph view loads only `/v1/admin/memories` and `/v1/admin/conflicts`, so arcs never
-   appear. Entry points are `loadGraph`, `buildGraphView` and `drawGraphCanvas` in
-   `apps/web/src/index.html`.
-2. **The design document is stale.** Its schema section still describes one `arcs` table
-   and predates the trigger discovery. Its "out of scope" section still says project arcs
-   are excluded, which is no longer true. Update it or the next reader will be misled.
-3. **The v2 is undocumented.** `docs/assistante-memoriale-spec.md` sections 8.7 and 9
-   describe entities and governance and still describe the old model. `AGENTS.md` is the
-   Mac mini runbook and deliberately does not mention the v2, because the v2 is parallel
-   and separate.
-4. **`scope_type = 'global'` still exists** and is derived from the reserved `personal`
-   project. Retiring it from the contract is a deliberate separate step, because it
-   changes the public scope enum.
+1. **Project arcs are counted, not drawn, in the dashboard.** The graph has no
+   project nodes, so there is nothing to attach them to. Drawing them means
+   adding project nodes to the dashboard layout, which is the dashboard half of
+   projection step 5, not a bug.
+2. **Restored projects lose their names.** The restore provisions projects by id
+   with the id as the name; areas keep full rows, projects do not. Harmless for
+   identity, lossy for display, and recorded here rather than discovered later.
+3. **No `Area → Project` edge in Neo4j.** The plan lists only `IN_PROJECT` and
+   `IN_AREA`. Areas carry `projectId` as a property, so the membership is
+   queryable, but the graph does not walk it.
+4. **`AGENTS.md` deliberately does not mention the v2.** It is the Mac mini
+   runbook and the v2 is parallel and separate. If the v2 ever merges toward
+   `main`, that file is the first thing to reconcile.
 
 ## How to work on this
 
 - Work on `feat/v2-graph-model`. `main` is the deployment and must not move.
-- **Run `npm run build` after each logical change, not after a batch.** Seven times in
-  this work the tree was left broken by batching edits and only compiling at the end; five
-  of those would have been caught immediately by a build. `npx vitest run <file>` after
-  touching a single test file is the cheap inner loop.
+- **Run `npm run build` after each logical change, not after a batch.** The tree
+  was left broken repeatedly by batching edits and only compiling at the end.
+  `npx vitest run <file>` after touching a single test file is the cheap inner loop.
 - **Never add a function without calling it.** An E2E check was added and left
   uncalled, so it would have passed forever without running.
-- Run the schema through a scratch PostgreSQL before building on it. Applying the DDL
-  found a redundant foreign key that would have rejected deletions with the wrong
-  explanation, and it is how the deferrable-constraint behaviour was verified rather than
-  assumed.
+- **Run the E2E before declaring a projection change done.** Cypher is
+  stringly-typed as far as every other gate is concerned; only the live graph
+  checks it.
+- Run the schema through a scratch PostgreSQL before building on it.
 - The local stack runs on the laptop only. The Mac mini is on `a5d357c` and knows nothing
   about any of this.
