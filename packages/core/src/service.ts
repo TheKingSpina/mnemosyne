@@ -63,6 +63,7 @@ import {
 export const WORKER_CAPABILITY_COMPONENT = 'worker';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
+import { DomainError } from './errors.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import {
@@ -335,6 +336,22 @@ export class CoreMemoryService implements MemoryService {
     // Creating it here keeps that contract for existing clients: a first
     // session on an unknown id provisions the project rather than failing.
     await this.repository.ensureProject(validated.projectId);
+    // Areas are declared entities, so a session may only scope to areas that
+    // exist and belong to its own project. Validated here rather than in the
+    // repository so both backends inherit the rule and the API can map it.
+    for (const areaId of validated.areaIds ?? []) {
+      const area = await this.repository.findAreaById(areaId);
+      if (!area) {
+        throw new DomainError('area_not_found', `Area ${areaId} not found`, 404);
+      }
+      if (area.projectId !== validated.projectId) {
+        throw new DomainError(
+          'area_not_in_project',
+          `Area ${areaId} does not belong to project ${validated.projectId}`,
+          409,
+        );
+      }
+    }
     const session = await this.repository.createSession({
       ...validated,
       areaIds: validated.areaIds ?? [],

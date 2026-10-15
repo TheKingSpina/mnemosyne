@@ -16,6 +16,8 @@ export function toDomainError(error: unknown): DomainError {
       session_not_found: ['Session not found', 404],
       session_closed: ['Session is closed', 409],
       session_not_open: ['Session must be open', 409],
+      area_not_found: ['Area not found', 404],
+      area_not_in_project: ['Area does not belong to the project', 409],
       memory_not_found: ['Memory not found', 404],
       memory_not_active: ['Memory is not active', 409],
       proposal_not_pending: ['Proposal is not pending', 409],

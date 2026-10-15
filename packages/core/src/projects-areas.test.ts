@@ -82,6 +82,56 @@ describe('projects and areas', () => {
   });
 });
 
+describe('openSession and declared areas', () => {
+  const createService = (repository: InMemoryRepository) =>
+    new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+
+  it('accepts a session scoped to declared areas of its project', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+    await repository.createArea({ id: 'a1', projectId: 'p1', name: 'progettazione' });
+    await repository.createArea({ id: 'a2', projectId: 'p1', name: 'sviluppo' });
+
+    const opened = await createService(repository).openSession({
+      projectId: 'p1',
+      areaIds: ['a1', 'a2'],
+    });
+
+    expect(opened.areaIds).toEqual(['a1', 'a2']);
+  });
+
+  it('refuses an area that was never declared', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+
+    await expect(
+      createService(repository).openSession({ projectId: 'p1', areaIds: ['area-fantasma'] }),
+    ).rejects.toThrow('Area area-fantasma not found');
+  });
+
+  it('refuses an area belonging to another project', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+    await repository.createProject({ id: 'p2', name: 'Beta' });
+    await repository.createArea({ id: 'a-beta', projectId: 'p2', name: 'progettazione' });
+
+    await expect(
+      createService(repository).openSession({ projectId: 'p1', areaIds: ['a-beta'] }),
+    ).rejects.toThrow('does not belong to project p1');
+  });
+
+  it('leaves areas optional', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+
+    const opened = await createService(repository).openSession({ projectId: 'p1' });
+
+    expect(opened.areaIds).toEqual([]);
+  });
+});
+
 describe('openSession and project existence', () => {
   const createService = (repository: InMemoryRepository) =>
     new CoreMemoryService(repository, {
