@@ -340,6 +340,13 @@ async function restoreAndVerify(lifecycle) {
     body: lifecycle.export,
   });
   assert(restored.restored.forgetLedger === 1);
+  // Projects restore with full rows, so the name survives instead of being
+  // provisioned back as the id.
+  const restoredProjectName = psql("SELECT name FROM projects WHERE id = 'e2e-synthetic';");
+  assert(
+    restoredProjectName === 'E2E Synthetic',
+    `project_name_not_preserved:${restoredProjectName}`,
+  );
   assert(restored.corpusRevision !== lifecycle.sourceCorpusRevision);
   assert(restored.corpusRevision.endsWith(':1'));
   const first = await api(`/v1/memories/${encodeURIComponent(lifecycle.firstId)}`, {

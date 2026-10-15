@@ -297,20 +297,19 @@ export class PostgresMemoryRepository implements MemoryRepository {
       await client.query('BEGIN');
       await client.query('DELETE FROM corpus_outbox');
       await client.query('DELETE FROM memory_feedback');
-      // sessions.project_id is a foreign key, and a restored corpus carries the
-      // session project ids but not the projects themselves, so they have to
-      // exist before the rows go in. Provisioned with the id as the name, the
-      // same way openSession does. Areas travel in the export with full rows,
-      // because a revision scoped to a missing area fails the trigger that
-      // keeps areas inside their project.
-      const projectIds = new Set<string>([
-        ...input.sessions.map((session) => session.projectId),
-        ...restoredMemories.map((memory) => memory.record.projectId),
-      ]);
-      for (const projectId of projectIds) {
+      // Projects travel in the export with full rows, so a restore keeps
+      // their names instead of provisioning the id as the name. Upserted
+      // rather than inserted because the seeded personal project is already
+      // there on an otherwise empty corpus, and the export is its truth.
+      for (const project of input.projects) {
         await client.query(
-          `INSERT INTO projects (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING`,
-          [projectId],
+          `INSERT INTO projects (id, name, description, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (id) DO UPDATE
+           SET name = EXCLUDED.name,
+               description = EXCLUDED.description,
+               updated_at = EXCLUDED.updated_at`,
+          [project.id, project.name, project.description ?? null, project.createdAt, project.updatedAt],
         );
       }
       for (const area of input.areas) {

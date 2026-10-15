@@ -268,6 +268,7 @@ export class CoreMemoryService implements MemoryService {
       exportedAt: this.now().toISOString(),
       corpusRevision: `${revision.epoch}:${revision.revision}`,
       sessions,
+      projects: await this.repository.listProjects(),
       areas,
       events,
       memories,
@@ -315,6 +316,7 @@ export class CoreMemoryService implements MemoryService {
     const counts = await this.repository.restoreCorpus({
       sourceCorpusRevision: validated.corpusRevision,
       sessions: validated.sessions,
+      projects: validated.projects,
       areas: validated.areas,
       events: validated.events,
       memories: validated.memories,

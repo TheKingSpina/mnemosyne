@@ -94,15 +94,16 @@ export class InMemoryRepository implements MemoryRepository {
     const restoredRevisions = input.revisions.filter(
       (item) => restoredMemoryIds.has(item.memoryId) && !forgottenMemoryIds.has(item.memoryId),
     );
-    // sessions.project_id is a foreign key, and a restored corpus carries the
-    // session project ids but not the projects themselves. Provision them before
-    // the sessions, the same way the PostgreSQL repository does.
-    const projectIds = new Set<string>([
-      ...input.sessions.map((session) => session.projectId),
-      ...restoredMemories.map((memory) => memory.record.projectId),
-    ]);
-    for (const projectId of projectIds) {
-      if (!this.projects.has(projectId)) await this.ensureProject(projectId);
+    // Projects arrive with full rows, so they are set before the sessions,
+    // areas and memories that reference them.
+    for (const project of input.projects) {
+      this.projects.set(project.id, {
+        id: project.id,
+        name: project.name,
+        ...(project.description === undefined ? {} : { description: project.description }),
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      });
     }
     for (const area of input.areas) {
       this.areas.set(area.id, area);

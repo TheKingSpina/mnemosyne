@@ -533,6 +533,15 @@ export const corpusExportSchema = z.object({
   exportedAt: z.string().datetime({ offset: true }),
   corpusRevision: z.string().min(1),
   sessions: z.array(sessionViewSchema),
+  projects: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      description: z.string().min(1).optional(),
+      createdAt: z.string().datetime({ offset: true }),
+      updatedAt: z.string().datetime({ offset: true }),
+    }),
+  ),
   areas: z.array(
     z.object({
       id: z.string().min(1),

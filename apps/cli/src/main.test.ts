@@ -35,6 +35,7 @@ describe('Mnemosyne CLI', () => {
           memoryArcs: [],
           projectArcs: [],
           areas: [],
+          projects: [],
         }),
       ),
     );
