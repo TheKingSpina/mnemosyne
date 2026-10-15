@@ -134,6 +134,31 @@ describe('proposing arcs', () => {
   });
 });
 
+describe('listing every arc at once', () => {
+  it('returns both tables in one call for the owner dashboard', async () => {
+    const { repository, service, first, second } = await fixture();
+    await service.proposeMemoryArc(
+      { fromMemoryId: first, toMemoryId: second, type: 'influenza', weight: 0.6 },
+      { actor: 'owner', explicitDirective: false },
+    );
+    await repository.createProject({ id: 'altro', name: 'Altro' });
+    await service.proposeProjectArc(
+      { fromProjectId: 'mnemosyne', toProjectId: 'altro', type: 'dipende' },
+      { actor: 'owner', explicitDirective: false },
+    );
+
+    const all = await service.listAllArcs();
+
+    expect(all.memoryArcs).toHaveLength(1);
+    expect(all.memoryArcs[0]).toMatchObject({ fromMemoryId: first, toMemoryId: second });
+    expect(all.projectArcs).toHaveLength(1);
+    expect(all.projectArcs[0]).toMatchObject({
+      fromProjectId: 'mnemosyne',
+      toProjectId: 'altro',
+    });
+  });
+});
+
 describe('project arcs', () => {
   it('proposes between two declared projects and refuses a self reference', async () => {
     const repository = new InMemoryRepository();

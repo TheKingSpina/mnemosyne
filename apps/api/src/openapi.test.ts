@@ -93,6 +93,7 @@ describe('OpenAPI contract', () => {
       '/v1/admin/memories',
       '/v1/admin/memories/{id}',
       '/v1/admin/conflicts',
+      '/v1/admin/arcs',
       '/v1/admin/conflicts/{id}/resolution',
       '/v1/admin/sessions',
       '/v1/admin/sessions/{id}',

@@ -175,6 +175,12 @@ export const listProjectArcsOutputSchema = z.object({
 });
 export type ListProjectArcsOutput = z.infer<typeof listProjectArcsOutputSchema>;
 
+export const listAllArcsOutputSchema = z.object({
+  memoryArcs: z.array(memoryArcViewSchema),
+  projectArcs: z.array(projectArcViewSchema),
+});
+export type ListAllArcsOutput = z.infer<typeof listAllArcsOutputSchema>;
+
 export const reviewArcInputSchema = z.object({
   expectedLifecycle: z.literal('pending_approval').default('pending_approval'),
   decision: z.enum(['accept', 'reject']),

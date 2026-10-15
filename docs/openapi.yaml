@@ -2345,6 +2345,44 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/ApiProblem'
                   - $ref: '#/components/schemas/ApiError'
+  /v1/admin/arcs:
+    get:
+      tags:
+        - Administration
+      operationId: listAllArcs
+      summary: Elenca tutti gli archi in una chiamata
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Archi trovati.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListAllArcsOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
   /v1/admin/conflicts/{id}/resolution:
     post:
       tags:
@@ -4632,6 +4670,89 @@ components:
         - type
         - memoryIds
         - status
+      additionalProperties: false
+    ListAllArcsOutput:
+      type: object
+      properties:
+        memoryArcs:
+          type: array
+          items:
+            type: object
+            properties:
+              arcId:
+                type: string
+                minLength: 1
+              fromMemoryId:
+                type: string
+                minLength: 1
+              toMemoryId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+            required:
+              - arcId
+              - fromMemoryId
+              - toMemoryId
+              - type
+              - weight
+              - lifecycle
+            additionalProperties: false
+        projectArcs:
+          type: array
+          items:
+            type: object
+            properties:
+              arcId:
+                type: string
+                minLength: 1
+              fromProjectId:
+                type: string
+                minLength: 1
+              toProjectId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+            required:
+              - arcId
+              - fromProjectId
+              - toProjectId
+              - type
+              - weight
+              - lifecycle
+            additionalProperties: false
+      required:
+        - memoryArcs
+        - projectArcs
       additionalProperties: false
     ConflictListOutput:
       type: object

@@ -41,6 +41,7 @@ import {
   projectArcViewSchema,
   proposalArcResultSchema,
   listMemoryArcsOutputSchema,
+  listAllArcsOutputSchema,
   listProjectArcsOutputSchema,
   reviewArcInputSchema,
   reviewArcOutputSchema,
@@ -850,6 +851,20 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/arcs': {
+      get: operation({
+        tags: ['Administration'],
+        operationId: 'listAllArcs',
+        summary: 'Elenca tutti gli archi in una chiamata',
+        requiredProfile: 'owner',
+        responses: {
+          200: jsonResponse('Archi trovati.', schemaRef('ListAllArcsOutput')),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/conflicts/{id}/resolution': {
       post: operation({
         tags: ['Administration'],
@@ -1080,6 +1095,7 @@ export const openApiDocument: Oas3_1Definition = {
       MemoryAdminView: schemaRefValue(memoryAdminViewSchema),
       SearchMemoriesOutput: schemaRefValue(searchMemoriesOutputSchema),
       ConflictView: schemaRefValue(conflictViewSchema),
+      ListAllArcsOutput: schemaRefValue(listAllArcsOutputSchema),
       ConflictListOutput: schemaRefValue(conflictListOutputSchema),
       CorrectMemoryRequest: schemaRefValue(inputSchemas.correction, 'input'),
       CorrectMemoryOutput: schemaRefValue(correctMemoryOutputSchema),

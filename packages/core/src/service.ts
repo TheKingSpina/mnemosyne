@@ -495,6 +495,16 @@ export class CoreMemoryService implements MemoryService {
     return this.repository.listProjectArcs(projectId);
   }
 
+  // The owner dashboard draws the whole graph at once, so it needs every arc
+  // in one call rather than one call per memory.
+  async listAllArcs(): Promise<{ memoryArcs: MemoryArc[]; projectArcs: ProjectArc[] }> {
+    const [memoryArcs, projectArcs] = await Promise.all([
+      this.repository.listAllMemoryArcs(),
+      this.repository.listAllProjectArcs(),
+    ]);
+    return { memoryArcs, projectArcs };
+  }
+
   async proposeMemory(
     input: ProposeMemoryInput,
     context: ProposalContext = { actor: 'harness', explicitDirective: false },

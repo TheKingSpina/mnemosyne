@@ -370,6 +370,17 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, await service.listConflicts());
     return;
   }
+  // Lists every arc at once. The owner dashboard draws the whole graph, and
+  // paging per memory would be one request per node. Under /v1/admin/ the
+  // permission is proposal.review with no extra branch needed.
+  if (request.method === 'GET' && url.pathname === '/v1/admin/arcs') {
+    const all = await service.listAllArcs();
+    sendJson(response, 200, {
+      memoryArcs: all.memoryArcs.map(toMemoryArcView),
+      projectArcs: all.projectArcs.map(toProjectArcView),
+    });
+    return;
+  }
   const adminConflictResolution = url.pathname.match(
     /^\/v1\/admin\/conflicts\/([^/]+)\/resolution$/u,
   );
