@@ -61,9 +61,37 @@ export class Neo4jProjection {
     const conflicts = await this.repository.listAllConflicts();
     const memoryArcs = await this.repository.listAllMemoryArcs();
     const projectArcs = await this.repository.listAllProjectArcs();
+    // Roots come from the governed tables, not from the memories pointing at
+    // them: a project with memories but no arcs still gets its node, and an
+    // area with no memories in it still exists as a subgraph root.
+    const projects = await this.repository.listProjects();
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+    const areaById = new Map<string, { name: string; projectId: string }>();
+    for (const project of projects) {
+      for (const area of await this.repository.listAreas(project.id)) {
+        areaById.set(area.id, { name: area.name, projectId: area.projectId });
+      }
+    }
     const session = this.driver.session(this.database ? { database: this.database } : {});
     try {
       await session.executeWrite((tx) => tx.run('MATCH (n) DETACH DELETE n'));
+      for (const project of projects) {
+        await session.executeWrite((tx) =>
+          tx.run('MERGE (p:Project {id: $id}) SET p.name = $name', {
+            id: project.id,
+            name: project.name,
+          }),
+        );
+      }
+      for (const [areaId, area] of areaById) {
+        await session.executeWrite((tx) =>
+          tx.run('MERGE (a:Area {id: $id}) SET a.name = $name, a.projectId = $projectId', {
+            id: areaId,
+            name: area.name,
+            projectId: area.projectId,
+          }),
+        );
+      }
       for (const memory of memories) {
         const current = memory.current;
         await session.executeWrite((tx) =>
@@ -75,8 +103,9 @@ export class Neo4jProjection {
                  m.scopeType = $scopeType,
                  m.scopeId = $scopeId,
                  m.lifecycle = $lifecycle
-             MERGE (s:Scope {type: $scopeType, id: $scopeId})
-             MERGE (m)-[:IN_SCOPE]->(s)`,
+             MERGE (p:Project {id: $projectId})
+             SET p.name = $projectName
+             MERGE (m)-[:IN_PROJECT]->(p)`,
             {
               id: current.memoryId,
               version: neo4j.int(current.version),
@@ -85,9 +114,33 @@ export class Neo4jProjection {
               scopeType: current.scope.type,
               scopeId: current.scope.id,
               lifecycle: memory.record.lifecycle,
+              projectId: memory.record.projectId,
+              projectName: projectNames.get(memory.record.projectId) ?? memory.record.projectId,
             },
           ),
         );
+        // Only area-scoped memories get the second edge. A project root with
+        // no areas in use still stands from the loop above; inventing an edge
+        // for a memory that has no area would put structure in the graph that
+        // the corpus does not have.
+        if (current.scope.type === 'area') {
+          const area = areaById.get(current.scope.id);
+          await session.executeWrite((tx) =>
+            tx.run(
+              `MERGE (a:Area {id: $id})
+               SET a.name = $name, a.projectId = $projectId
+               WITH a
+               MATCH (m:Memory {id: $memoryId})
+               MERGE (m)-[:IN_AREA]->(a)`,
+              {
+                id: current.scope.id,
+                name: area?.name ?? current.scope.id,
+                projectId: area?.projectId ?? memory.record.projectId,
+                memoryId: current.memoryId,
+              },
+            ),
+          );
+        }
       }
       for (const conflict of conflicts) {
         if (conflict.status !== 'open') continue;
@@ -263,6 +316,7 @@ export class Neo4jProjection {
       const memory = await this.repository.getMemory(event.aggregateId);
       if (!memory) return;
       const current = memory.current;
+      const project = await this.repository.findProjectById(memory.record.projectId);
       await session.executeWrite((tx) =>
         tx.run(
           `MERGE (m:Memory {id: $id})
@@ -272,8 +326,9 @@ export class Neo4jProjection {
                m.scopeType = $scopeType,
                m.scopeId = $scopeId,
                m.lifecycle = $lifecycle
-           MERGE (s:Scope {type: $scopeType, id: $scopeId})
-           MERGE (m)-[:IN_SCOPE]->(s)`,
+           MERGE (p:Project {id: $projectId})
+           SET p.name = $projectName
+           MERGE (m)-[:IN_PROJECT]->(p)`,
           {
             id: current.memoryId,
             version: neo4j.int(current.version),
@@ -282,9 +337,37 @@ export class Neo4jProjection {
             scopeType: current.scope.type,
             scopeId: current.scope.id,
             lifecycle: memory.record.lifecycle,
+            projectId: memory.record.projectId,
+            projectName: project?.name ?? memory.record.projectId,
           },
         ),
       );
+      // A re-scoped memory keeps its old IN_AREA edge unless it is removed:
+      // the project edge cannot go stale because project membership never
+      // changes, but the area edge must follow the current scope.
+      await session.executeWrite((tx) =>
+        tx.run('MATCH (m:Memory {id: $id})-[r:IN_AREA]->() DELETE r', {
+          id: current.memoryId,
+        }),
+      );
+      if (current.scope.type === 'area') {
+        const area = await this.repository.findAreaById(current.scope.id);
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MERGE (a:Area {id: $id})
+             SET a.name = $name, a.projectId = $projectId
+             WITH a
+             MATCH (m:Memory {id: $memoryId})
+             MERGE (m)-[:IN_AREA]->(a)`,
+            {
+              id: current.scope.id,
+              name: area?.name ?? current.scope.id,
+              projectId: area?.projectId ?? memory.record.projectId,
+              memoryId: current.memoryId,
+            },
+          ),
+        );
+      }
     } finally {
       await session.close();
     }

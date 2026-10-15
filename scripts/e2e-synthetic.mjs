@@ -159,6 +159,32 @@ async function runLifecycle() {
   await waitForJob(secondEvent.jobIds[0]);
   const secondPending = await waitForPending(session.sessionId, 'il progetto non usa npm');
   const second = await review(secondPending, 'e2e-review-second');
+  const thirdEvent = await api(`/v1/sessions/${encodeURIComponent(session.sessionId)}/events`, {
+    token: harnessToken,
+    method: 'POST',
+    key: 'e2e-third-event',
+    body: {
+      events: [
+        {
+          eventId: 'e2e-event-3',
+          type: 'message',
+          role: 'user',
+          content: "Ricorda che nell'area e2e-area il deploy usa docker",
+          occurredAt: '2026-01-20T10:02:00.000Z',
+          explicitMemoryRequest: true,
+        },
+      ],
+    },
+    status: 202,
+  });
+  await waitForJob(thirdEvent.jobIds[0]);
+  const thirdPending = await waitForPending(
+    session.sessionId,
+    "nell'area e2e-area il deploy usa docker",
+  );
+  const third = await review(thirdPending, 'e2e-review-third');
+  assert(third.memory.scope.type === 'area');
+  assert(third.memory.scope.id === 'e2e-area');
 
   const context = await api('/v1/context/resolve', {
     token: harnessToken,
@@ -198,10 +224,20 @@ async function runLifecycle() {
     body: {},
   });
   assert(retention.profile === 'balanced');
-  await waitForGraphCount(2);
+  await waitForGraphCount(3);
+  // Projects and areas are graph roots, not labels: the worker projects them
+  // as nodes, and every memory links to its project while area-scoped ones
+  // additionally link to their area.
+  await waitForGraphQuery(`MATCH (p:Project {id: 'e2e-synthetic'}) RETURN count(p);`, 1);
+  await waitForGraphQuery(`MATCH (a:Area {id: 'e2e-area'}) RETURN count(a);`, 1);
+  await waitForGraphQuery(
+    `MATCH ()-[r:IN_PROJECT]->(:Project {id: 'e2e-synthetic'}) RETURN count(r);`,
+    3,
+  );
+  await waitForGraphQuery(`MATCH ()-[r:IN_AREA]->(:Area {id: 'e2e-area'}) RETURN count(r);`, 1);
   const exported = await api('/v1/admin/exports/corpus', { token: ownerToken });
   assert(exported.forgetLedger.length === 0);
-  assert(exported.memories.length === 2);
+  assert(exported.memories.length === 3);
   assert(exported.conflicts.length === 1);
 
   await searchToCreateCache(session.sessionId, second.memory.memoryId);
@@ -678,6 +714,15 @@ async function waitForGraphCount(expected) {
     await sleep(250);
   }
   throw new Error(`neo4j_projection_timeout:${expected}`);
+}
+
+async function waitForGraphQuery(query, expected) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (tryGraphCount(query) === expected) return;
+    await sleep(250);
+  }
+  throw new Error(`neo4j_projection_timeout:${expected}:${query}`);
 }
 
 async function waitForGraphAbsent(memoryId) {
