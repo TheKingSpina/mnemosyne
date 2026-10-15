@@ -11,6 +11,7 @@ import { randomUUID, randomUUID as createRandomId } from 'node:crypto';
 import type {
   ConflictRecord,
   CorpusRevision,
+  CreateMemoryInput,
   ProjectRecord,
   AreaRecord,
   CreateProjectInput,
@@ -90,7 +91,11 @@ export class InMemoryRepository implements MemoryRepository {
     // sessions.project_id is a foreign key, and a restored corpus carries the
     // session project ids but not the projects themselves. Provision them before
     // the sessions, the same way the PostgreSQL repository does.
-    for (const projectId of new Set(input.sessions.map((session) => session.projectId))) {
+    const projectIds = new Set<string>([
+      ...input.sessions.map((session) => session.projectId),
+      ...restoredMemories.map((memory) => memory.record.projectId),
+    ]);
+    for (const projectId of projectIds) {
       if (!this.projects.has(projectId)) await this.ensureProject(projectId);
     }
     for (const session of input.sessions) {
@@ -279,11 +284,12 @@ export class InMemoryRepository implements MemoryRepository {
       .sort((left, right) => left.sequence - right.sequence);
   }
 
-  async createMemory(input: ProposeMemoryInput): Promise<MemoryRecord> {
+  async createMemory(input: CreateMemoryInput): Promise<MemoryRecord> {
     const id = `mem_${randomUUID()}`;
     const now = this.now().toISOString();
     const record: MemoryRecord = {
       id,
+      projectId: input.projectId,
       currentVersion: 1,
       lifecycle: 'pending_approval',
       createdAt: now,

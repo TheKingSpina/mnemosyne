@@ -922,6 +922,7 @@ describe('CoreMemoryService', () => {
         {
           record: {
             id: forgotten.memoryId!,
+            projectId: 'memory-service',
             currentVersion: 1,
             lifecycle: 'accepted' as const,
             createdAt: '2026-01-20T10:00:00.000Z',
@@ -1014,6 +1015,7 @@ describe('CoreMemoryService', () => {
       ],
     });
     const first = await repository.createMemory({
+      projectId: 'memory-service',
       sessionId: session.sessionId,
       content: 'Il progetto usa pnpm',
       kind: 'convention',
@@ -1026,6 +1028,7 @@ describe('CoreMemoryService', () => {
       sourceEventIds: ['consolidation-event-1'],
     });
     const duplicate = await repository.createMemory({
+      projectId: 'memory-service',
       sessionId: session.sessionId,
       content: 'il progetto usa PNPM',
       kind: 'convention',
@@ -1056,6 +1059,7 @@ describe('CoreMemoryService', () => {
   it('does not reject a candidate accepted during consolidation', async () => {
     const repository = new InMemoryRepository();
     const canonical = await repository.createMemory({
+      projectId: 'memory-service',
       sessionId: 'synthetic-session',
       content: 'Il progetto usa pnpm',
       kind: 'convention',
@@ -1068,6 +1072,7 @@ describe('CoreMemoryService', () => {
       sourceEventIds: ['canonical-event'],
     });
     const duplicate = await repository.createMemory({
+      projectId: 'memory-service',
       sessionId: 'synthetic-session',
       content: 'il progetto usa PNPM',
       kind: 'convention',

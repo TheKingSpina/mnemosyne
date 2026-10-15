@@ -64,6 +64,7 @@ export const WORKER_CAPABILITY_COMPONENT = 'worker';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
 import { DomainError } from './errors.js';
+import { RESERVED_PERSONAL_PROJECT_ID } from './types.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import {
@@ -397,6 +398,12 @@ export class CoreMemoryService implements MemoryService {
     const session = await this.repository.findSession(validated.sessionId);
     if (!session || session.status !== 'open') throw new Error('session_not_open');
     if (!this.belongsToSession(validated.scope, session)) throw new Error('scope_not_available');
+    // The root project follows from the scope: every scope `belongsToSession`
+    // accepts sits inside the session's own project, except `global`, which is
+    // the reserved personal project. Deriving it here rather than accepting it
+    // from the caller means a proposal cannot name a project its scope is not in.
+    const projectId =
+      validated.scope.type === 'global' ? RESERVED_PERSONAL_PROJECT_ID : session.projectId;
     const decision = decideProposal(validated, context.actor, context.explicitDirective);
     if (decision.status === 'rejected') return decision;
     const duplicate = (await this.repository.listMemoryViews()).find(
@@ -437,7 +444,7 @@ export class CoreMemoryService implements MemoryService {
         areDirectlyContradictory(memory.current, validated),
     );
     if (contradiction) {
-      const record = await this.repository.createMemory(validated);
+      const record = await this.repository.createMemory({ ...validated, projectId });
       await this.indexMemory(record.id, record.currentVersion, validated.content);
       await this.repository.updateMemoryLifecycle(record.id, 'pending_approval');
       const conflict = await this.repository.createConflict([contradiction.record.id, record.id]);
@@ -449,7 +456,7 @@ export class CoreMemoryService implements MemoryService {
         reason: 'direct_contradiction',
       };
     }
-    const record = await this.repository.createMemory(validated);
+    const record = await this.repository.createMemory({ ...validated, projectId });
     await this.indexMemory(record.id, record.currentVersion, validated.content);
     await this.repository.updateMemoryLifecycle(
       record.id,

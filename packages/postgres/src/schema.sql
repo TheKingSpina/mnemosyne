@@ -96,6 +96,43 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Project membership is identity, not content: a memory never changes project.
+-- RESTRICT rather than CASCADE, because a cascade would remove memories without
+-- writing a forget-ledger row and the ledger is the record that they existed.
+ALTER TABLE memories
+  ADD COLUMN IF NOT EXISTS project_id text REFERENCES projects(id) ON DELETE RESTRICT;
+
+-- The old scope_id was free text with nothing to map it against, so an existing
+-- corpus cannot be migrated mechanically. Fail loudly with a usable message
+-- rather than with a bare NOT NULL violation.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM memories WHERE project_id IS NULL) THEN
+    RAISE EXCEPTION
+      'memories_require_project: existing memories have no project and cannot be migrated; reset the corpus first';
+  END IF;
+END $$;
+
+ALTER TABLE memories ALTER COLUMN project_id SET NOT NULL;
+
+-- Enforced by a trigger rather than by the absence of an update path, so a future
+-- code path cannot quietly break the invariant. 23514 so the API reports it as a
+-- conflict.
+CREATE OR REPLACE FUNCTION memoria_progetto_immutabile() RETURNS trigger AS $$
+BEGIN
+  IF NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+    RAISE EXCEPTION 'memory_project_immutable: % cannot move from % to %',
+      OLD.id, OLD.project_id, NEW.project_id USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_memoria_progetto_immutabile
+  BEFORE UPDATE OF project_id ON memories
+  FOR EACH ROW EXECUTE FUNCTION memoria_progetto_immutabile();
+
+
 CREATE TABLE IF NOT EXISTS memory_revisions (
   memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
   version integer NOT NULL,

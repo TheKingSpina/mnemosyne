@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Scope } from '@mnemosyne/contracts';
 import { CoreMemoryService, InMemoryRepository } from './index.js';
 import { RESERVED_PERSONAL_PROJECT_ID } from './types.js';
 
@@ -129,6 +130,92 @@ describe('openSession and declared areas', () => {
     const opened = await createService(repository).openSession({ projectId: 'p1' });
 
     expect(opened.areaIds).toEqual([]);
+  });
+});
+
+describe('a memory belongs to a project', () => {
+  const createService = (repository: InMemoryRepository) =>
+    new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+
+  // Narrows the proposal union here so each test reads as an assertion about the
+  // project rather than about the result shape.
+  const propose = async (
+    service: CoreMemoryService,
+    sessionId: string,
+    scope: Scope,
+    content: string,
+  ): Promise<string> => {
+    const result = await service.proposeMemory(
+      {
+        sessionId,
+        content,
+        kind: 'fact',
+        scope,
+        epistemicBasis: 'verified',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    if (result.status !== 'accepted' || !result.memoryId) {
+      throw new Error(`proposal_not_accepted:${result.status}`);
+    }
+    return result.memoryId;
+  };
+
+  it('takes the project of the session it was proposed in', async () => {
+    const repository = new InMemoryRepository();
+    const service = createService(repository);
+    const session = await service.openSession({ projectId: 'mnemosyne' });
+
+    const memoryId = await propose(
+      service,
+      session.sessionId,
+      { type: 'project', id: 'mnemosyne' },
+      'memoria di progetto',
+    );
+
+    const record = await repository.getMemory(memoryId);
+    expect(record?.record.projectId).toBe('mnemosyne');
+  });
+
+  it('takes the project of an area-scoped memory, not the area id', async () => {
+    const repository = new InMemoryRepository();
+    const service = createService(repository);
+    await repository.createProject({ id: 'mnemosyne', name: 'Mnemosyne' });
+    await repository.createArea({ id: 'area-1', projectId: 'mnemosyne', name: 'progettazione' });
+    const session = await service.openSession({ projectId: 'mnemosyne', areaIds: ['area-1'] });
+
+    const memoryId = await propose(
+      service,
+      session.sessionId,
+      { type: 'area', id: 'area-1' },
+      'memoria di area',
+    );
+
+    const record = await repository.getMemory(memoryId);
+    expect(record?.record.projectId).toBe('mnemosyne');
+  });
+
+  it('puts a global memory in the reserved personal project', async () => {
+    const repository = new InMemoryRepository();
+    const service = createService(repository);
+    const session = await service.openSession({ projectId: 'mnemosyne' });
+
+    const memoryId = await propose(
+      service,
+      session.sessionId,
+      { type: 'global', id: 'personal' },
+      'memoria personale',
+    );
+
+    const record = await repository.getMemory(memoryId);
+    expect(record?.record.projectId).toBe(RESERVED_PERSONAL_PROJECT_ID);
   });
 });
 

@@ -455,6 +455,7 @@ export const corpusExportSchema = z.object({
     z.object({
       record: z.object({
         id: z.string().min(1),
+        projectId: z.string().min(1),
         currentVersion: z.number().int().positive(),
         lifecycle: memoryLifecycleSchema,
         createdAt: z.string().datetime({ offset: true }),

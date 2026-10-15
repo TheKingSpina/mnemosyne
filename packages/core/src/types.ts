@@ -112,11 +112,18 @@ export interface EventRecord {
 
 export interface MemoryRecord {
   id: string;
+  // Identity, not content: a memory never changes project. The database enforces
+  // it with a trigger, so this is read-only after creation.
+  projectId: string;
   currentVersion: number;
   lifecycle: MemoryLifecycle;
   createdAt: string;
   updatedAt: string;
 }
+
+// A proposal resolves to exactly one root project. `proposeMemory` derives it from
+// the session, so callers cannot name a project the scope does not sit in.
+export type CreateMemoryInput = ProposeMemoryInput & { projectId: string };
 
 export interface MemoryWithCurrent {
   record: MemoryRecord;
@@ -232,7 +239,7 @@ export interface MemoryRepository {
     duplicates: EventRecord[];
   }>;
   findEvents(sessionId: string): Promise<EventRecord[]>;
-  createMemory(input: ProposeMemoryInput): Promise<MemoryRecord>;
+  createMemory(input: CreateMemoryInput): Promise<MemoryRecord>;
   getMemory(id: string): Promise<MemoryWithCurrent | null>;
   mergeMemorySources(
     id: string,

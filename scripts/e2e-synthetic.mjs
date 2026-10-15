@@ -101,6 +101,15 @@ try {
 }
 
 async function runLifecycle() {
+  // Areas are declared entities, so a session may only reference one that
+  // exists. Declared over psql because there is no area endpoint yet; opening
+  // the session provisions the project, but the area has to predate it.
+  psql(
+    "INSERT INTO projects (id, name) VALUES ('e2e-synthetic', 'E2E Synthetic') ON CONFLICT (id) DO NOTHING;",
+  );
+  psql(
+    "INSERT INTO areas (id, project_id, name) VALUES ('e2e-area', 'e2e-synthetic', 'E2E Area') ON CONFLICT (id) DO NOTHING;",
+  );
   const session = await api('/v1/sessions', {
     token: harnessToken,
     method: 'POST',
@@ -198,6 +207,7 @@ async function runLifecycle() {
   await searchToCreateCache(session.sessionId, second.memory.memoryId);
   await verifyRuntimeCapabilities();
   await verifyProjectConstraints();
+  await verifyMemoryProjectIdentity();
   const prepared = await api(
     `/v1/memories/${encodeURIComponent(second.memory.memoryId)}/forget/prepare`,
     {
@@ -450,6 +460,30 @@ async function verifyProjectConstraints() {
   // Leave nothing behind that a later assertion could trip over.
   psql("DELETE FROM sessions WHERE id = 'e2e_s1';");
   psql("DELETE FROM projects WHERE id IN ('e2e_alpha', 'e2e_beta');");
+}
+
+async function verifyMemoryProjectIdentity() {
+  // Self-contained on purpose: verifyProjectConstraints removes its own projects,
+  // so reusing them here would depend on the order of two unrelated checks.
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_gamma', 'E2E Gamma');");
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_delta', 'E2E Delta');");
+  psql(
+    "INSERT INTO memories (id, lifecycle, project_id) VALUES ('e2e_m1', 'accepted', 'e2e_gamma');",
+  );
+  // Project membership is identity: the trigger refuses a move, so a future code
+  // path cannot quietly break the invariant just because nothing updates it today.
+  assert(
+    psqlRejects("UPDATE memories SET project_id = 'e2e_delta' WHERE id = 'e2e_m1';"),
+    'memory_project_should_be_immutable',
+  );
+  assert(
+    psqlRejects("DELETE FROM projects WHERE id = 'e2e_gamma';"),
+    'project_holding_memories_should_not_be_deletable',
+  );
+  // An update that leaves the project alone is still allowed.
+  psql("UPDATE memories SET lifecycle = 'pending_approval' WHERE id = 'e2e_m1';");
+  psql("DELETE FROM memories WHERE id = 'e2e_m1';");
+  psql("DELETE FROM projects WHERE id IN ('e2e_gamma', 'e2e_delta');");
 }
 
 async function searchToCreateCache(sessionId, memoryId) {

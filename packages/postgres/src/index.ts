@@ -29,6 +29,7 @@ import type {
   MemoryFeedbackOutput,
   SessionRecord,
   RuntimeCapabilityReport,
+  CreateMemoryInput,
   ProjectRecord,
   AreaRecord,
   CreateProjectInput,
@@ -107,6 +108,7 @@ interface EventRow extends QueryResultRow {
 }
 interface MemoryRow extends QueryResultRow {
   id: string;
+  project_id: string;
   current_version: number;
   lifecycle: MemoryLifecycle;
   created_at: Date;
@@ -240,7 +242,11 @@ export class PostgresMemoryRepository implements MemoryRepository {
       // exist before the rows go in. Provisioned with the id as the name, the
       // same way openSession does. Projects and areas are not part of the export
       // yet, the same gap that already exists for embeddings.
-      for (const projectId of new Set(input.sessions.map((session) => session.projectId))) {
+      const projectIds = new Set<string>([
+        ...input.sessions.map((session) => session.projectId),
+        ...restoredMemories.map((memory) => memory.record.projectId),
+      ]);
+      for (const projectId of projectIds) {
         await client.query(
           `INSERT INTO projects (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING`,
           [projectId],
@@ -280,14 +286,15 @@ export class PostgresMemoryRepository implements MemoryRepository {
       }
       for (const memory of restoredMemories) {
         await client.query(
-          `INSERT INTO memories (id, current_version, lifecycle, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO memories (id, current_version, lifecycle, created_at, updated_at, project_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [
             memory.record.id,
             memory.record.currentVersion,
             memory.record.lifecycle,
             memory.record.createdAt,
             memory.record.updatedAt,
+            memory.record.projectId,
           ],
         );
       }
@@ -550,13 +557,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows.map((row) => this.eventFromRow(row));
   }
 
-  async createMemory(input: ProposeMemoryInput): Promise<MemoryRecord> {
+  async createMemory(input: CreateMemoryInput): Promise<MemoryRecord> {
     const client = await this.client();
     try {
       await client.query('BEGIN');
       const result = await client.query<MemoryRow>(
-        "INSERT INTO memories (id, lifecycle) VALUES ($1, 'pending_approval') RETURNING *",
-        [`mem_${randomUUID()}`],
+        "INSERT INTO memories (id, lifecycle, project_id) VALUES ($1, 'pending_approval', $2) RETURNING *",
+        [`mem_${randomUUID()}`, input.projectId],
       );
       const record = result.rows[0];
       await this.insertRevision(client, record.id, this.revisionFromInput(record.id, input));
@@ -1566,6 +1573,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
   private memoryFromRow(row: MemoryRow): MemoryRecord {
     return {
       id: row.id,
+      projectId: row.project_id,
       currentVersion: row.current_version,
       lifecycle: row.lifecycle,
       createdAt: row.created_at.toISOString(),
