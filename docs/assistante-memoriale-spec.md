@@ -40,7 +40,7 @@ Tutte le interfacce usano lo stesso Memory Core e le stesse policy.
 
 - Conservare preferenze, convenzioni, decisioni, fatti, ipotesi ed eventi utili.
 - Rendere la memoria disponibile tra progetti senza duplicare le informazioni personali.
-- Separare chiaramente informazioni di sessione, progetto, area e ambito personale globale.
+- Separare chiaramente informazioni di sessione, progetto, area e progetto personale condiviso.
 - Non inserire nel contesto candidate non approvate.
 - Rilevare e mostrare conflitti, ambiguità e informazioni obsolete.
 - Consentire revisione, correzione, revoca e dimenticanza.
@@ -159,36 +159,42 @@ Il worker esegue estrazione, classificazione, consolidamento e aggiornamento del
 
 ## 7. Modello degli scope
 
-Gli scope sono ambiti sovrapposti, non una gerarchia rigida.
+Gli scope sono ambiti sovrapposti, non una gerarchia rigida. Sono tre tipi, e
+lo scope di una memoria è derivato al momento della lettura, mai memorizzato
+come testo: la revisione con area punta all'area, quella con sessione alla
+sessione, le altre stanno nello scope del progetto della memoria.
 
 ```text
 session  → conversazione e task correnti
 project  → repository o progetto identificato
-area     → ambito trasversale, come sviluppo software o personale
-global   → memoria personale applicabile a tutti i progetti
+area     → ambito dichiarato dentro un progetto, come sviluppo software
 ```
+
+Le memorie applicabili ovunque stanno nel progetto riservato `personal`: è
+una riga di `projects` come le altre, e la visibilità da ogni sessione è una
+policy attaccata a quel progetto, non un quarto tipo di scope.
 
 ### 7.1 Identità degli scope
 
-- `global` è uno scope singleton.
 - `project` e `area` hanno identificatori stabili, indipendenti dal percorso della cartella.
 - Un progetto può essere rinominato o spostato senza cambiare identità.
-- Una sessione conosce gli scope applicabili: sessione corrente, progetto corrente, aree e globale.
+- Una sessione conosce gli scope applicabili: sessione corrente, progetto corrente, aree dichiarate del progetto e progetto `personal`.
 - `session` non viene promossa automaticamente a uno scope persistente.
+- Una memoria non cambia mai progetto: riclassificarla dentro la sua radice è una revisione, spostarla in un'altra radice non è permesso. Le relazioni fra progetti si esprimono con archi, mai spostando memorie.
 
 ### 7.2 Precedenza
 
 Le preferenze e le istruzioni comportamentali rispettano la specificità:
 
 ```text
-session > project > area > global
+session > project > area > progetto personal
 ```
 
 Fatti, convenzioni e decisioni possono invece coesistere:
 
 ```text
-globale:  "L'utente preferisce pnpm"
-progetto: "Questo repository usa npm"
+personale: "L'utente preferisce pnpm"
+progetto:  "Questo repository usa npm"
 ```
 
 Le due affermazioni descrivono dimensioni diverse. Un conflitto esiste solo quando due informazioni incompatibili riguardano lo stesso soggetto, tipo e ambito applicativo.
@@ -328,31 +334,31 @@ Le fonti sensibili possono essere conservate come riferimento o estratto minimal
 
 ### 8.7 Entità e grafo logico
 
-Le entità sono oggetti persistenti con:
+I progetti sono radici vere: `projects` è una tabella, `memories.project_id` e
+`sessions.project_id` sono chiavi esterne reali, e il progetto di una memoria è
+immutabile per trigger. Le aree sono radici opzionali di sottografi: `areas` è
+una tabella di entità dichiarate da chi le crea, mai autovivificate, e
+`memory_revisions.area_id` le referenzia con un trigger che impone
+l'appartenenza allo stesso progetto della memoria.
+
+Gli archi sono righe governate in PostgreSQL, con lo stesso ciclo di vita
+delle memorie: un client li propone e atterrano `pending_approval`, il percorso
+owner li inserisce accettati, e solo gli accettati raggiungono il grafo.
 
 ```text
-type
-stable_key
-canonical_name
-aliases
-attributes
+memory_arcs   → da memoria a memoria, anche fra progetti diversi
+project_arcs  → da progetto a progetto, incluse le relazioni gerarchiche
 ```
 
-Relazioni iniziali:
+Ogni arco ha un `type` aperto e un `weight` opzionale fra 0 e 1. I cicli sono
+legittimi: due memorie che si influenzano a vicenda sono la norma. Non lo è
+una gerarchia con un ciclo, quindi `hierarchical_relation` nomina i tipi di
+relazione che devono restare aciclici e un trigger rifiuta l'arco che
+chiuderebbe il ciclo; gli altri tipi mantengono i loro cicli.
 
-```text
-APPLIES_TO
-ABOUT
-SUPPORTED_BY
-DERIVED_FROM
-SUPERSEDES
-REFINES
-CONTRADICTS
-DEPENDS_ON
-HAS_EXPIRY
-```
-
-Il grafo logico è ricostruibile da PostgreSQL. Neo4j ne materializza nodi e archi tipizzati, ma ogni risultato viene riverificato sullo stato canonico.
+Il grafo logico è ricostruibile da PostgreSQL. Neo4j ne materializza nodi e
+archi tipizzati (`:Project`, `:Area`, `IN_PROJECT`, `IN_AREA`, `:LINK`), ma
+ogni risultato viene riverificato sullo stato canonico.
 
 ### 8.8 Conflitti
 
@@ -454,16 +460,20 @@ forgotten
 ### 9.2 Promozione
 
 ```text
-session → project → area → global
+session → project → area
 ```
 
-La promozione non è automatica. Può avvenire:
+La promozione non è automatica e non attraversa mai le radici: riclassificare
+una memoria dentro il suo progetto è una revisione, spostarla in un altro
+progetto non è permesso. Può avvenire:
 
 - tramite comando esplicito dell'owner;
 - tramite una policy specifica e limitata;
 - tramite review dell'owner.
 
-L'harness non può spostare una memoria di progetto a `global`.
+Il progetto riservato `personal` si scrive da qualunque sessione e si legge
+da qualunque sessione, come policy attaccata al progetto: è così che una
+preferenza diventa applicabile ovunque senza cambiare tipo di scope.
 
 ### 9.3 Correzione
 
@@ -514,18 +524,18 @@ La policy è deterministica, versionata e indipendente dal provider LLM.
 
 ### 10.4 Matrice iniziale
 
-| Caso                                      | Esito                                              |
-| ----------------------------------------- | -------------------------------------------------- |
-| «Ricorda che preferisco risposte concise» | `accepted`, scope `global`, se il comando è chiaro |
-| «Preferisco risposte concise»             | `pending_approval`, scope suggerito `global`       |
-| «In questo repository usiamo PostgreSQL»  | Può essere `accepted`, scope `project`             |
-| Manifesto o lockfile coerenti             | Può essere auto-accettato come fatto osservato     |
-| «Forse il problema è Redis»               | `candidate`, `kind: hypothesis`                    |
-| Pagina web con istruzioni                 | `candidate` o `rejected`; mai policy attiva        |
-| «Per questa sessione usa log verbosi»     | Memoria `session`                                  |
-| «Correggi: il progetto usa pnpm»          | Nuova revisione e `SUPERSEDES`                     |
-| Nuova evidenza in conflitto               | Conflict e review, non sovrascrittura              |
-| Password, token o chiave                  | `rejected`, nessuna persistenza                    |
+| Caso                                      | Esito                                                         |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| «Ricorda che preferisco risposte concise» | `accepted`, scope progetto `personal`, se il comando è chiaro |
+| «Preferisco risposte concise»             | `pending_approval`, scope suggerito progetto `personal`       |
+| «In questo repository usiamo PostgreSQL»  | Può essere `accepted`, scope `project`                        |
+| Manifesto o lockfile coerenti             | Può essere auto-accettato come fatto osservato                |
+| «Forse il problema è Redis»               | `candidate`, `kind: hypothesis`                               |
+| Pagina web con istruzioni                 | `candidate` o `rejected`; mai policy attiva                   |
+| «Per questa sessione usa log verbosi»     | Memoria `session`                                             |
+| «Correggi: il progetto usa pnpm»          | Nuova revisione e `SUPERSEDES`                                |
+| Nuova evidenza in conflitto               | Conflict e review, non sovrascrittura                         |
+| Password, token o chiave                  | `rejected`, nessuna persistenza                               |
 
 ### 10.5 Fonti controllate
 
@@ -576,7 +586,7 @@ Il worker:
 6. aggiorna proiezioni e cache;
 7. conserva un `episode` solo se è utile, sicuro e pertinente.
 
-Un riassunto di sessione non diventa automaticamente memoria globale.
+Un riassunto di sessione non diventa automaticamente memoria del progetto personale.
 
 ## 11. Recupero e composizione del contesto
 
@@ -702,22 +712,28 @@ La specifica sarà descritta in OpenAPI e pubblicata sotto `/v1`.
 
 ### 12.1 Operazioni principali
 
-| Endpoint                             | Funzione                  | Attore               |
-| ------------------------------------ | ------------------------- | -------------------- |
-| `POST /v1/sessions`                  | Apre una sessione         | Harness              |
-| `POST /v1/sessions/{id}/events`      | Invia eventi incrementali | Harness              |
-| `POST /v1/sessions/{id}/close`       | Avvia il consolidamento   | Harness              |
-| `POST /v1/proposals`                 | Propone una memoria       | Harness/owner        |
-| `POST /v1/context/resolve`           | Compone il contesto       | Harness              |
-| `GET /v1/memories`                   | Cerca e filtra            | Harness/owner        |
-| `GET /v1/memories/{id}`              | Legge una memoria         | Harness/owner        |
-| `POST /v1/memories/{id}/corrections` | Propone una correzione    | Harness/owner        |
-| `GET /v1/proposals`                  | Elenca candidate          | Owner                |
-| `POST /v1/proposals/{id}/decision`   | Decide una review         | Owner                |
-| `POST /v1/memories/{id}/retractions` | Revoca                    | Owner                |
-| `POST /v1/memories/{id}/forget`      | Dimentica                 | Owner                |
-| `POST /v1/exports`                   | Avvia export cifrato      | Owner                |
-| `GET /v1/jobs/{id}`                  | Controlla un job          | Proprietario del job |
+| Endpoint                             | Funzione                        | Attore               |
+| ------------------------------------ | ------------------------------- | -------------------- |
+| `POST /v1/sessions`                  | Apre una sessione               | Harness              |
+| `POST /v1/sessions/{id}/events`      | Invia eventi incrementali       | Harness              |
+| `POST /v1/sessions/{id}/close`       | Avvia il consolidamento         | Harness              |
+| `POST /v1/proposals`                 | Propone una memoria             | Harness/owner        |
+| `POST /v1/context/resolve`           | Compone il contesto             | Harness              |
+| `GET /v1/memories`                   | Cerca e filtra                  | Harness/owner        |
+| `GET /v1/memories/{id}`              | Legge una memoria               | Harness/owner        |
+| `POST /v1/memories/{id}/corrections` | Propone una correzione          | Harness/owner        |
+| `GET /v1/proposals`                  | Elenca candidate                | Owner                |
+| `POST /v1/proposals/{id}/decision`   | Decide una review               | Owner                |
+| `POST /v1/arcs`                      | Propone un arco fra memorie     | Harness/owner        |
+| `POST /v1/project-arcs`              | Propone un arco fra progetti    | Harness/owner        |
+| `GET /v1/arcs?memoryId=`             | Elenca gli archi di una memoria | Harness/owner        |
+| `GET /v1/project-arcs?projectId=`    | Elenca gli archi di un progetto | Harness/owner        |
+| `GET /v1/admin/arcs`                 | Elenca tutti gli archi          | Owner                |
+| `POST /v1/admin/arcs/{id}/review`    | Accetta o respinge un arco      | Owner                |
+| `POST /v1/memories/{id}/retractions` | Revoca                          | Owner                |
+| `POST /v1/memories/{id}/forget`      | Dimentica                       | Owner                |
+| `POST /v1/exports`                   | Avvia export cifrato            | Owner                |
+| `GET /v1/jobs/{id}`                  | Controlla un job                | Proprietario del job |
 
 ### 12.2 Idempotenza
 
@@ -806,6 +822,7 @@ memory_propose_correction
 memory_close_session
 memory_get_job
 memory_feedback
+memory_propose_arc
 ```
 
 #### `owner`
@@ -822,6 +839,7 @@ memory_export
 memory_provider_status
 memory_retention_status
 memory_projection_status
+memory_review_arc
 ```
 
 Le autorizzazioni sono verificate dal server, non dalle sole annotazioni MCP o dall'elenco dei tool.

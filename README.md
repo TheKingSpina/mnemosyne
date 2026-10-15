@@ -10,7 +10,8 @@ The first vertical slice provides:
 
 - governed memory proposals and approval;
 - versioned memory revisions;
-- `session`, `project`, `area`, and `global` scopes;
+- `session`, `project`, and `area` scopes over real project and area entities, with a reserved `personal` project visible from every session;
+- projects as graph roots and areas as optional declared subgraph roots, with weighted governed arcs between memories and between projects;
 - approved-context retrieval with a token budget;
 - idempotent session events;
 - correction, retraction, and confirmed forget operations;
@@ -18,14 +19,14 @@ The first vertical slice provides:
 - a REST API;
 - persistent PostgreSQL-backed replay for REST writes with `Idempotency-Key`;
 - an MCP server over `stdio` and Streamable HTTP with bearer authentication, per-client revocable tokens, or an anonymous harness profile behind a private perimeter;
-- a local owner web console for overview, search, review, history, conflicts, and context preview;
+- a local owner web console for overview, search, review, history, conflicts, context preview, and a graph view that draws memory arcs with their weights;
 - a recoverable extraction worker with leases, retries, and quarantine;
 - an owner-only canonical corpus export with no-store download semantics;
 - a balanced retention policy with persistent last-run status, owner trigger, and worker schedule;
 - a guarded empty-database restore path that re-applies the forget ledger;
 - a conservative session-consolidation job that merges duplicate pending sources without auto-accepting them, plus scheduled balanced retention in the worker;
 - a derived Redis cache with revision validation and lexical/semantic fallback;
-- a rebuildable Neo4j projection driven by the PostgreSQL outbox;
+- a rebuildable Neo4j projection driven by the PostgreSQL outbox, with project and area roots, `IN_PROJECT`/`IN_AREA` membership, and accepted arcs as `LINK` edges;
 - Docker Compose development deployment;
 - OpenAPI 3.1 contract generated from the shared Zod contracts and served at `/v1/openapi.json`;
 - verified PostgreSQL backup and restore tooling with optional authenticated encryption, manifests, checksums, and retention;
