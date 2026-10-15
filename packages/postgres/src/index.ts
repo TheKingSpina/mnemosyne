@@ -301,8 +301,9 @@ export class PostgresMemoryRepository implements MemoryRepository {
       // sessions.project_id is a foreign key, and a restored corpus carries the
       // session project ids but not the projects themselves, so they have to
       // exist before the rows go in. Provisioned with the id as the name, the
-      // same way openSession does. Projects and areas are not part of the export
-      // yet, the same gap that already exists for embeddings.
+      // same way openSession does. Areas travel in the export with full rows,
+      // because a revision scoped to a missing area fails the trigger that
+      // keeps areas inside their project.
       const projectIds = new Set<string>([
         ...input.sessions.map((session) => session.projectId),
         ...restoredMemories.map((memory) => memory.record.projectId),
@@ -311,6 +312,14 @@ export class PostgresMemoryRepository implements MemoryRepository {
         await client.query(
           `INSERT INTO projects (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING`,
           [projectId],
+        );
+      }
+      for (const area of input.areas) {
+        await client.query(
+          `INSERT INTO areas (id, project_id, name, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (id) DO NOTHING`,
+          [area.id, area.projectId, area.name, area.createdAt, area.updatedAt],
         );
       }
       for (const session of input.sessions) {

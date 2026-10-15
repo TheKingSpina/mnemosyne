@@ -445,6 +445,7 @@ export interface OutboxClaim {
 export interface CorpusRestore {
   sourceCorpusRevision: string;
   sessions: CorpusExport['sessions'];
+  areas: CorpusExport['areas'];
   events: CorpusExport['events'];
   memories: CorpusExport['memories'];
   revisions: CorpusExport['revisions'];

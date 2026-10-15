@@ -104,6 +104,9 @@ export class InMemoryRepository implements MemoryRepository {
     for (const projectId of projectIds) {
       if (!this.projects.has(projectId)) await this.ensureProject(projectId);
     }
+    for (const area of input.areas) {
+      this.areas.set(area.id, area);
+    }
     for (const session of input.sessions) {
       this.sessions.set(session.id, session);
     }

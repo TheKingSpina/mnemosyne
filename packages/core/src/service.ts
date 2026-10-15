@@ -251,6 +251,13 @@ export class CoreMemoryService implements MemoryService {
     const memories = await this.repository.listMemoryViews();
     const revisions = await this.repository.listAllMemoryRevisions();
     const forgetLedger = await this.repository.listForgetLedger();
+    // Areas are declared entities, so they are corpus content like arcs: a
+    // restore without them would fail every area-scoped revision against the
+    // trigger that keeps areas inside their project.
+    const areas = [];
+    for (const project of await this.repository.listProjects()) {
+      areas.push(...(await this.repository.listAreas(project.id)));
+    }
     // Arcs are exported because they are corpus content, not graph internals: a
     // restore that dropped them would return a corpus with no relations and say
     // nothing about it.
@@ -261,6 +268,7 @@ export class CoreMemoryService implements MemoryService {
       exportedAt: this.now().toISOString(),
       corpusRevision: `${revision.epoch}:${revision.revision}`,
       sessions,
+      areas,
       events,
       memories,
       revisions,
@@ -307,6 +315,7 @@ export class CoreMemoryService implements MemoryService {
     const counts = await this.repository.restoreCorpus({
       sourceCorpusRevision: validated.corpusRevision,
       sessions: validated.sessions,
+      areas: validated.areas,
       events: validated.events,
       memories: validated.memories,
       revisions: validated.revisions,
