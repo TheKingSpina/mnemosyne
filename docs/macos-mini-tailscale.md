@@ -72,7 +72,7 @@ curl -fsS -H "authorization: Bearer $MNEMOSYNE_OWNER_TOKEN" \
   http://127.0.0.1:18080/api/backend/v1/admin/overview
 ```
 
-Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel container, pubblica `127.0.0.1:3333` con Tailscale Serve e configura `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Non esporre direttamente API, PostgreSQL, Redis o Neo4j.
+Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel container, pubblica `127.0.0.1:3333` con Tailscale Serve e configura `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Per i client MCP eseguiti nel browser, aggiungi a `MCP_ALLOWED_ORIGINS` l’origine esatta della pagina client (schema, host e porta); il server risponde ai preflight CORS soltanto per le origini elencate. Non usare wildcard. Non esporre direttamente API, PostgreSQL, Redis o Neo4j.
 
 ### Client MCP su un’altra macchina
 

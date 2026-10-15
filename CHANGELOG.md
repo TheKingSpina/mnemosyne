@@ -4,6 +4,8 @@
 
 ### Added
 
+- Browser-based MCP clients could not connect over Streamable HTTP: the endpoint answered `404` to every preflight, because the path and the method allow-list were checked together and `OPTIONS` was not in the list. Preflight `OPTIONS` is now served for the exact origins in `MCP_ALLOWED_ORIGINS` and refused with `403` for anything else, reusing the same allow-list that DNS-rebinding protection uses, so the rule stays "no wildcards, exact scheme, host and port". An allowed origin also receives `Access-Control-Allow-Origin` on the real request plus `Access-Control-Expose-Headers` for `Mcp-Session-Id`, `Mcp-Protocol-Version` and `WWW-Authenticate`, without which the browser hides the session id from the client even when the request succeeds, and `Access-Control-Request-Private-Network` is answered for clients on the tailnet. A request to any other path is now a `404` before the method check.
+
 - Per-client credentials: `POST`, `GET /v1/admin/client-tokens` and `POST /v1/admin/client-tokens/{name}/revoke`, plus `npm run token:client` to mint, list and revoke them from the client machine. Only a SHA-256 hash and a displayable prefix are stored, the plaintext is returned exactly once, and every token has the `owner` role.
 - Host keep-alive for the Mac mini: launchd agents that start the container runtime at login, reconcile the Compose project, probe the API and the dashboard every 5 minutes and repair after consecutive failures, plus a scheduled encrypted PostgreSQL backup with verified restore.
 - Optional anonymous access for MCP HTTP with `MNEMOSYNE_MCP_REQUIRE_TOKEN=false`, scoped by `MNEMOSYNE_MCP_ANONYMOUS_PROFILE` so a caller without credentials can be given the harness profile while the owner-only tools stay unregistered.

@@ -110,7 +110,66 @@ async function handleMcpHttpRequest(
   response: ServerResponse,
 ): Promise<void> {
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-  if (url.pathname !== '/mcp' || !['POST', 'GET', 'DELETE'].includes(request.method ?? '')) {
+  const origin = request.headers.origin;
+  const allowedOrigin =
+    typeof origin === 'string' && allowedOrigins?.includes(origin) ? origin : undefined;
+
+  if (url.pathname !== '/mcp') {
+    response.writeHead(404).end();
+    return;
+  }
+
+  if (request.method === 'OPTIONS') {
+    const requestedMethod = request.headers['access-control-request-method'];
+    const requestsPrivateNetwork =
+      request.headers['access-control-request-private-network'] === 'true';
+    const requestedHeaders = (request.headers['access-control-request-headers'] ?? '')
+      .split(',')
+      .map((header) => header.trim().toLowerCase())
+      .filter(Boolean);
+    const allowedMethods = ['GET', 'POST', 'DELETE'];
+    const allowedHeaders = new Set([
+      'accept',
+      'authorization',
+      'content-type',
+      'last-event-id',
+      'mcp-protocol-version',
+      'mcp-session-id',
+    ]);
+
+    if (
+      !allowedOrigin ||
+      typeof requestedMethod !== 'string' ||
+      !allowedMethods.includes(requestedMethod) ||
+      requestedHeaders.some((header) => !allowedHeaders.has(header))
+    ) {
+      response.writeHead(403, { vary: 'Origin' }).end();
+      return;
+    }
+
+    response
+      .writeHead(204, {
+        'access-control-allow-origin': allowedOrigin,
+        'access-control-allow-methods': allowedMethods.join(', '),
+        'access-control-allow-headers': [...requestedHeaders].join(', '),
+        ...(requestsPrivateNetwork ? { 'access-control-allow-private-network': 'true' } : {}),
+        'access-control-max-age': '600',
+        vary: 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
+      })
+      .end();
+    return;
+  }
+
+  if (allowedOrigin) {
+    response.setHeader('access-control-allow-origin', allowedOrigin);
+    response.setHeader(
+      'access-control-expose-headers',
+      'Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate',
+    );
+    response.setHeader('vary', 'Origin');
+  }
+
+  if (!['POST', 'GET', 'DELETE'].includes(request.method ?? '')) {
     response.writeHead(404).end();
     return;
   }

@@ -188,6 +188,43 @@ describe('Mnemosyne MCP HTTP session authorization', () => {
     expect(untrustedOrigin.status).toBe(403);
   });
 
+  it('serves browser CORS preflights only for explicitly allowed origins', async () => {
+    const allowedOrigin = 'https://client.example';
+    const baseUrl = await listen(
+      createTestServer('cors-session', 1_000, {
+        enableDnsRebindingProtection: true,
+        allowedOrigins: [allowedOrigin],
+      }),
+    );
+    const preflight = (origin: string) =>
+      fetch(`${baseUrl}/mcp`, {
+        method: 'OPTIONS',
+        headers: {
+          origin,
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type, accept, mcp-protocol-version',
+          'access-control-request-private-network': 'true',
+        },
+      });
+
+    const accepted = await preflight(allowedOrigin);
+    const rejected = await preflight('https://untrusted.example');
+
+    expect(accepted.status).toBe(204);
+    expect(accepted.headers.get('access-control-allow-origin')).toBe(allowedOrigin);
+    expect(accepted.headers.get('access-control-allow-methods')).toContain('POST');
+    expect(accepted.headers.get('access-control-allow-headers')).toContain('content-type');
+    expect(accepted.headers.get('access-control-allow-private-network')).toBe('true');
+    expect(rejected.status).toBe(403);
+
+    const sessionId = await initialize(baseUrl, ownerToken);
+    const response = await post(baseUrl, ownerToken, sessionId, 'tools/list', allowedOrigin);
+    await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('access-control-allow-origin')).toBe(allowedOrigin);
+    expect(response.headers.get('access-control-expose-headers')).toContain('Mcp-Session-Id');
+  });
+
   it('rejects an unknown session and malformed JSON', async () => {
     const baseUrl = await listen(createTestServer('known-session'));
     const unknown = await post(baseUrl, ownerToken, 'unknown-session', 'tools/list');

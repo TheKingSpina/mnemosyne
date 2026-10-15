@@ -19,7 +19,7 @@ Do not include real credentials, conversations, memory contents, or backup files
 - Do not expose the development API or MCP server directly to the Internet.
 - Use authenticated private networking and TLS for remote access.
 - REST and Streamable HTTP use separate `MNEMOSYNE_OWNER_TOKEN` and `MNEMOSYNE_HARNESS_TOKEN` credentials; do not run either interface unauthenticated.
-- Streamable HTTP sessions are bound to the authenticated owner or harness profile, expire when idle, and reject untrusted origins when `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` is configured. Session state is process-local; use one replica or sticky routing.
+- Streamable HTTP sessions are bound to the authenticated owner or harness profile, expire when idle, and reject untrusted origins when `MCP_ALLOWED_HOSTS` or `MCP_ALLOWED_ORIGINS` is configured. Browser CORS preflights are served only for the exact origins in `MCP_ALLOWED_ORIGINS`; do not use wildcards. Session state is process-local; use one replica or sticky routing.
 - Administrative operations are authorized server-side; hiding a tool from a client is not treated as access control.
 - The owner web console is an administrative surface; keep it local or behind the same private network and HTTPS controls as the API. It proxies API calls server-side and keeps the owner token in browser session storage, not local storage.
 - Keep provider keys and forget secrets outside the repository and database.
