@@ -30,17 +30,49 @@ This is deliberately _not_ the three-nullable-column shape of the PHP design. Th
 needs a mutual-exclusion CHECK because it can express an ambiguous scope. Deriving the
 scope from `area_id` cannot be ambiguous, so the CHECK is unnecessary.
 
+### Project membership is identity, not content
+
+A memory does not change project, ever. That settles where the column lives: project is
+an attribute of the **memory**, not of a revision, because a revision that could change it
+would let history contradict identity.
+
+- `memories.project_id` is `NOT NULL` and immutable.
+- `memory_revisions.area_id` and `memory_revisions.session_id` are nullable and **may**
+  change between revisions: re-classifying a memory inside its own root is a revision,
+  moving it to another root is not.
+
+Immutability is enforced by a trigger, not only by the absence of an update path, so a
+future code path cannot quietly break the invariant.
+
+Relations between different projects are expressed with arcs, never by moving a memory:
+
+- `project_arcs` for project to project, including hierarchical relations;
+- `memory_arcs` for memory to memory, and it **may cross projects**, since a memory in one
+  project can legitimately depend on a memory in another.
+
+Two tables rather than one polymorphic pair, because a polymorphic `from_id`/`to_id` can
+carry no foreign key at all, and then forgetting a memory leaves dangling arcs.
+
+`global` disappears as a scope type. It is not a family of scopes but one hardcoded pair,
+and it becomes the reserved `personal` project: visibility from every session is a policy
+attached to that project rather than a scope kind.
+
 ## 2. Order of work
 
-Identifier shape is untouched, so the work starts directly with the entities.
+1. `feat: projects and areas as first-class entities` — **done, `fe27cce`**
+2. `feat: a memory belongs to a project, permanently`
+3. `feat: proposals carry nodes and arcs`
+4. `feat: governed weighted arcs, within and across projects`
+5. `feat: project and area roots in the Neo4j projection`
+6. `docs: retire the global scope in favour of the personal project`
 
-1. `feat: projects and areas as first-class entities`
-2. `feat: proposals carry nodes and arcs`
-3. `feat: governed weighted arcs`
-4. `feat: project and area roots in the Neo4j projection`
-5. `docs: retire the global scope in favour of the personal project`
+Commit 2 is a breaking schema change: `memories.project_id` is `NOT NULL`, and an
+existing corpus cannot be migrated mechanically, because the old `scope_id` was free text
+with nothing to map it against. It therefore requires an empty or reset database, which is
+recorded here rather than discovered at deploy time. The Mac mini is out of scope and
+stays on `main`, so nothing in production depends on it.
 
-Commit 2 is the largest contract change and is isolated for that reason: one proposal
+Commit 3 is the largest contract change and is isolated for that reason: one proposal
 carrying nodes and arcs alters the Zod schemas, the OpenAPI document and the governance
 tests at once, and that is not something to debug alongside a schema change.
 
@@ -80,30 +112,63 @@ The `(project_id, id)` unique constraint on `areas` exists only to carry the com
 foreign key below. It is not a second identity.
 
 ```sql
+-- Breaking: NOT NULL with no default, so it applies to an empty database.
 ALTER TABLE memories ADD COLUMN project_id text NOT NULL
-  REFERENCES projects(id) ON DELETE CASCADE;
-ALTER TABLE memories ADD COLUMN area_id text;
+  REFERENCES projects(id) ON DELETE RESTRICT;
+ALTER TABLE memory_revisions ADD COLUMN area_id text;
+ALTER TABLE memory_revisions ADD COLUMN session_id text
+  REFERENCES sessions(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED;
 ```
 
-`area_id` deliberately carries **no** foreign key of its own. An earlier draft gave it
-`REFERENCES areas(id)`, which is redundant: the composite constraint below already
-references `areas`, so it enforces existence as well as project membership. Verified on
-PostgreSQL 17 — with both constraints present the deletion of an in-use area is refused by
-`memories_area_id_fkey`, which is the wrong explanation; with only the composite one it is
-refused by `fk_memories_area_same_project`, which is the right one.
+`memories.project_id` carries `ON DELETE RESTRICT`, not `CASCADE`. A cascade would delete
+memories without writing a forget-ledger row, and the ledger is the record that a memory
+was ever removed; silently cascading would make it incomplete. Deleting a project that
+still holds memories has to be an explicit, governed act.
 
-The composite constraint is what enforces that an area belongs to its memory's project:
+### The area rule needs a trigger, not a foreign key
+
+The rule "the area of a memory belongs to that memory's project" spans two tables:
+`memories.project_id` and `memory_revisions.area_id`. A foreign key cannot reference
+columns from two relations, so the composite constraint an earlier draft of this plan used
+is **not expressible** once project became immutable identity on `memories`.
+
+That is a direct consequence of the decision above rather than an oversight, and it is why
+the two columns cannot simply be colocated:
+
+- colocating them would put `project_id` on `memory_revisions`, where a later revision
+  could name a different project and contradict the memory identity;
+- keeping them apart means the rule can only be enforced by a trigger.
 
 ```sql
-ALTER TABLE memories ADD CONSTRAINT fk_memories_area_same_project
-  FOREIGN KEY (project_id, area_id) REFERENCES areas(project_id, id)
-  ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+CREATE OR REPLACE FUNCTION memoria_areas_tiene_progetto() RETURNS trigger AS $$
+DECLARE memoria_progetto text;
+BEGIN
+  IF NEW.area_id IS NULL THEN RETURN NEW; END IF;
+  SELECT project_id INTO memoria_progetto FROM memories WHERE id = NEW.memory_id;
+  IF NOT EXISTS (
+    SELECT 1 FROM areas WHERE id = NEW.area_id AND project_id = memoria_progetto
+  ) THEN
+    RAISE EXCEPTION 'area_not_in_project: % is not an area of project %',
+      NEW.area_id, memoria_progetto USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_memoria_areas_tiene_progetto
+  BEFORE INSERT OR UPDATE OF area_id ON memory_revisions
+  FOR EACH ROW EXECUTE FUNCTION memoria_areas_tiene_progetto();
 ```
 
-`NO ACTION` plus `DEFERRABLE INITIALLY DEFERRED` is what makes a project cascade delete
-work: `projects → areas → memories` removes both sides inside one transaction, and the
-check is evaluated at commit when nothing dangling remains. Deleting an area that is
-still a live scope fails at commit with `23503`, which the API maps to `409`.
+`23503` is deliberate: it is the SQLSTATE a foreign key violation raises, so the API maps
+it to `409` through the existing path instead of needing a new branch.
+
+A trigger is less visible than a constraint and it is the honest tool here, but the cost is
+that nothing in a schema listing shows the rule. It therefore has to be covered by a test,
+or it is decoration.
+
+Deleting an area that is still the scope of some memory fails at commit with `23503`,
+because the session reference above is deferrable and evaluated at commit.
 
 ```sql
 CREATE TABLE arcs (
@@ -160,16 +225,16 @@ it rather than against a bare error:
 | ------------------------------------------------ | --------------------------------------------------------- |
 | project name duplicated, identical case          | refused by `uq_projects_name`                             |
 | project name duplicated, different case          | refused by `uq_projects_name_ci`                          |
-| memory whose area belongs to another project     | refused by `fk_memories_area_same_project`                |
+| memory whose area belongs to another project     | refused by `trg_memoria_areas_tiene_progetto`             |
 | duplicate area name within a project             | refused by `uq_areas_project_name`                        |
-| deleting an area still used as a scope           | refused by `fk_memories_area_same_project`                |
+| deleting an area still used as a scope           | refused by `23503` at commit                              |
 | arc with a valid weight                          | accepted                                                  |
 | duplicate `(from, to, type)` triple              | refused by `uq_arcs_triple`                               |
 | arc from a node to itself                        | refused by `chk_arcs_distinct`                            |
 | weight outside `0..1`                            | refused by `chk_arcs_weight`                              |
 | lifecycle outside the allowed set                | refused by the lifecycle check                            |
 | area created after the memory in one transaction | accepted — confirms `DEFERRABLE INITIALLY DEFERRED` works |
-| deleting a project                               | cascades, leaving `0` areas, `0` memories, `0` arcs       |
+| deleting a project that holds memories           | refused by `RESTRICT`                                     |
 
 The deferred-constraint case is the one that justified writing this section down: it is
 what makes the cascade work while still refusing to delete a single area out from under a
