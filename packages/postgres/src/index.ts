@@ -39,7 +39,6 @@ import type {
   CreateProjectInput,
   CreateAreaInput,
 } from '@mnemosyne/core';
-import { RESERVED_PERSONAL_PROJECT_ID } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 export {

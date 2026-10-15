@@ -176,7 +176,7 @@
     }
   },
   {
-    "id": "global-preference-remains-pending",
+    "id": "personal-preference-remains-pending",
     "projectId": "eval-governance",
     "query": "preferisco",
     "events": [
@@ -194,7 +194,7 @@
       "extractedContents": ["globalmente preferisco risposte concise"],
       "finalContents": ["globalmente preferisco risposte concise"],
       "kinds": ["preference"],
-      "scopes": ["global:personal"],
+      "scopes": ["project:personal"],
       "pendingBeforeReview": 1,
       "acceptedAfterReview": 0,
       "conflicts": 0,
@@ -251,7 +251,7 @@
       "content": "il progetto non usa pnpm",
       "kind": "convention",
       "scope": {
-        "type": "global",
+        "type": "project",
         "id": "personal"
       },
       "epistemicBasis": "user_asserted",
@@ -276,7 +276,7 @@
       "extractedContents": ["il progetto usa pnpm"],
       "finalContents": ["il progetto non usa pnpm", "il progetto usa pnpm"],
       "kinds": ["convention", "convention"],
-      "scopes": ["global:personal", "project:eval-governance"],
+      "scopes": ["project:personal", "project:eval-governance"],
       "pendingBeforeReview": 1,
       "acceptedAfterReview": 1,
       "conflicts": 1,
@@ -292,7 +292,7 @@
       "content": "il progetto usa pnpm",
       "kind": "convention",
       "scope": {
-        "type": "global",
+        "type": "project",
         "id": "personal"
       },
       "epistemicBasis": "user_asserted",
@@ -317,7 +317,7 @@
       "extractedContents": ["il progetto usa pnpm"],
       "finalContents": ["il progetto usa pnpm"],
       "kinds": ["convention", "convention"],
-      "scopes": ["global:personal", "project:eval-governance"],
+      "scopes": ["project:personal", "project:eval-governance"],
       "pendingBeforeReview": 1,
       "acceptedAfterReview": 1,
       "conflicts": 0,

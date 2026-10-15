@@ -142,7 +142,7 @@
         "key": "global-style",
         "content": "Preferisco risposte concise",
         "kind": "preference",
-        "scope": { "type": "global", "id": "personal" }
+        "scope": { "type": "project", "id": "personal" }
       },
       {
         "key": "project-style",
