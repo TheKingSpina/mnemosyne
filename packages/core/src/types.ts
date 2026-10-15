@@ -61,6 +61,44 @@ export interface SessionRecord {
   closedAt?: string;
 }
 
+// Projects are the graph roots. `name` carries the uniqueness constraint rather
+// than the identifier, so renaming stays an ordinary update and a project
+// remains addressable by name. The database enforces uniqueness both exactly
+// and case-insensitively.
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Areas are the optional subgraph roots inside a project. They are declared,
+// never inferred: the project decides which areas exist.
+export interface AreaRecord {
+  id: string;
+  projectId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectInput {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface CreateAreaInput {
+  id: string;
+  projectId: string;
+  name: string;
+}
+
+// The project that replaces scope type `global`: memories in it are visible
+// from every session. Seeded by schema.sql, so it exists without being created.
+export const RESERVED_PERSONAL_PROJECT_ID = 'personal';
+
 export interface EventRecord {
   id: string;
   sessionId: string;
@@ -173,6 +211,19 @@ export interface MemoryRepository {
   readRuntimeCapabilities(component: string): Promise<RuntimeCapabilityReport | null>;
   countMemories(): Promise<number>;
   restoreCorpus(input: CorpusRestore): Promise<CorpusRestoreCounts>;
+  // Projects and areas back the graph roots. `ensureProject` exists because
+  // `openSession` is the entry point of the whole system and its callers pass a
+  // free-form project id: creating the project on first use keeps that contract
+  // while making the reference real. It must be race-safe, because two sessions
+  // can open on the same new project at once.
+  createProject(input: CreateProjectInput): Promise<ProjectRecord>;
+  ensureProject(id: string): Promise<ProjectRecord>;
+  findProjectById(id: string): Promise<ProjectRecord | null>;
+  findProjectByName(name: string): Promise<ProjectRecord | null>;
+  listProjects(): Promise<ProjectRecord[]>;
+  createArea(input: CreateAreaInput): Promise<AreaRecord>;
+  findAreaById(id: string): Promise<AreaRecord | null>;
+  listAreas(projectId: string): Promise<AreaRecord[]>;
   createSession(input: OpenSessionInput): Promise<SessionRecord>;
   findSession(id: string): Promise<SessionRecord | null>;
   closeSession(id: string): Promise<SessionRecord>;

@@ -1,0 +1,111 @@
+import { describe, expect, it } from 'vitest';
+import { CoreMemoryService, InMemoryRepository } from './index.js';
+import { RESERVED_PERSONAL_PROJECT_ID } from './types.js';
+
+// The in-memory repository has to enforce what PostgreSQL enforces, or the
+// deterministic test suite would pass on rules the real database rejects.
+// The cases below mirror the constraints in packages/postgres/src/schema.sql:
+// uq_projects_name, uq_projects_name_ci, uq_areas_project_name, and the
+// foreign key from areas to projects.
+
+describe('projects and areas', () => {
+  it('creates a project and finds it by id and by name', async () => {
+    const repository = new InMemoryRepository();
+
+    const created = await repository.createProject({ id: 'mnemosyne', name: 'Mnemosyne' });
+    expect(created.name).toBe('Mnemosyne');
+    expect(created.description).toBeUndefined();
+
+    expect((await repository.findProjectById('mnemosyne'))?.name).toBe('Mnemosyne');
+    expect((await repository.findProjectByName('mnemosyne'))?.id).toBe('mnemosyne');
+    expect(await repository.findProjectById('assente')).toBeNull();
+  });
+
+  it('rejects a duplicate project name regardless of case', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+
+    await expect(repository.createProject({ id: 'p2', name: 'Alpha' })).rejects.toThrow(
+      'project_name_taken',
+    );
+    // A different case must not slip past and create a second project that a
+    // lookup by name cannot tell apart.
+    await expect(repository.createProject({ id: 'p3', name: 'alpha' })).rejects.toThrow(
+      'project_name_taken',
+    );
+    expect(await repository.listProjects()).toHaveLength(1);
+  });
+
+  it('provisions a project on first use and is idempotent afterwards', async () => {
+    const repository = new InMemoryRepository();
+
+    const first = await repository.ensureProject('nuovo-progetto');
+    expect(first.name).toBe('nuovo-progetto');
+    const second = await repository.ensureProject('nuovo-progetto');
+
+    expect(second.id).toBe(first.id);
+    expect(await repository.listProjects()).toHaveLength(1);
+  });
+
+  it('creates areas inside a project and refuses one outside it', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+
+    const area = await repository.createArea({
+      id: 'a1',
+      projectId: 'p1',
+      name: 'progettazione',
+    });
+    expect(area.projectId).toBe('p1');
+    expect(await repository.listAreas('p1')).toHaveLength(1);
+
+    await expect(
+      repository.createArea({ id: 'a2', projectId: 'inesistente', name: 'progettazione' }),
+    ).rejects.toThrow('project_not_found');
+  });
+
+  it('allows the same area name in different projects but not twice in one', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Alpha' });
+    await repository.createProject({ id: 'p2', name: 'Beta' });
+
+    await repository.createArea({ id: 'a1', projectId: 'p1', name: 'sviluppo' });
+    await repository.createArea({ id: 'a2', projectId: 'p2', name: 'sviluppo' });
+
+    await expect(
+      repository.createArea({ id: 'a3', projectId: 'p1', name: 'sviluppo' }),
+    ).rejects.toThrow('area_name_taken');
+  });
+
+  it('names the reserved personal project so global scope has an owner', () => {
+    expect(RESERVED_PERSONAL_PROJECT_ID).toBe('personal');
+  });
+});
+
+describe('openSession and project existence', () => {
+  const createService = (repository: InMemoryRepository) =>
+    new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+    });
+
+  it('provisions the project instead of failing on an unknown id', async () => {
+    const repository = new InMemoryRepository();
+
+    const opened = await createService(repository).openSession({
+      projectId: 'progetto-che-non-esisteva',
+    });
+
+    expect(opened.projectId).toBe('progetto-che-non-esisteva');
+    expect(await repository.findProjectById('progetto-che-non-esisteva')).not.toBeNull();
+  });
+
+  it('reuses an existing project rather than replacing it', async () => {
+    const repository = new InMemoryRepository();
+    await repository.createProject({ id: 'p1', name: 'Nome Scelto' });
+
+    await createService(repository).openSession({ projectId: 'p1' });
+
+    // ensureProject must not overwrite the declared name with the id.
+    expect((await repository.findProjectById('p1'))?.name).toBe('Nome Scelto');
+  });
+});

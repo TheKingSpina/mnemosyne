@@ -330,6 +330,11 @@ export class CoreMemoryService implements MemoryService {
 
   async openSession(input: OpenSessionInput): Promise<OpenSessionOutput> {
     const validated = openSessionInputSchema.parse(input);
+    // The caller passes a free-form project id and `sessions.project_id` is a
+    // foreign key, so the project has to exist before the row is written.
+    // Creating it here keeps that contract for existing clients: a first
+    // session on an unknown id provisions the project rather than failing.
+    await this.repository.ensureProject(validated.projectId);
     const session = await this.repository.createSession({
       ...validated,
       areaIds: validated.areaIds ?? [],

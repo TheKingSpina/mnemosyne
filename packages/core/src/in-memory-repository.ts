@@ -11,6 +11,10 @@ import { randomUUID, randomUUID as createRandomId } from 'node:crypto';
 import type {
   ConflictRecord,
   CorpusRevision,
+  ProjectRecord,
+  AreaRecord,
+  CreateProjectInput,
+  CreateAreaInput,
   EventRecord,
   JobRecord,
   MemoryRecord,
@@ -34,6 +38,8 @@ import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
 export class InMemoryRepository implements MemoryRepository {
   constructor(private readonly now: () => Date = () => new Date()) {}
 
+  private readonly projects = new Map<string, ProjectRecord>();
+  private readonly areas = new Map<string, AreaRecord>();
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly events = new Map<string, EventRecord>();
   private readonly memories = new Map<string, MemoryRecord>();
@@ -81,6 +87,12 @@ export class InMemoryRepository implements MemoryRepository {
     const restoredRevisions = input.revisions.filter(
       (item) => restoredMemoryIds.has(item.memoryId) && !forgottenMemoryIds.has(item.memoryId),
     );
+    // sessions.project_id is a foreign key, and a restored corpus carries the
+    // session project ids but not the projects themselves. Provision them before
+    // the sessions, the same way the PostgreSQL repository does.
+    for (const projectId of new Set(input.sessions.map((session) => session.projectId))) {
+      if (!this.projects.has(projectId)) await this.ensureProject(projectId);
+    }
     for (const session of input.sessions) {
       this.sessions.set(session.id, session);
     }
@@ -142,6 +154,70 @@ export class InMemoryRepository implements MemoryRepository {
         ).length,
       },
     };
+  }
+
+  async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
+    const nameTaken = [...this.projects.values()].some(
+      (project) => project.name.toLowerCase() === input.name.toLowerCase(),
+    );
+    if (nameTaken) throw new Error('project_name_taken');
+    const timestamp = this.now().toISOString();
+    const project: ProjectRecord = {
+      id: input.id,
+      name: input.name,
+      ...(input.description === undefined ? {} : { description: input.description }),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.projects.set(project.id, project);
+    return project;
+  }
+
+  async ensureProject(id: string): Promise<ProjectRecord> {
+    const existing = this.projects.get(id);
+    if (existing) return existing;
+    return this.createProject({ id, name: id });
+  }
+
+  async findProjectById(id: string): Promise<ProjectRecord | null> {
+    return this.projects.get(id) ?? null;
+  }
+
+  async findProjectByName(name: string): Promise<ProjectRecord | null> {
+    const wanted = name.toLowerCase();
+    return [...this.projects.values()].find((p) => p.name.toLowerCase() === wanted) ?? null;
+  }
+
+  async listProjects(): Promise<ProjectRecord[]> {
+    return [...this.projects.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async createArea(input: CreateAreaInput): Promise<AreaRecord> {
+    if (!this.projects.has(input.projectId)) throw new Error('project_not_found');
+    const duplicate = [...this.areas.values()].some(
+      (area) => area.projectId === input.projectId && area.name === input.name,
+    );
+    if (duplicate) throw new Error('area_name_taken');
+    const timestamp = this.now().toISOString();
+    const area: AreaRecord = {
+      id: input.id,
+      projectId: input.projectId,
+      name: input.name,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.areas.set(area.id, area);
+    return area;
+  }
+
+  async findAreaById(id: string): Promise<AreaRecord | null> {
+    return this.areas.get(id) ?? null;
+  }
+
+  async listAreas(projectId: string): Promise<AreaRecord[]> {
+    return [...this.areas.values()]
+      .filter((area) => area.projectId === projectId)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async createSession(input: OpenSessionInput): Promise<SessionRecord> {

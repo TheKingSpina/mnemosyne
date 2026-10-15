@@ -33,6 +33,13 @@ for (const key of Object.keys(inheritedEnvironment)) {
     delete inheritedEnvironment[key];
   }
 }
+// Schema-level constraints live in the database, and there is no API to reach
+// them yet, so they are asserted over psql against the same PostgreSQL the rest
+// of this script exercises. Unit tests cover the same rules in the in-memory
+// repository; this is what proves the real schema matches.
+const e2eDbUser = 'mnemosyne_e2e';
+const e2eDbName = 'mnemosyne_e2e';
+
 const environment = {
   ...inheritedEnvironment,
   COMPOSE_PROJECT_NAME: project,
@@ -190,6 +197,7 @@ async function runLifecycle() {
 
   await searchToCreateCache(session.sessionId, second.memory.memoryId);
   await verifyRuntimeCapabilities();
+  await verifyProjectConstraints();
   const prepared = await api(
     `/v1/memories/${encodeURIComponent(second.memory.memoryId)}/forget/prepare`,
     {
@@ -370,6 +378,78 @@ async function verifyRuntimeCapabilities() {
   const gapFields = capabilities.gaps.map((gap) => gap.field);
   assert(gapFields.includes('operations.backupVerified'), 'backup_gap_missing');
   assert(!gapFields.includes('projections.neo4j'), 'neo4j_should_not_be_a_gap');
+}
+
+function psql(sql) {
+  return compose(
+    'exec',
+    '-T',
+    'postgres',
+    'psql',
+    '-v',
+    'ON_ERROR_STOP=1',
+    '-U',
+    e2eDbUser,
+    '-d',
+    e2eDbName,
+    '-t',
+    '-A',
+    '-c',
+    sql,
+  ).trim();
+}
+
+function psqlRejects(sql) {
+  try {
+    psql(sql);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+async function verifyProjectConstraints() {
+  assert(
+    psql("SELECT id FROM projects WHERE id = 'personal';") === 'personal',
+    'reserved_personal_project_missing',
+  );
+
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_alpha', 'E2E Alpha');");
+  assert(
+    psqlRejects("INSERT INTO projects (id, name) VALUES ('e2e_dup', 'e2e alpha');"),
+    'project_name_case_insensitive_uniqueness_missing',
+  );
+  assert(
+    psqlRejects("INSERT INTO projects (id, name) VALUES ('e2e_dup', 'E2E Alpha');"),
+    'project_name_uniqueness_missing',
+  );
+
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_beta', 'E2E Beta');");
+  psql("INSERT INTO areas (id, project_id, name) VALUES ('e2e_a1', 'e2e_alpha', 'sviluppo');");
+  assert(
+    psqlRejects(
+      "INSERT INTO areas (id, project_id, name) VALUES ('e2e_a2', 'e2e_alpha', 'sviluppo');",
+    ),
+    'area_name_uniqueness_per_project_missing',
+  );
+  // The same area name in another project is legal: areas are scoped, not global.
+  psql("INSERT INTO areas (id, project_id, name) VALUES ('e2e_a3', 'e2e_beta', 'sviluppo');");
+
+  psql("INSERT INTO sessions (id, project_id, status) VALUES ('e2e_s1', 'e2e_alpha', 'open');");
+  assert(
+    psqlRejects("DELETE FROM projects WHERE id = 'e2e_alpha';"),
+    'project_with_sessions_should_not_be_deletable',
+  );
+  assert(
+    psqlRejects(
+      "INSERT INTO sessions (id, project_id, status) VALUES ('e2e_s2', 'e2e_ghost', 'open');",
+    ),
+    'session_project_foreign_key_missing',
+  );
+
+  // Leave nothing behind that a later assertion could trip over.
+  psql("DELETE FROM sessions WHERE id = 'e2e_s1';");
+  psql("DELETE FROM projects WHERE id IN ('e2e_alpha', 'e2e_beta');");
 }
 
 async function searchToCreateCache(sessionId, memoryId) {

@@ -29,6 +29,10 @@ import type {
   MemoryFeedbackOutput,
   SessionRecord,
   RuntimeCapabilityReport,
+  ProjectRecord,
+  AreaRecord,
+  CreateProjectInput,
+  CreateAreaInput,
 } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
@@ -44,6 +48,42 @@ export { PostgresClientTokenStore } from './client-token-store.js';
 export { PostgresSemanticSearchIndex } from './semantic-search-index.js';
 
 type Database = Pick<Pool, 'query' | 'connect'> | Pick<PoolClient, 'query'>;
+
+interface ProjectRow extends QueryResultRow {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface AreaRow extends QueryResultRow {
+  id: string;
+  project_id: string;
+  name: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function projectFromRow(row: ProjectRow): ProjectRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    ...(row.description === null ? {} : { description: row.description }),
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+function areaFromRow(row: AreaRow): AreaRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
 
 interface SessionRow extends QueryResultRow {
   id: string;
@@ -195,6 +235,17 @@ export class PostgresMemoryRepository implements MemoryRepository {
       await client.query('BEGIN');
       await client.query('DELETE FROM corpus_outbox');
       await client.query('DELETE FROM memory_feedback');
+      // sessions.project_id is a foreign key, and a restored corpus carries the
+      // session project ids but not the projects themselves, so they have to
+      // exist before the rows go in. Provisioned with the id as the name, the
+      // same way openSession does. Projects and areas are not part of the export
+      // yet, the same gap that already exists for embeddings.
+      for (const projectId of new Set(input.sessions.map((session) => session.projectId))) {
+        await client.query(
+          `INSERT INTO projects (id, name) VALUES ($1, $1) ON CONFLICT (id) DO NOTHING`,
+          [projectId],
+        );
+      }
       for (const session of input.sessions) {
         await client.query(
           `INSERT INTO sessions (id, project_id, area_ids, task_title, sequence, status, created_at, closed_at)
@@ -341,6 +392,76 @@ export class PostgresMemoryRepository implements MemoryRepository {
   async migrate(): Promise<void> {
     const schema = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
     await this.database.query(schema);
+  }
+
+  async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
+    const result = await this.database.query<ProjectRow>(
+      `INSERT INTO projects (id, name, description)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [input.id, input.name, input.description ?? null],
+    );
+    return projectFromRow(result.rows[0]);
+  }
+
+  // `openSession` callers pass a free-form project id, so the project is created
+  // on first use. ON CONFLICT DO NOTHING rather than a read-then-write, because
+  // two sessions opening on the same new project would otherwise race: one would
+  // fail on the unique name. The name defaults to the id, which keeps the
+  // caller's identifier meaningful as a display name.
+  async ensureProject(id: string): Promise<ProjectRecord> {
+    const result = await this.database.query<ProjectRow>(
+      `INSERT INTO projects (id, name)
+       VALUES ($1, $1)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING *`,
+      [id],
+    );
+    if (result.rows.length > 0) return projectFromRow(result.rows[0]);
+    const existing = await this.findProjectById(id);
+    if (!existing) throw new Error(`project_not_found:${id}`);
+    return existing;
+  }
+
+  async findProjectById(id: string): Promise<ProjectRecord | null> {
+    const result = await this.database.query<ProjectRow>('SELECT * FROM projects WHERE id = $1', [
+      id,
+    ]);
+    return result.rows[0] ? projectFromRow(result.rows[0]) : null;
+  }
+
+  async findProjectByName(name: string): Promise<ProjectRecord | null> {
+    const result = await this.database.query<ProjectRow>(
+      'SELECT * FROM projects WHERE lower(name) = lower($1)',
+      [name],
+    );
+    return result.rows[0] ? projectFromRow(result.rows[0]) : null;
+  }
+
+  async listProjects(): Promise<ProjectRecord[]> {
+    const result = await this.database.query<ProjectRow>('SELECT * FROM projects ORDER BY name');
+    return result.rows.map(projectFromRow);
+  }
+
+  async createArea(input: CreateAreaInput): Promise<AreaRecord> {
+    const result = await this.database.query<AreaRow>(
+      `INSERT INTO areas (id, project_id, name)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [input.id, input.projectId, input.name],
+    );
+    return areaFromRow(result.rows[0]);
+  }
+
+  async findAreaById(id: string): Promise<AreaRecord | null> {
+    const result = await this.database.query<AreaRow>('SELECT * FROM areas WHERE id = $1', [id]);
+    return result.rows[0] ? areaFromRow(result.rows[0]) : null;
+  }
+
+  async listAreas(projectId: string): Promise<AreaRecord[]> {
+    const result = await this.database.query<AreaRow>(
+      'SELECT * FROM areas WHERE project_id = $1 ORDER BY name',
+      [projectId],
+    );
+    return result.rows.map(areaFromRow);
   }
 
   async createSession(input: OpenSessionInput): Promise<SessionRecord> {

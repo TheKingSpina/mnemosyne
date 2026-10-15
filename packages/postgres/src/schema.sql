@@ -22,9 +22,51 @@ INSERT INTO retention_state (id)
 VALUES ('default')
 ON CONFLICT (id) DO NOTHING;
 
+-- Projects are graph roots: every session, and every memory through its
+-- revisions, belongs to exactly one. `name` is unique so a caller can refer
+-- to a project by name, and it is deliberately not part of the primary key
+-- so that renaming is a plain UPDATE rather than a cascade.
+CREATE TABLE IF NOT EXISTS projects (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  description text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_projects_name UNIQUE (name)
+);
+
+-- Case-insensitive uniqueness, so "Alpha" and "alpha" cannot both exist and
+-- make a lookup by name ambiguous.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_projects_name_ci ON projects (lower(name));
+
+CREATE INDEX IF NOT EXISTS idx_projects_name_fts
+  ON projects USING gin (to_tsvector('simple', name));
+
+-- Areas are the optional subgraph roots inside a project. `personal` is the
+-- reserved project that replaces scope type `global`, so the reserved id is
+-- inserted here and the scope type can then be retired.
+INSERT INTO projects (id, name, description)
+VALUES ('personal', 'personal', 'Reserved project for memories visible from every session.')
+ON CONFLICT (id) DO NOTHING;
+
+-- The composite unique exists only to carry the foreign key from memory
+-- revisions, which is what makes an area belong to its project. It is not a
+-- second identity.
+CREATE TABLE IF NOT EXISTS areas (
+  id text PRIMARY KEY,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_areas_project_name UNIQUE (project_id, name),
+  CONSTRAINT uq_areas_project_id UNIQUE (project_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_areas_project ON areas (project_id);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id text PRIMARY KEY,
-  project_id text NOT NULL,
+  project_id text NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
   area_ids text[] NOT NULL DEFAULT '{}',
   task_title text,
   sequence bigint NOT NULL DEFAULT 0,
