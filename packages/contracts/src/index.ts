@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const scopeTypeSchema = z.enum(['session', 'project', 'area', 'global']);
+export const scopeTypeSchema = z.enum(['session', 'project', 'area']);
 export type ScopeType = z.infer<typeof scopeTypeSchema>;
 
 export const scopeSchema = z.object({

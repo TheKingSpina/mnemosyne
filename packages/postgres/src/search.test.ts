@@ -17,7 +17,7 @@ describe('PostgresMemoryRepository search pushdown', () => {
       limit: 25,
       scopes: [
         { type: 'project', id: 'eval-retrieval' },
-        { type: 'global', id: 'personal' },
+        { type: 'project', id: 'personal' },
       ],
     });
 
@@ -36,13 +36,12 @@ describe('PostgresMemoryRepository search pushdown', () => {
     expect(calls[0]?.text).toContain('r.session_id = ANY($2::text[])');
     expect(calls[0]?.text).toContain('r.area_id = ANY($3::text[])');
     expect(calls[0]?.text).toContain('r.project_id = ANY($4::text[])');
-    expect(calls[0]?.text).toContain('LIMIT $6');
+    expect(calls[0]?.text).toContain('LIMIT $5');
     expect(calls[0]?.values).toEqual([
       'cache:* or gateway:*',
       [],
       [],
-      ['eval-retrieval'],
-      'personal',
+      ['eval-retrieval', 'personal'],
       25,
     ]);
   });

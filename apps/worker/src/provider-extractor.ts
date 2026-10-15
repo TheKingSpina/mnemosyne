@@ -8,6 +8,7 @@ import {
   containsSecret,
   ExtractionProviderError,
   providerHttpErrorCode,
+  RESERVED_PERSONAL_PROJECT_ID,
   type EventRecord,
   type Extractor,
   type SessionRecord,
@@ -109,7 +110,7 @@ export class OpenRouterExtractor implements Extractor {
                   session: inputScope(input),
                   project: { type: 'project', id: input.session.projectId },
                   areas: input.session.areaIds,
-                  global: { type: 'global', id: 'personal' },
+                  personal: { type: 'project', id: 'personal' },
                 },
                 events: input.events.map((event) => ({
                   id: event.id,
@@ -147,7 +148,7 @@ export class OpenRouterExtractor implements Extractor {
 }
 
 function scopeIsAvailable(
-  type: 'session' | 'project' | 'area' | 'global',
+  type: 'session' | 'project' | 'area',
   id: string,
   session: SessionRecord,
 ): boolean {
@@ -155,7 +156,7 @@ function scopeIsAvailable(
     (type === 'session' && id === session.id) ||
     (type === 'project' && id === session.projectId) ||
     (type === 'area' && session.areaIds.includes(id)) ||
-    (type === 'global' && id === 'personal')
+    (type === 'project' && id === RESERVED_PERSONAL_PROJECT_ID)
   );
 }
 

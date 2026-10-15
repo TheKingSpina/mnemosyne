@@ -9,6 +9,7 @@ import { extractionResultSchema } from '@mnemosyne/contracts';
 import { containsSecret } from './policy.js';
 import { isRetryableProviderError, providerErrorCode } from './provider-errors.js';
 import type { EventRecord, MemoryRepository, MemoryService, SessionRecord } from './types.js';
+import { RESERVED_PERSONAL_PROJECT_ID } from './types.js';
 
 export interface Extractor {
   extract(input: { session: SessionRecord; events: EventRecord[] }): Promise<unknown>;
@@ -248,7 +249,7 @@ export class ExtractionWorker {
     return (
       (scope.type === 'project' && scope.id === session.projectId) ||
       (scope.type === 'area' && session.areaIds.includes(scope.id)) ||
-      (scope.type === 'global' && scope.id === 'personal')
+      (scope.type === 'project' && scope.id === RESERVED_PERSONAL_PROJECT_ID)
     );
   }
 }

@@ -78,7 +78,7 @@ describe('projects and areas', () => {
     ).rejects.toThrow('area_name_taken');
   });
 
-  it('names the reserved personal project so global scope has an owner', () => {
+  it('names the reserved personal project with a stable id', () => {
     expect(RESERVED_PERSONAL_PROJECT_ID).toBe('personal');
   });
 });
@@ -202,7 +202,7 @@ describe('a memory belongs to a project', () => {
     expect(record?.record.projectId).toBe('mnemosyne');
   });
 
-  it('puts a global memory in the reserved personal project', async () => {
+  it('puts a personal-project memory proposed from another project in the reserved personal project', async () => {
     const repository = new InMemoryRepository();
     const service = createService(repository);
     const session = await service.openSession({ projectId: 'mnemosyne' });
@@ -210,7 +210,7 @@ describe('a memory belongs to a project', () => {
     const memoryId = await propose(
       service,
       session.sessionId,
-      { type: 'global', id: 'personal' },
+      { type: 'project', id: 'personal' },
       'memoria personale',
     );
 

@@ -1072,7 +1072,6 @@ paths:
               - session
               - project
               - area
-              - global
         - name: scopeId
           in: query
           required: false
@@ -2180,7 +2179,6 @@ paths:
               - session
               - project
               - area
-              - global
         - name: scopeId
           in: query
           required: false
@@ -3136,7 +3134,6 @@ components:
                 - session
                 - project
                 - area
-                - global
             id:
               type: string
               minLength: 1
@@ -3668,7 +3665,6 @@ components:
                       - session
                       - project
                       - area
-                      - global
                   id:
                     type: string
                     minLength: 1
@@ -3803,7 +3799,6 @@ components:
                 - session
                 - project
                 - area
-                - global
             id:
               type: string
               minLength: 1
@@ -3882,7 +3877,6 @@ components:
                     - session
                     - project
                     - area
-                    - global
                 id:
                   type: string
                   minLength: 1
@@ -4028,7 +4022,6 @@ components:
                       - session
                       - project
                       - area
-                      - global
                   id:
                     type: string
                     minLength: 1
@@ -4197,7 +4190,6 @@ components:
                 - session
                 - project
                 - area
-                - global
             id:
               type: string
               minLength: 1
@@ -4320,7 +4312,6 @@ components:
                     - session
                     - project
                     - area
-                    - global
                 id:
                   type: string
                   minLength: 1
@@ -4442,7 +4433,6 @@ components:
                       - session
                       - project
                       - area
-                      - global
                   id:
                     type: string
                     minLength: 1
@@ -4579,7 +4569,6 @@ components:
                       - session
                       - project
                       - area
-                      - global
                   id:
                     type: string
                     minLength: 1
@@ -4825,7 +4814,6 @@ components:
                 - session
                 - project
                 - area
-                - global
             id:
               type: string
               minLength: 1
@@ -4904,7 +4892,6 @@ components:
                     - session
                     - project
                     - area
-                    - global
                 id:
                   type: string
                   minLength: 1
@@ -5645,7 +5632,6 @@ components:
                       - session
                       - project
                       - area
-                      - global
                   id:
                     type: string
                     minLength: 1
@@ -6398,7 +6384,6 @@ components:
                           - session
                           - project
                           - area
-                          - global
                       id:
                         type: string
                         minLength: 1
@@ -6499,7 +6484,6 @@ components:
                           - session
                           - project
                           - area
-                          - global
                       id:
                         type: string
                         minLength: 1

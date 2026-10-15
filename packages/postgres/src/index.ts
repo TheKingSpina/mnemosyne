@@ -73,13 +73,12 @@ interface AreaRow extends QueryResultRow {
 
 // Scope is derived from the columns that reference real rows, never stored as
 // text. A revision with neither an area nor a session sits in its project's
-// scope, and the reserved personal project is what scope type `global` means.
+// scope, and the reserved personal project is a project scope like any other:
+// `global` is retired, and visibility from every session comes from the scope
+// list carrying project `personal`, not from a fourth scope kind.
 function scopeFromRow(row: MemoryRevisionRow): Scope {
   if (row.session_id !== null) return { type: 'session', id: row.session_id };
   if (row.area_id !== null) return { type: 'area', id: row.area_id };
-  if (row.project_id === RESERVED_PERSONAL_PROJECT_ID) {
-    return { type: 'global', id: RESERVED_PERSONAL_PROJECT_ID };
-  }
   return { type: 'project', id: row.project_id };
 }
 
@@ -1163,12 +1162,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
     // matched by the column that references the row it actually points at.
     const sessionIds = input.scopes.filter((s) => s.type === 'session').map((s) => s.id);
     const areaIds = input.scopes.filter((s) => s.type === 'area').map((s) => s.id);
+    // The reserved personal project travels inside this bucket: callers list
+    // project `personal` among the visible scopes, so no dedicated slot stays.
     const projectIds = input.scopes.filter((s) => s.type === 'project').map((s) => s.id);
-    const wantsGlobal = input.scopes.some((s) => s.type === 'global');
     if (
       input.query.trim().length === 0 ||
       input.limit < 1 ||
-      (sessionIds.length === 0 && areaIds.length === 0 && projectIds.length === 0 && !wantsGlobal)
+      (sessionIds.length === 0 && areaIds.length === 0 && projectIds.length === 0)
     ) {
       return [];
     }
@@ -1194,22 +1194,14 @@ export class PostgresMemoryRepository implements MemoryRepository {
              (r.session_id IS NOT NULL AND r.session_id = ANY($2::text[]))
              OR (r.session_id IS NULL AND r.area_id IS NOT NULL AND r.area_id = ANY($3::text[]))
              OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = ANY($4::text[]))
-             OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = $5::text)
            )
        )
        SELECT matched.* FROM matched
        JOIN memories m ON m.id = matched.memory_id AND m.current_version = matched.version
        WHERE m.lifecycle = 'accepted'
        ORDER BY matched.rank DESC, matched.memory_id ASC
-       LIMIT $6`,
-      [
-        input.query,
-        sessionIds,
-        areaIds,
-        projectIds,
-        wantsGlobal ? RESERVED_PERSONAL_PROJECT_ID : null,
-        input.limit,
-      ],
+       LIMIT $5`,
+      [input.query, sessionIds, areaIds, projectIds, input.limit],
     );
     return result.rows.map((row) => this.revisionFromRow(row));
   }

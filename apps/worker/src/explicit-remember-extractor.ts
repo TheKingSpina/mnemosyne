@@ -1,5 +1,10 @@
 import { extractionResultSchema, type ExtractionCandidate, type Scope } from '@mnemosyne/contracts';
-import type { EventRecord, Extractor, SessionRecord } from '@mnemosyne/core';
+import {
+  RESERVED_PERSONAL_PROJECT_ID,
+  type EventRecord,
+  type Extractor,
+  type SessionRecord,
+} from '@mnemosyne/core';
 
 const rememberCommand = /^\s*ricorda\b(?:\s+che\b)?(?:\s*:\s*|\s+)(.+?)\s*$/iu;
 const sessionScope = /\b(?:per|in)\s+(?:questa\s+)?sessione\b|\bsessione\s+corrente\b/iu;
@@ -41,7 +46,7 @@ function inferScope(content: string, session: SessionRecord): Scope | null {
     return null;
   }
   if (matchesSession) return { type: 'session', id: session.id };
-  if (matchesGlobal) return { type: 'global', id: 'personal' };
+  if (matchesGlobal) return { type: 'project', id: RESERVED_PERSONAL_PROJECT_ID };
   if (areaMatch?.[1]) {
     const areaId = session.areaIds.find(
       (id) => id.toLocaleLowerCase() === areaMatch[1]?.toLocaleLowerCase(),

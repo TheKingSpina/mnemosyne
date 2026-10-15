@@ -43,7 +43,7 @@ describe('areDirectlyContradictory', () => {
     expect(
       areDirectlyContradictory(base, {
         ...base,
-        scope: { type: 'global', id: 'personal' },
+        scope: { type: 'project', id: 'personal' },
         content: 'Il progetto non usa pnpm',
       }),
     ).toBe(true);
@@ -63,7 +63,7 @@ describe('areDirectlyContradictory', () => {
     expect(
       areDirectlyContradictory(base, {
         ...base,
-        scope: { type: 'global', id: 'personal' },
+        scope: { type: 'project', id: 'personal' },
         content: 'Il progetto non usa pnpm nel frontend',
       }),
     ).toBe(false);
@@ -73,7 +73,7 @@ describe('areDirectlyContradictory', () => {
     expect(
       areDirectlyContradictory(base, {
         ...base,
-        scope: { type: 'global', id: 'personal' },
+        scope: { type: 'project', id: 'personal' },
         content: 'Il progetto usa pnpm',
       }),
     ).toBe(false);

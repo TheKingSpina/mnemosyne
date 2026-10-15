@@ -25,13 +25,6 @@ export function decideProposal(
     return { status: 'accepted' };
   }
 
-  if (
-    (input.kind === 'preference' || input.kind === 'instruction') &&
-    input.scope.type === 'global'
-  ) {
-    return { status: 'pending_approval' };
-  }
-
   if (input.kind === 'hypothesis') {
     return { status: 'pending_approval' };
   }

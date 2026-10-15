@@ -79,7 +79,7 @@ describe('ExplicitRememberExtractor', () => {
     expect(result.candidates.map((candidate) => candidate.scope)).toEqual([
       { type: 'session', id: session.id },
       { type: 'area', id: 'software' },
-      { type: 'global', id: 'personal' },
+      { type: 'project', id: 'personal' },
     ]);
     expect(result.candidates.map((candidate) => candidate.kind)).toEqual([
       'convention',

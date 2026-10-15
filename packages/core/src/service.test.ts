@@ -8,7 +8,7 @@ import {
 } from './index.js';
 
 const projectScope = { type: 'project' as const, id: 'memory-service' };
-const globalScope = { type: 'global' as const, id: 'personal' };
+const personalScope = { type: 'project' as const, id: 'personal' };
 
 function createService() {
   return new CoreMemoryService(new InMemoryRepository(), {
@@ -117,7 +117,7 @@ describe('CoreMemoryService', () => {
     });
     expect(noMatch).toEqual([]);
   });
-  it('does not expose a pending global preference until review', async () => {
+  it('does not expose a pending personal preference until review', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });
     const proposed = await service.proposeMemory(
@@ -125,7 +125,7 @@ describe('CoreMemoryService', () => {
         sessionId: session.sessionId,
         content: 'Preferisco risposte concise',
         kind: 'preference',
-        scope: globalScope,
+        scope: personalScope,
         epistemicBasis: 'user_asserted',
         assessment: 'uncontested',
         confidence: 1,
@@ -729,7 +729,7 @@ describe('CoreMemoryService', () => {
         sessionId: session.sessionId,
         content: 'Preferisco risposte concise',
         kind: 'preference',
-        scope: globalScope,
+        scope: personalScope,
         epistemicBasis: 'user_asserted',
         assessment: 'uncontested',
         confidence: 1,

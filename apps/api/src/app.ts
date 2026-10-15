@@ -46,7 +46,7 @@ const clientTokenRevokeSchema = z.object({ name: clientTokenNameSchema });
 const searchQuerySchema = z.object({
   sessionId: z.string().min(1),
   q: z.string().min(1),
-  scopeType: z.enum(['session', 'project', 'area', 'global']).optional(),
+  scopeType: z.enum(['session', 'project', 'area']).optional(),
   scopeId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).default(0),

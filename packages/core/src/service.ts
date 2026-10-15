@@ -517,11 +517,14 @@ export class CoreMemoryService implements MemoryService {
     if (!session || session.status !== 'open') throw new Error('session_not_open');
     if (!this.belongsToSession(validated.scope, session)) throw new Error('scope_not_available');
     // The root project follows from the scope: every scope `belongsToSession`
-    // accepts sits inside the session's own project, except `global`, which is
-    // the reserved personal project. Deriving it here rather than accepting it
-    // from the caller means a proposal cannot name a project its scope is not in.
+    // accepts sits inside the session's own project, except the reserved
+    // personal project, which any session may write. Deriving it here rather
+    // than accepting it from the caller means a proposal cannot name a project
+    // its scope is not in.
     const projectId =
-      validated.scope.type === 'global' ? RESERVED_PERSONAL_PROJECT_ID : session.projectId;
+      validated.scope.type === 'project' && validated.scope.id === RESERVED_PERSONAL_PROJECT_ID
+        ? RESERVED_PERSONAL_PROJECT_ID
+        : session.projectId;
     const decision = decideProposal(validated, context.actor, context.explicitDirective);
     if (decision.status === 'rejected') return decision;
     const duplicate = (await this.repository.listMemoryViews()).find(
@@ -1027,11 +1030,14 @@ export class CoreMemoryService implements MemoryService {
   async listScopesForSession(sessionId: string): Promise<Scope[]> {
     const session = await this.repository.findSession(sessionId);
     if (!session) throw new Error('session_not_found');
+    // The reserved personal project is visible from every session. That is a
+    // policy attached to the project, not a scope kind: matching stays exact
+    // equality, and nothing above this list knows personal is special.
     return [
       { type: 'session', id: session.id },
       { type: 'project', id: session.projectId },
       ...session.areaIds.map((id) => ({ type: 'area' as const, id })),
-      { type: 'global', id: 'personal' },
+      { type: 'project', id: RESERVED_PERSONAL_PROJECT_ID },
     ];
   }
 
@@ -1367,7 +1373,10 @@ export class CoreMemoryService implements MemoryService {
       this.matchesScope(scope, { type: 'session', id: session.id }) ||
       this.matchesScope(scope, { type: 'project', id: session.projectId }) ||
       (scope.type === 'area' && session.areaIds.includes(scope.id)) ||
-      this.matchesScope(scope, { type: 'global', id: 'personal' })
+      // The reserved personal project is writable from every session, exactly
+      // as `global` was. That is policy attached to the project, not a scope
+      // kind, and retiring the kind must not silently remove the write path.
+      this.matchesScope(scope, { type: 'project', id: RESERVED_PERSONAL_PROJECT_ID })
     );
   }
 

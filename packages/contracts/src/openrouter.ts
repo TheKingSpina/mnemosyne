@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const openRouterScopeTypeSchema = z.enum(['session', 'project', 'area', 'global']);
+const openRouterScopeTypeSchema = z.enum(['session', 'project', 'area']);
 const openRouterMemoryKindSchema = z.enum([
   'fact',
   'preference',
