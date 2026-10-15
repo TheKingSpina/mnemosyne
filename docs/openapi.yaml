@@ -2305,6 +2305,44 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/ApiProblem'
                   - $ref: '#/components/schemas/ApiError'
+  /v1/admin/projects:
+    get:
+      tags:
+        - Administration
+      operationId: listProjects
+      summary: Elenca tutti i progetti con i loro nomi
+      x-required-profile: owner
+      responses:
+        '200':
+          description: Progetti trovati.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListProjectsOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
   /v1/admin/conflicts:
     get:
       tags:
@@ -4742,6 +4780,46 @@ components:
       required:
         - memoryArcs
         - projectArcs
+      additionalProperties: false
+    ProjectView:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+      required:
+        - id
+        - name
+      additionalProperties: false
+    ListProjectsOutput:
+      type: object
+      properties:
+        projects:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              name:
+                type: string
+                minLength: 1
+              description:
+                type: string
+                minLength: 1
+            required:
+              - id
+              - name
+            additionalProperties: false
+      required:
+        - projects
       additionalProperties: false
     ConflictListOutput:
       type: object

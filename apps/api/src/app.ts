@@ -366,6 +366,17 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, value);
     return;
   }
+  if (request.method === 'GET' && url.pathname === '/v1/admin/projects') {
+    const projects = await service.listProjects();
+    sendJson(response, 200, {
+      projects: projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        ...(project.description === undefined ? {} : { description: project.description }),
+      })),
+    });
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/conflicts') {
     sendJson(response, 200, await service.listConflicts());
     return;

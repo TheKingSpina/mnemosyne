@@ -336,6 +336,30 @@ describe('Mnemosyne API authorization', () => {
     expect(detailBody.revisions.map((revision) => revision.version)).toEqual([2, 1]);
   });
 
+  it('lists every project with names for the owner dashboard', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    await service.openSession({ projectId: 'synthetic-alpha' });
+    await service.openSession({ projectId: 'synthetic-beta' });
+
+    const response = await fetch(`${baseUrl}/v1/admin/projects`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { projects: Array<{ id: string; name: string }> };
+    // The in-memory backend seeds nothing, so only the two provisioned
+    // projects exist; in PostgreSQL the seeded personal project joins them.
+    expect(body.projects.map((project) => project.id).sort()).toEqual([
+      'synthetic-alpha',
+      'synthetic-beta',
+    ]);
+
+    const asHarness = await fetch(`${baseUrl}/v1/admin/projects`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+    expect(asHarness.status).toBe(403);
+  });
+
   it('exposes embedding health and reindex to the owner only', async () => {
     const { server } = createTestServer();
     const baseUrl = await listen(server);

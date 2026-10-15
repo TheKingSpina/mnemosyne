@@ -175,6 +175,18 @@ export const listProjectArcsOutputSchema = z.object({
 });
 export type ListProjectArcsOutput = z.infer<typeof listProjectArcsOutputSchema>;
 
+export const projectViewSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1).optional(),
+});
+export type ProjectView = z.infer<typeof projectViewSchema>;
+
+export const listProjectsOutputSchema = z.object({
+  projects: z.array(projectViewSchema),
+});
+export type ListProjectsOutput = z.infer<typeof listProjectsOutputSchema>;
+
 export const listAllArcsOutputSchema = z.object({
   memoryArcs: z.array(memoryArcViewSchema),
   projectArcs: z.array(projectArcViewSchema),

@@ -42,6 +42,8 @@ import {
   proposalArcResultSchema,
   listMemoryArcsOutputSchema,
   listAllArcsOutputSchema,
+  projectViewSchema,
+  listProjectsOutputSchema,
   listProjectArcsOutputSchema,
   reviewArcInputSchema,
   reviewArcOutputSchema,
@@ -837,6 +839,20 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/projects': {
+      get: operation({
+        tags: ['Administration'],
+        operationId: 'listProjects',
+        summary: 'Elenca tutti i progetti con i loro nomi',
+        requiredProfile: 'owner',
+        responses: {
+          200: jsonResponse('Progetti trovati.', schemaRef('ListProjectsOutput')),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/conflicts': {
       get: operation({
         tags: ['Administration'],
@@ -1096,6 +1112,8 @@ export const openApiDocument: Oas3_1Definition = {
       SearchMemoriesOutput: schemaRefValue(searchMemoriesOutputSchema),
       ConflictView: schemaRefValue(conflictViewSchema),
       ListAllArcsOutput: schemaRefValue(listAllArcsOutputSchema),
+      ProjectView: schemaRefValue(projectViewSchema),
+      ListProjectsOutput: schemaRefValue(listProjectsOutputSchema),
       ConflictListOutput: schemaRefValue(conflictListOutputSchema),
       CorrectMemoryRequest: schemaRefValue(inputSchemas.correction, 'input'),
       CorrectMemoryOutput: schemaRefValue(correctMemoryOutputSchema),

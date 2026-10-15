@@ -689,6 +689,13 @@
         background: var(--bad);
         box-shadow: none;
       }
+      .graph-legend .graph-legend-item.project::before {
+        width: 14px;
+        height: 2px;
+        border-radius: 0;
+        background: var(--graph-violet);
+        box-shadow: 0 0 10px rgba(167, 139, 250, 0.65);
+      }
       .graph-legend .graph-legend-item.arc::before {
         width: 14px;
         height: 2px;
@@ -842,6 +849,9 @@
               <div class="graph-stat">
                 <strong id="graph-arc-count">0</strong><span>archi</span>
               </div>
+              <div class="graph-stat">
+                <strong id="graph-project-arc-count">0</strong><span>archi fra progetti</span>
+              </div>
             </div>
             <canvas id="graph-canvas" role="img" aria-label="Grafo delle memorie"
               >Grafo delle memorie</canvas
@@ -871,6 +881,7 @@
             <span class="graph-legend-item scope">Ambito / scope</span>
             <span class="graph-legend-item conflict">Conflitto</span>
             <span class="graph-legend-item arc">Arco</span>
+            <span class="graph-legend-item project">Progetto / arco fra progetti</span>
           </div>
           <div id="graph-detail" class="graph-detail sub">
             Seleziona un nodo per visualizzare i dettagli.
@@ -1167,9 +1178,14 @@
             }));
           state.graphConflicts = Array.isArray(conflictData.items) ? conflictData.items : [];
           state.graphArcs = Array.isArray(arcData.memoryArcs) ? arcData.memoryArcs : [];
-          state.graphProjectArcCount = Array.isArray(arcData.projectArcs)
-            ? arcData.projectArcs.length
-            : 0;
+          state.graphProjectArcs = Array.isArray(arcData.projectArcs) ? arcData.projectArcs : [];
+          state.graphProjectArcCount = state.graphProjectArcs.length;
+          const projectData = await request('/v1/admin/projects');
+          const projectNames = new Map();
+          for (const project of Array.isArray(projectData.projects) ? projectData.projects : []) {
+            projectNames.set(project.id, project.name);
+          }
+          state.graphProjectNames = projectNames;
           state.graphTotal = total;
           state.selectedGraphNodeId = null;
           const scopeSelect = $('graph-scope');
@@ -1235,6 +1251,30 @@
           });
           edges.push({ from: memory.memoryId, to: scopeId, kind: 'scope' });
         }
+        const projectIds = new Set();
+        for (const arc of state.graphProjectArcs ?? []) {
+          projectIds.add(arc.fromProjectId);
+          projectIds.add(arc.toProjectId);
+        }
+        const projectNodes = [...projectIds].map((id) => ({
+          id: `project:${id}`,
+          kind: 'project',
+          label: state.graphProjectNames?.get(id) ?? id,
+          lifecycle: 'project',
+          projectId: id,
+        }));
+        let visibleProjectArcCount = 0;
+        for (const arc of state.graphProjectArcs ?? []) {
+          visibleProjectArcCount += 1;
+          edges.push({
+            from: `project:${arc.fromProjectId}`,
+            to: `project:${arc.toProjectId}`,
+            kind: 'project-arc',
+            type: arc.type,
+            weight: arc.weight,
+            lifecycle: arc.lifecycle,
+          });
+        }
         let visibleArcCount = 0;
         for (const arc of state.graphArcs ?? []) {
           if (!visibleIds.has(arc.fromMemoryId) || !visibleIds.has(arc.toMemoryId)) continue;
@@ -1264,6 +1304,8 @@
           }
         }
         positionGraphNodes(nodes);
+        positionProjectNodes(nodes, projectNodes);
+        nodes.push(...projectNodes);
         state.graphViewport = null;
         $('graph-summary').textContent =
           `${visibleMemories.length} / ${state.graphMemories.length} visibili · ${state.graphConflicts.length} conflitti totali · ${visibleArcCount} archi visibili · ${state.graphProjectArcCount ?? 0} archi fra progetti · layout statico`;
@@ -1271,6 +1313,7 @@
         $('graph-total-count').textContent = state.graphMemories.length;
         $('graph-conflict-count').textContent = visibleConflictCount;
         $('graph-arc-count').textContent = visibleArcCount;
+        $('graph-project-arc-count').textContent = visibleProjectArcCount;
         $('graph-empty').classList.toggle('hidden', nodes.length > 0);
         return { nodes, edges };
       };
@@ -1309,16 +1352,33 @@
           });
         });
       };
+      const positionProjectNodes = (placed, projectNodes) => {
+        if (projectNodes.length === 0) return;
+        let top = -160;
+        for (const node of placed) {
+          if (Number.isFinite(node.y) && node.y < top) top = node.y;
+        }
+        const spacing = 220;
+        projectNodes.forEach((node, index) => {
+          node.x = (index - (projectNodes.length - 1) / 2) * spacing;
+          node.y = top - 130;
+        });
+      };
       const showGraphInspector = (node, graph) => {
         const inspector = $('graph-inspector');
         const title = $('graph-inspector-title');
         const body = $('graph-inspector-body');
-        title.textContent = node.kind === 'scope' ? node.label : node.content;
+        title.textContent =
+          node.kind === 'scope' || node.kind === 'project' ? node.label : node.content;
         body.replaceChildren();
         const content = document.createElement('div');
         content.className = 'graph-inspector-content';
         content.textContent =
-          node.kind === 'scope' ? `Ambito ${node.scopeType} · ${node.scopeId}` : node.content;
+          node.kind === 'scope'
+            ? `Ambito ${node.scopeType} · ${node.scopeId}`
+            : node.kind === 'project'
+              ? `Progetto ${node.projectId}`
+              : node.content;
         body.append(content);
         const meta = document.createElement('div');
         meta.className = 'graph-inspector-meta';
@@ -1328,11 +1388,16 @@
                 ['scope', node.scopeType],
                 ['nodo', 'hub'],
               ]
-            : [
-                ['stato', node.lifecycle],
-                ['tipo', node.memoryKind],
-                ['versione', node.version],
-              ];
+            : node.kind === 'project'
+              ? [
+                  ['progetto', node.projectId],
+                  ['nodo', 'radice'],
+                ]
+              : [
+                  ['stato', node.lifecycle],
+                  ['tipo', node.memoryKind],
+                  ['versione', node.version],
+                ];
         for (const [label, value] of values) {
           const chip = document.createElement('span');
           chip.textContent = `${label}: ${value}`;
@@ -1361,6 +1426,13 @@
                   : `peso ${edge.weight}`;
               const arcState = edge.lifecycle === 'accepted' ? 'accettato' : 'in review';
               relation.textContent = `arco · ${edge.type} · ${weight} · ${arcState} · ${otherId}`;
+            } else if (edge.kind === 'project-arc') {
+              const weight =
+                edge.weight === null || edge.weight === undefined
+                  ? 'senza peso'
+                  : `peso ${edge.weight}`;
+              const arcState = edge.lifecycle === 'accepted' ? 'accettato' : 'in review';
+              relation.textContent = `arco progetto · ${edge.type} · ${weight} · ${arcState} · ${otherId.replace(/^project:/, '')}`;
             } else {
               relation.textContent = `${edge.kind === 'conflict' ? 'conflitto' : 'scope'} · ${otherId}`;
             }
@@ -1372,7 +1444,9 @@
         $('graph-detail').textContent =
           node.kind === 'scope'
             ? `Ambito selezionato: ${node.label}`
-            : 'Memoria selezionata · inspector aperto';
+            : node.kind === 'project'
+              ? `Progetto selezionato: ${node.label}`
+              : 'Memoria selezionata · inspector aperto';
       };
       const graphColors = {
         scope: '#a78bfa',
@@ -1405,7 +1479,7 @@
       const graphTruncate = (value, length) =>
         value.length > length ? `${value.slice(0, length - 1).trim()}…` : value;
       const graphNodeAccent = (node) =>
-        node.kind === 'scope'
+        node.kind === 'scope' || node.kind === 'project'
           ? graphColors.scope
           : graphKindColors[node.memoryKind] ||
             graphColors[node.lifecycle] ||
@@ -1507,6 +1581,8 @@
           const conflict = edge.kind === 'conflict';
           const arc = edge.kind === 'arc';
           const arcAccepted = arc && edge.lifecycle === 'accepted';
+          const projectArc = edge.kind === 'project-arc';
+          const projectArcAccepted = projectArc && edge.lifecycle === 'accepted';
           const selectedEdge =
             state.selectedGraphNodeId &&
             (edge.from === state.selectedGraphNodeId || edge.to === state.selectedGraphNodeId);
@@ -1523,7 +1599,11 @@
                 ? arcAccepted
                   ? '#67e8f9'
                   : '#fbbf24'
-                : '#53658d';
+                : projectArc
+                  ? projectArcAccepted
+                    ? '#a78bfa'
+                    : '#fbbf24'
+                  : '#53658d';
           context.globalAlpha = selectedEdge
             ? 0.92
             : conflict
@@ -1534,12 +1614,27 @@
                 ? arcAccepted
                   ? 0.8
                   : 0.5
-                : 0.38;
+                : projectArc
+                  ? projectArcAccepted
+                    ? 0.8
+                    : 0.5
+                  : 0.38;
           const arcWidth = arcAccepted ? 1 + (edge.weight ?? 0.5) * 1.4 : 1;
+          const projectArcWidth = projectArcAccepted ? 1 + (edge.weight ?? 0.5) * 1.4 : 1;
           context.lineWidth =
-            (selectedEdge ? 2 : conflict ? 1.4 : arc ? arcWidth : 0.8) / viewport.scale;
+            (selectedEdge
+              ? 2
+              : conflict
+                ? 1.4
+                : arc
+                  ? arcWidth
+                  : projectArc
+                    ? projectArcWidth
+                    : 0.8) / viewport.scale;
           context.setLineDash(
-            conflict || (arc && !arcAccepted) ? [5 / viewport.scale, 5 / viewport.scale] : [],
+            conflict || (arc && !arcAccepted) || (projectArc && !projectArcAccepted)
+              ? [5 / viewport.scale, 5 / viewport.scale]
+              : [],
           );
           context.stroke();
         }
@@ -1547,7 +1642,7 @@
         context.globalAlpha = 1;
         for (const node of graph.nodes) {
           if (!Number.isFinite(node.x)) continue;
-          const isScope = node.kind === 'scope';
+          const isScope = node.kind === 'scope' || node.kind === 'project';
           const selected = state.selectedGraphNodeId === node.id;
           const hovered = state.graphHoverNodeId === node.id;
           const accent = graphNodeAccent(node);

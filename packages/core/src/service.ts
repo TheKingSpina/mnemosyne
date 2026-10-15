@@ -70,6 +70,7 @@ import {
   type CreateProjectArcInput,
   type MemoryArc,
   type ProjectArc,
+  type ProjectRecord,
   type ProposalArcResult,
 } from './types.js';
 import { containsSecret, decideProposal } from './policy.js';
@@ -504,6 +505,12 @@ export class CoreMemoryService implements MemoryService {
 
   async listProjectArcs(projectId: string): Promise<ProjectArc[]> {
     return this.repository.listProjectArcs(projectId);
+  }
+
+  // The owner dashboard draws a project layer above the memory graph, so it
+  // needs every project in one call.
+  async listProjects(): Promise<ProjectRecord[]> {
+    return this.repository.listProjects();
   }
 
   // The owner dashboard draws the whole graph at once, so it needs every arc

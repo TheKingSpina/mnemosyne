@@ -251,6 +251,7 @@ export interface MemoryService {
   reviewProjectArc(arcId: string, decision: 'accept' | 'reject'): Promise<ProjectArc>;
   listMemoryArcs(memoryId: string): Promise<{ from: MemoryArc[]; to: MemoryArc[] }>;
   listAllArcs(): Promise<{ memoryArcs: MemoryArc[]; projectArcs: ProjectArc[] }>;
+  listProjects(): Promise<ProjectRecord[]>;
   listProjectArcs(projectId: string): Promise<ProjectArc[]>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
   searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]>;
