@@ -34,7 +34,7 @@ const flag = (name, fallback) => {
 const memoryCount = Number(flag('memories', '10000'));
 
 const IMAGE = 'pgvector/pgvector:pg17';
-const SCOPE_KEY = 'project:explain';
+const SCOPE_KEY = 'explain';
 
 const name = `mnemosyne-explain-${randomBytes(4).toString('hex')}`;
 const password = randomBytes(16).toString('hex');
@@ -137,21 +137,27 @@ async function main() {
     pool = new Pool({ connectionString, max: 4 });
     await pool.query(await readFile(schemaTarget, 'utf8'));
 
+    // memories.project_id is a foreign key, so the project has to exist before the
+    // synthetic corpus is written.
+    await pool.query(
+      `INSERT INTO projects (id, name) VALUES ('explain', 'Explain') ON CONFLICT (id) DO NOTHING`,
+    );
+
     const { rows: existing } = await pool.query('SELECT count(*)::int AS n FROM memories');
     if (existing[0].n === 0) {
       for (let start = 0; start < memoryCount; start += 500) {
         for (let n = 0; n < 500 && start + n < memoryCount; n += 1) {
           const index = start + n;
           const { rows } = await pool.query(
-            `INSERT INTO memories (id, lifecycle) VALUES ($1, 'accepted') RETURNING id`,
+            `INSERT INTO memories (id, lifecycle, project_id) VALUES ($1, 'accepted', 'explain') RETURNING id`,
             [`mem_x${index}`],
           );
           const id = rows[0].id;
           await pool.query(
             `INSERT INTO memory_revisions
-               (memory_id, version, content, kind, scope_type, scope_id,
+               (memory_id, version, content, kind,
                 epistemic_basis, assessment, confidence, sensitivity, activation, source_event_ids)
-             VALUES ($1, 1, $2, 'fact', 'project', 'explain', 'user_asserted', 'uncontested', 1, 'normal', 'on_demand', '{}')`,
+             VALUES ($1, 1, $2, 'fact', 'user_asserted', 'uncontested', 1, 'normal', 'on_demand', '{}')`,
             [id, contentFor(index)],
           );
         }
@@ -167,7 +173,7 @@ async function main() {
         `SELECT r.* FROM memories m JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
          WHERE m.lifecycle = 'accepted'
            AND to_tsvector('simple', r.content) @@ websearch_to_tsquery('simple', $1)
-           AND (r.scope_type || ':' || r.scope_id) = ANY($2::text[])
+           AND r.project_id = ANY($2::text[])
          ORDER BY ts_rank_cd(to_tsvector('simple', r.content), websearch_to_tsquery('simple', $1)) DESC, r.memory_id ASC
          LIMIT 1000`,
       ],
@@ -177,7 +183,7 @@ async function main() {
         `SELECT r.* FROM memories m JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
          WHERE m.lifecycle = 'accepted'
            AND to_tsvector('simple', r.content) @@ to_tsquery('simple', $1)
-           AND (r.scope_type || ':' || r.scope_id) = ANY($2::text[])
+           AND r.project_id = ANY($2::text[])
          ORDER BY ts_rank_cd(to_tsvector('simple', r.content), to_tsquery('simple', $1)) DESC, r.memory_id ASC
          LIMIT 1000`,
       ],
@@ -187,7 +193,7 @@ async function main() {
         `SELECT r.* FROM memories m JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
          WHERE m.lifecycle = 'accepted'
            AND to_tsvector('simple', r.content) @@ websearch_to_tsquery('simple', 'pipeline0:* or semantic1:*')
-           AND (r.scope_type || ':' || r.scope_id) = ANY(ARRAY['project:explain']::text[])
+           AND r.project_id = ANY(ARRAY['explain']::text[])
          ORDER BY ts_rank_cd(to_tsvector('simple', r.content), websearch_to_tsquery('simple', 'pipeline0:* or semantic1:*')) DESC, r.memory_id ASC
          LIMIT 1000`,
       ],
@@ -207,7 +213,7 @@ async function main() {
          SELECT matched.* FROM matched
          JOIN memories m ON m.id = matched.memory_id AND m.current_version = matched.version
          WHERE m.lifecycle = 'accepted'
-           AND (matched.scope_type || ':' || matched.scope_id) = ANY(ARRAY['project:explain']::text[])`,
+           AND matched.project_id = ANY(ARRAY['explain']::text[])`,
       ],
       [
         'CTE MATERIALIZED: il FTS guida, poi join',
@@ -219,7 +225,7 @@ async function main() {
          SELECT matched.* FROM matched
          JOIN memories m ON m.id = matched.memory_id AND m.current_version = matched.version
          WHERE m.lifecycle = 'accepted'
-           AND (matched.scope_type || ':' || matched.scope_id) = ANY(ARRAY['project:explain']::text[])
+           AND matched.project_id = ANY(ARRAY['explain']::text[])
          ORDER BY matched.memory_id
          LIMIT 1000`,
       ],

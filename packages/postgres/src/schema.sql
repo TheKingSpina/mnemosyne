@@ -132,7 +132,6 @@ CREATE OR REPLACE TRIGGER trg_memoria_progetto_immutabile
   BEFORE UPDATE OF project_id ON memories
   FOR EACH ROW EXECUTE FUNCTION memoria_progetto_immutabile();
 
-
 CREATE TABLE IF NOT EXISTS memory_revisions (
   memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
   version integer NOT NULL,
@@ -149,6 +148,68 @@ CREATE TABLE IF NOT EXISTS memory_revisions (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (memory_id, version)
 );
+
+-- Scope references real rows. `area_id` carries no foreign key of its own because
+-- the trigger below checks membership, and a redundant second constraint would
+-- reject with the wrong explanation.
+--
+-- `project_id` here is a read-only copy of `memories.project_id`, maintained by
+-- the trigger immediately after. It exists so the search filter can stay inside
+-- the MATERIALIZED CTE over memory_revisions alone: joining memories in there is
+-- exactly what used to make the planner ignore the GIN index, worth 29x at
+-- 10,000 memories. It is never written by callers, so it cannot disagree.
+ALTER TABLE memory_revisions ADD COLUMN IF NOT EXISTS project_id text;
+ALTER TABLE memory_revisions ADD COLUMN IF NOT EXISTS area_id text;
+ALTER TABLE memory_revisions
+  ADD COLUMN IF NOT EXISTS session_id text REFERENCES sessions(id)
+  ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+
+CREATE INDEX IF NOT EXISTS idx_memory_revisions_scope
+  ON memory_revisions (project_id, area_id, session_id);
+
+CREATE OR REPLACE FUNCTION memoria_revisione_eredita_progetto() RETURNS trigger AS $$
+BEGIN
+  NEW.project_id := (SELECT project_id FROM memories WHERE id = NEW.memory_id);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_memoria_revisione_eredita_progetto
+  BEFORE INSERT OR UPDATE ON memory_revisions
+  FOR EACH ROW EXECUTE FUNCTION memoria_revisione_eredita_progetto();
+
+-- "the area of a memory belongs to that memory's project" spans two tables, and a
+-- foreign key cannot reference columns from two relations. 23503 so the API maps
+-- it to 409 through the existing foreign-key path.
+CREATE OR REPLACE FUNCTION memoria_scope_tiene_progetto() RETURNS trigger AS $$
+DECLARE memoria_progetto text;
+BEGIN
+  IF NEW.area_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM areas WHERE id = NEW.area_id AND project_id = NEW.project_id
+  ) THEN
+    RAISE EXCEPTION 'area_not_in_project: % is not an area of project %',
+      NEW.area_id, NEW.project_id USING ERRCODE = '23503';
+  END IF;
+  IF NEW.session_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM sessions WHERE id = NEW.session_id AND project_id = NEW.project_id
+  ) THEN
+    RAISE EXCEPTION 'session_not_in_project: % is not a session of project %',
+      NEW.session_id, NEW.project_id USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_memoria_scope_tiene_progetto
+  BEFORE INSERT OR UPDATE OF area_id, session_id ON memory_revisions
+  FOR EACH ROW EXECUTE FUNCTION memoria_scope_tiene_progetto();
+
+-- Scope is derived from those columns now, so the free-text pair is gone. It was
+-- never constrained: any string was a valid scope_id, which is the whole reason
+-- projects and areas had to become tables.
+ALTER TABLE memory_revisions DROP COLUMN IF EXISTS scope_type;
+ALTER TABLE memory_revisions DROP COLUMN IF EXISTS scope_id;
+
 
 CREATE INDEX IF NOT EXISTS memory_revisions_current_content_idx
   ON memory_revisions USING gin (to_tsvector('simple', content));

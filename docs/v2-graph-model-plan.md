@@ -167,6 +167,22 @@ A trigger is less visible than a constraint and it is the honest tool here, but 
 that nothing in a schema listing shows the rule. It therefore has to be covered by a test,
 or it is decoration.
 
+### Why `project_id` is copied onto the revision
+
+The search filter cannot join `memories` to build a scope key. `searchCurrentMemories`
+pushes the full-text match into a `MATERIALIZED` CTE over `memory_revisions` alone,
+because joining `memories` in there is exactly what once made the planner start from the
+lifecycle index and apply the text match as a post-filter: measured at 10,000 memories the
+same query returned 15 rows in 69 ms where a bitmap heap scan over `memory_revisions`
+returned the same 15 rows in 2.1 ms. Moving the join back inside the CTE would undo a
+measured 29x.
+
+So a read-only copy of `project_id` lives on `memory_revisions`, written by a trigger that
+copies it from `memories` on every insert and update. Callers never write it, so it cannot
+disagree, and a hand-written value is overwritten rather than trusted. That is the trade:
+one denormalised column, maintained automatically, in exchange for the search plan staying
+as it is.
+
 Deleting an area that is still the scope of some memory fails at commit with `23503`,
 because the session reference above is deferrable and evaluated at commit.
 

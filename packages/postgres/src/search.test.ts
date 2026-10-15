@@ -31,11 +31,40 @@ describe('PostgresMemoryRepository search pushdown', () => {
     expect(calls[0]?.text).toContain('WITH matched AS MATERIALIZED');
     expect(calls[0]?.text).toMatch(/JOIN memories m ON m\.id = matched\.memory_id/);
     expect(calls[0]?.text).toContain('ts_rank_cd');
-    expect(calls[0]?.text).toContain('LIMIT $3');
+    // Scope is not a stored string any more, so the buckets arrive separately
+    // and the filter compares the columns that reference the real rows.
+    expect(calls[0]?.text).toContain('r.session_id = ANY($2::text[])');
+    expect(calls[0]?.text).toContain('r.area_id = ANY($3::text[])');
+    expect(calls[0]?.text).toContain('r.project_id = ANY($4::text[])');
+    expect(calls[0]?.text).toContain('LIMIT $6');
     expect(calls[0]?.values).toEqual([
       'cache:* or gateway:*',
-      ['project:eval-retrieval', 'global:personal'],
+      [],
+      [],
+      ['eval-retrieval'],
+      'personal',
       25,
     ]);
+  });
+
+  it('returns nothing when the caller asks for no scopes at all', async () => {
+    const calls: Array<{ text: string; values?: unknown[] }> = [];
+    const database = {
+      query: async (text: string, values?: unknown[]) => {
+        calls.push({ text, values });
+        return { rows: [] };
+      },
+    };
+    const repository = new PostgresMemoryRepository(database as never);
+
+    const result = await repository.searchCurrentMemories({
+      query: 'cache',
+      limit: 10,
+      scopes: [],
+    });
+
+    // Every bucket empty means no scope can match, so the query must not run.
+    expect(result).toEqual([]);
+    expect(calls).toHaveLength(0);
   });
 });

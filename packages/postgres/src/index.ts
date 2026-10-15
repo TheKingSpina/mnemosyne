@@ -35,6 +35,7 @@ import type {
   CreateProjectInput,
   CreateAreaInput,
 } from '@mnemosyne/core';
+import { RESERVED_PERSONAL_PROJECT_ID } from '@mnemosyne/core';
 import { randomUUID } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 export {
@@ -64,6 +65,18 @@ interface AreaRow extends QueryResultRow {
   name: string;
   created_at: Date;
   updated_at: Date;
+}
+
+// Scope is derived from the columns that reference real rows, never stored as
+// text. A revision with neither an area nor a session sits in its project's
+// scope, and the reserved personal project is what scope type `global` means.
+function scopeFromRow(row: MemoryRevisionRow): Scope {
+  if (row.session_id !== null) return { type: 'session', id: row.session_id };
+  if (row.area_id !== null) return { type: 'area', id: row.area_id };
+  if (row.project_id === RESERVED_PERSONAL_PROJECT_ID) {
+    return { type: 'global', id: RESERVED_PERSONAL_PROJECT_ID };
+  }
+  return { type: 'project', id: row.project_id };
 }
 
 function projectFromRow(row: ProjectRow): ProjectRecord {
@@ -119,8 +132,9 @@ interface MemoryRevisionRow extends QueryResultRow {
   version: number;
   content: string;
   kind: MemoryRevision['kind'];
-  scope_type: MemoryRevision['scope']['type'];
-  scope_id: string;
+  project_id: string;
+  area_id: string | null;
+  session_id: string | null;
   epistemic_basis: MemoryRevision['epistemicBasis'];
   assessment: MemoryRevision['assessment'];
   confidence: number | null;
@@ -580,7 +594,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
 
   async getMemory(id: string): Promise<{ record: MemoryRecord; current: MemoryRevision } | null> {
     const result = await this.database.query<MemoryRow & MemoryRevisionRow>(
-      `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+      `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
               r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation, r.source_event_ids
        FROM memories m JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
        WHERE m.id = $1`,
@@ -599,7 +613,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
     try {
       await client.query('BEGIN');
       const current = await client.query<MemoryRow & MemoryRevisionRow>(
-        `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+        `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
                 r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation,
                 r.source_event_ids
          FROM memories m
@@ -706,7 +720,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
     try {
       await client.query('BEGIN');
       const canonical = await client.query<MemoryRow & MemoryRevisionRow>(
-        `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+        `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
                 r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation,
                 r.source_event_ids
          FROM memories m
@@ -924,8 +938,19 @@ export class PostgresMemoryRepository implements MemoryRepository {
     limit: number;
     scopes: Scope[];
   }): Promise<MemoryRevision[]> {
-    const scopeKeys = input.scopes.map((scope) => `${scope.type}:${scope.id}`);
-    if (input.query.trim().length === 0 || scopeKeys.length === 0 || input.limit < 1) return [];
+    // Scope buckets, because scope is no longer a stored string: a revision is
+    // matched by the column that references the row it actually points at.
+    const sessionIds = input.scopes.filter((s) => s.type === 'session').map((s) => s.id);
+    const areaIds = input.scopes.filter((s) => s.type === 'area').map((s) => s.id);
+    const projectIds = input.scopes.filter((s) => s.type === 'project').map((s) => s.id);
+    const wantsGlobal = input.scopes.some((s) => s.type === 'global');
+    if (
+      input.query.trim().length === 0 ||
+      input.limit < 1 ||
+      (sessionIds.length === 0 && areaIds.length === 0 && projectIds.length === 0 && !wantsGlobal)
+    ) {
+      return [];
+    }
     // The full-text filter has to drive the plan, not decorate it.
     //
     // Joining memories to memory_revisions first made the planner start from
@@ -938,20 +963,32 @@ export class PostgresMemoryRepository implements MemoryRepository {
     // the lifecycle check happens on the handful of rows that matched.
     const result = await this.database.query<MemoryRevisionRow & { rank: number }>(
       `WITH matched AS MATERIALIZED (
-         SELECT r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+         SELECT r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
                 r.epistemic_basis, r.assessment, r.confidence, r.sensitivity,
                 r.activation, r.source_event_ids,
                 ts_rank_cd(to_tsvector('simple', r.content), websearch_to_tsquery('simple', $1)) AS rank
          FROM memory_revisions r
          WHERE to_tsvector('simple', r.content) @@ websearch_to_tsquery('simple', $1)
-           AND (r.scope_type || ':' || r.scope_id) = ANY($2::text[])
+           AND (
+             (r.session_id IS NOT NULL AND r.session_id = ANY($2::text[]))
+             OR (r.session_id IS NULL AND r.area_id IS NOT NULL AND r.area_id = ANY($3::text[]))
+             OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = ANY($4::text[]))
+             OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = $5::text)
+           )
        )
        SELECT matched.* FROM matched
        JOIN memories m ON m.id = matched.memory_id AND m.current_version = matched.version
        WHERE m.lifecycle = 'accepted'
        ORDER BY matched.rank DESC, matched.memory_id ASC
-       LIMIT $3`,
-      [input.query, scopeKeys, input.limit],
+       LIMIT $6`,
+      [
+        input.query,
+        sessionIds,
+        areaIds,
+        projectIds,
+        wantsGlobal ? RESERVED_PERSONAL_PROJECT_ID : null,
+        input.limit,
+      ],
     );
     return result.rows.map((row) => this.revisionFromRow(row));
   }
@@ -1018,7 +1055,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
 
   async listMemoryViews(): Promise<MemoryWithCurrent[]> {
     const result = await this.database.query<MemoryRow & MemoryRevisionRow>(
-      `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.scope_type, r.scope_id,
+      `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
               r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation, r.source_event_ids
        FROM memories m
        JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
@@ -1486,16 +1523,16 @@ export class PostgresMemoryRepository implements MemoryRepository {
     revision: MemoryRevision,
   ): Promise<void> {
     await client.query(
-      `INSERT INTO memory_revisions (memory_id, version, content, kind, scope_type, scope_id, epistemic_basis, assessment, confidence, sensitivity, activation, source_event_ids)
+      `INSERT INTO memory_revisions (memory_id, version, content, kind, area_id, session_id, epistemic_basis, assessment, confidence, sensitivity, activation, source_event_ids)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (memory_id, version) DO UPDATE SET content = EXCLUDED.content, kind = EXCLUDED.kind, scope_type = EXCLUDED.scope_type, scope_id = EXCLUDED.scope_id, epistemic_basis = EXCLUDED.epistemic_basis, assessment = EXCLUDED.assessment, confidence = EXCLUDED.confidence, sensitivity = EXCLUDED.sensitivity, activation = EXCLUDED.activation, source_event_ids = EXCLUDED.source_event_ids`,
+       ON CONFLICT (memory_id, version) DO UPDATE SET content = EXCLUDED.content, kind = EXCLUDED.kind, area_id = EXCLUDED.area_id, session_id = EXCLUDED.session_id, epistemic_basis = EXCLUDED.epistemic_basis, assessment = EXCLUDED.assessment, confidence = EXCLUDED.confidence, sensitivity = EXCLUDED.sensitivity, activation = EXCLUDED.activation, source_event_ids = EXCLUDED.source_event_ids`,
       [
         memoryId,
         revision.version,
         revision.content,
         revision.kind,
-        revision.scope.type,
-        revision.scope.id,
+        revision.scope.type === 'area' ? revision.scope.id : null,
+        revision.scope.type === 'session' ? revision.scope.id : null,
         revision.epistemicBasis,
         revision.assessment,
         revision.confidence,
@@ -1587,7 +1624,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       version: row.version,
       content: row.content,
       kind: row.kind,
-      scope: { type: row.scope_type, id: row.scope_id },
+      scope: scopeFromRow(row),
       epistemicBasis: row.epistemic_basis,
       assessment: row.assessment,
       confidence: row.confidence,

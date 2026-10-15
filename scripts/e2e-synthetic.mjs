@@ -250,6 +250,9 @@ async function runLifecycle() {
   });
   await waitForJob(closed.jobId);
   await verifyBackupLifecycle();
+  // After the final export, so the memory it creates cannot change what the
+  // restore below is verified against.
+  await verifyScopeIsolation();
   return {
     export: finalExport,
     sourceCorpusRevision: finalExport.corpusRevision,
@@ -484,6 +487,76 @@ async function verifyMemoryProjectIdentity() {
   psql("UPDATE memories SET lifecycle = 'pending_approval' WHERE id = 'e2e_m1';");
   psql("DELETE FROM memories WHERE id = 'e2e_m1';");
   psql("DELETE FROM projects WHERE id IN ('e2e_gamma', 'e2e_delta');");
+}
+
+async function verifyScopeIsolation() {
+  // Scope is derived from columns now, so the one thing worth proving is that a
+  // memory in another project stays unreachable from this session's scopes. The
+  // search filter was rewritten from a string comparison into three column
+  // comparisons, and nothing else in this script would notice if it leaked.
+  // Both sessions are opened here rather than reusing the lifecycle one: this
+  // runs after that session is closed, and a closed session is not the subject
+  // under test.
+  const own = await api('/v1/sessions', {
+    token: harnessToken,
+    method: 'POST',
+    key: 'e2e-isolation-own-session',
+    body: { projectId: 'e2e-synthetic' },
+    status: 201,
+  });
+  const other = await api('/v1/sessions', {
+    token: harnessToken,
+    method: 'POST',
+    key: 'e2e-isolation-session',
+    body: { projectId: 'e2e-alt' },
+    status: 201,
+  });
+  const proposed = await api('/v1/proposals', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-isolation-proposal',
+    body: {
+      sessionId: other.sessionId,
+      content: 'il progetto alternativo usa yarn',
+      kind: 'convention',
+      scope: { type: 'project', id: 'e2e-alt' },
+      epistemicBasis: 'user_asserted',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    },
+    status: 201,
+  });
+  if (proposed.status === 'pending_approval') {
+    await api(`/v1/proposals/${encodeURIComponent(proposed.memoryId)}/decision`, {
+      token: ownerToken,
+      method: 'POST',
+      key: 'e2e-isolation-review',
+      body: { expectedVersion: 1, decision: 'accept' },
+      status: 200,
+    });
+  }
+
+  const query = new URLSearchParams({ q: 'alternativo usa yarn', limit: '20' });
+  const fromThisSession = await api(
+    `/v1/memories?${new URLSearchParams({ ...Object.fromEntries(query), sessionId: own.sessionId })}`,
+    { token: harnessToken },
+  );
+  assert(
+    !fromThisSession.items.some((memory) => memory.memoryId === proposed.memoryId),
+    'memory_leaked_across_projects',
+  );
+
+  const fromItsOwnSession = await api(
+    `/v1/memories?${new URLSearchParams({ ...Object.fromEntries(query), sessionId: other.sessionId })}`,
+    { token: harnessToken },
+  );
+  assert(
+    fromItsOwnSession.items.some((memory) => memory.memoryId === proposed.memoryId),
+    'memory_not_visible_in_its_own_project',
+  );
 }
 
 async function searchToCreateCache(sessionId, memoryId) {
