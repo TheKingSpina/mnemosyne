@@ -366,9 +366,9 @@ async function restoreAndVerify(lifecycle) {
   const beforeReindex = await api('/v1/admin/embeddings/health', { token: ownerToken });
   assert(beforeReindex.available === true, 'embedding_health_unavailable');
   assert(beforeReindex.profile === 'deterministic-v1');
-  assert(beforeReindex.memoryCount === 1, `unexpected_memory_count:${beforeReindex.memoryCount}`);
+  assert(beforeReindex.memoryCount === 2, `unexpected_memory_count:${beforeReindex.memoryCount}`);
   assert(beforeReindex.indexedForActiveProfile === 0, 'restore_should_not_carry_embeddings');
-  assert(beforeReindex.missingCount === 1);
+  assert(beforeReindex.missingCount === 2);
   assert(beforeReindex.needsReindex === true, 'needs_reindex_not_reported');
 
   const reindexed = await api('/v1/admin/embeddings/reindex', {
@@ -377,11 +377,11 @@ async function restoreAndVerify(lifecycle) {
     key: 'e2e-reindex',
     body: {},
   });
-  assert(reindexed.scanned === 1, `unexpected_reindex_scan:${reindexed.scanned}`);
-  assert(reindexed.indexed === 1);
+  assert(reindexed.scanned === 2, `unexpected_reindex_scan:${reindexed.scanned}`);
+  assert(reindexed.indexed === 2);
 
   const afterReindex = await api('/v1/admin/embeddings/health', { token: ownerToken });
-  assert(afterReindex.indexedForActiveProfile === 1, 'reindex_did_not_populate_index');
+  assert(afterReindex.indexedForActiveProfile === 2, 'reindex_did_not_populate_index');
   assert(afterReindex.missingCount === 0);
   assert(afterReindex.needsReindex === false);
   assert(afterReindex.otherProfiles.length === 0);
