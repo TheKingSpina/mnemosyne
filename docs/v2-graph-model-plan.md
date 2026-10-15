@@ -17,7 +17,7 @@
 | D4  | The reserved project `personal` replaces `scope_type = 'global'`                                         | `global` is not a scope family: it is the single hardcoded pair `{type:'global', id:'personal'}`. Making it a project row keeps `project_id NOT NULL` on every memory, so referential integrity is total and no query has a null-project branch. Visibility becomes a policy rule attached to that project.                               |
 | D5  | Arcs are governed data in PostgreSQL; Neo4j remains a derived projection                                 | ADR 0003 establishes PostgreSQL as authoritative and `neo4j-driver` is a dependency of `apps/worker` only. Authoritative arcs in Neo4j would put them outside export, retention, and forget, and would require the API to gain a Neo4j client.                                                                                            |
 | D6  | Nodes and arcs are proposed by clients and land `pending_approval`; the owner path inserts them accepted | Extends the existing `memory_propose` / `memory_propose_owner` split rather than inventing a second governance path.                                                                                                                                                                                                                      |
-| D7  | Arcs connect memory to memory; scope edges stay derived                                                  | Today `IN_SCOPE` is the only structural edge. The request adds node-to-node arcs; scope membership is not user-authored and stays derived from `project_id` / `area_id`.                                                                                                                                                                  |
+| D7  | Arcs connect memory to memory and project to project; scope edges stay derived                           | Today `IN_SCOPE` is the only structural edge. The request adds node-to-node arcs; scope membership is not user-authored and stays derived from `project_id` / `area_id`.                                                                                                                                                                  |
 
 ### Superseded
 
@@ -60,11 +60,11 @@ attached to that project rather than a scope kind.
 ## 2. Order of work
 
 1. `feat: projects and areas as first-class entities` — **done, `fe27cce`**
-2. `feat: a memory belongs to a project, permanently`
-3. `feat: proposals carry nodes and arcs`
-4. `feat: governed weighted arcs, within and across projects`
-5. `feat: project and area roots in the Neo4j projection`
-6. `docs: retire the global scope in favour of the personal project`
+2. `feat: a memory belongs to a project, permanently` — **done, `939e10f`**
+3. `feat: proposals carry nodes and arcs` — **superseded, see section 4**
+4. `feat: governed weighted arcs, within and across projects` — **done, `0434e88`**
+5. `feat: project and area roots in the Neo4j projection` — **partly done, see section 5**
+6. `docs: retire the global scope in favour of the personal project` — **open**
 
 Commit 2 is a breaking schema change: `memories.project_id` is `NOT NULL`, and an
 existing corpus cannot be migrated mechanically, because the old `scope_id` was free text
@@ -186,8 +186,12 @@ as it is.
 Deleting an area that is still the scope of some memory fails at commit with `23503`,
 because the session reference above is deferrable and evaluated at commit.
 
+Two tables rather than one polymorphic pair, as section 1 already decided: a
+polymorphic `from_id`/`to_id` can carry no foreign key, and then forgetting a memory
+leaves dangling arcs.
+
 ```sql
-CREATE TABLE arcs (
+CREATE TABLE memory_arcs (
   id text PRIMARY KEY DEFAULT gen_random_uuid(),
   from_memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
   to_memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
@@ -196,30 +200,80 @@ CREATE TABLE arcs (
   lifecycle text NOT NULL DEFAULT 'pending_approval'
     CHECK (lifecycle IN ('pending_approval', 'accepted', 'rejected', 'retracted')),
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT chk_arcs_weight CHECK (weight IS NULL OR weight BETWEEN 0 AND 1),
-  CONSTRAINT chk_arcs_distinct CHECK (from_memory_id <> to_memory_id),
-  CONSTRAINT uq_arcs_triple UNIQUE (from_memory_id, to_memory_id, type)
+  CONSTRAINT chk_memory_arcs_distinct CHECK (from_memory_id <> to_memory_id),
+  CONSTRAINT uq_memory_arcs_triple UNIQUE (from_memory_id, to_memory_id, type),
+  CONSTRAINT chk_memory_arcs_weight CHECK (weight IS NULL OR weight BETWEEN 0 AND 1)
 );
 
-CREATE INDEX idx_arcs_from ON arcs (from_memory_id);
-CREATE INDEX idx_arcs_to ON arcs (to_memory_id);
-CREATE INDEX idx_arcs_lifecycle ON arcs (lifecycle);
+CREATE INDEX idx_memory_arcs_from ON memory_arcs (from_memory_id);
+CREATE INDEX idx_memory_arcs_to ON memory_arcs (to_memory_id);
+CREATE INDEX idx_memory_arcs_lifecycle ON memory_arcs (lifecycle);
+
+CREATE TABLE project_arcs (
+  id text PRIMARY KEY DEFAULT gen_random_uuid(),
+  from_project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  to_project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  type text NOT NULL,
+  weight real,
+  lifecycle text NOT NULL DEFAULT 'pending_approval'
+    CHECK (lifecycle IN ('pending_approval', 'accepted', 'rejected', 'retracted')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_project_arcs_distinct CHECK (from_project_id <> to_project_id),
+  CONSTRAINT uq_project_arcs_triple UNIQUE (from_project_id, to_project_id, type),
+  CONSTRAINT chk_project_arcs_weight CHECK (weight IS NULL OR weight BETWEEN 0 AND 1)
+);
+
+CREATE INDEX idx_project_arcs_from ON project_arcs (from_project_id);
+CREATE INDEX idx_project_arcs_to ON project_arcs (to_project_id);
+CREATE INDEX idx_project_arcs_lifecycle ON project_arcs (lifecycle);
 ```
 
-`uq_arcs_triple` is included deliberately. The PHP design chose _not_ to constrain the
-triple, which permits duplicate parallel edges; for a weighted graph that makes weight
-ambiguous and makes retrying a proposal non-idempotent.
+The triple uniqueness is included deliberately. The PHP design chose _not_ to constrain
+the triple, which permits duplicate parallel edges; for a weighted graph that makes
+weight ambiguous and makes retrying a proposal non-idempotent.
+
+Cycles are legitimate: two memories that influence each other is ordinary, and so is
+two projects that depend on each other. What is not legitimate is a hierarchy with a
+cycle, so `hierarchical_relation` names the relation types that must stay acyclic and
+everything else keeps its cycles. The set is data rather than code: declaring another
+hierarchical relation is one row, not a migration.
+
+```sql
+CREATE TABLE hierarchical_relation (
+  type text PRIMARY KEY,
+  description text
+);
+
+-- Seeded with 'sotto-progetto' and its explicitly declared inverse 'sovraprogetto'.
+```
+
+The refusal is a trigger with a recursive walk over accepted hierarchical arcs of the
+same type. `UNION` and not `UNION ALL` is deliberate: deduplication is what makes the
+walk terminate on data that already contains a cycle, which is exactly the case a
+trigger has to report rather than hang on. `pg_advisory_xact_lock` serialises the walk,
+because without it two transactions inserting the opposite halves of a cycle both read
+the pre-commit state and both pass. Only `accepted` arcs take part: a proposal that has
+not been approved yet cannot close a cycle.
 
 ## 4. Governance
 
-Arcs carry the same lifecycle discipline as memories, and the proposal payload changes
-shape: one proposal may contain nodes **and** the arcs between them.
+Arcs carry the same lifecycle discipline as memories, but the bundled
+`nodes[]`/`arcs[]` proposal this section originally described was superseded during
+implementation: arcs have their own endpoints instead of riding inside a memory
+proposal, so one proposal carries exactly one thing.
 
-- client path: proposal carries `nodes[]` and `arcs[]`, both land `pending_approval`
-- owner path: same payload, both land `accepted`
+- client path: `POST /v1/arcs` and `POST /v1/project-arcs` carry `memory.propose` and
+  land `pending_approval`; a harness may only draw a memory arc inside a session it has
+  open
+- owner path: same endpoints with an owner token land `accepted`
+- review path: `POST /v1/admin/arcs/{arc_id}/review` carries `proposal.review`; the arc
+  kind is not in the path because an id belongs to exactly one table, so the handler
+  tries one and falls through to the other
 - only `accepted` arcs reach the graph
 - forgetting a memory cascades to its arcs in PostgreSQL, and the projection removes the
   Neo4j node with `DETACH DELETE`
+- the corpus export carries both arc tables, and a restore skips an arc whose endpoint
+  was forgotten rather than failing the whole restore
 
 ## 5. Neo4j projection
 
@@ -229,7 +283,12 @@ Rebuilt from the outbox, never authoritative:
 - `(:Area {id, name, projectId})`
 - `(Memory)-[:IN_PROJECT]->(Project)` and `(Memory)-[:IN_AREA]->(Area)`, derived from
   `project_id` / `area_id`
-- `(Memory)-[:LINK {id, type, weight}]->(Memory)`, only for `accepted` arcs
+- `(Memory)-[:LINK {id, type, weight}]->(Memory)`, only for `accepted` memory arcs
+- `(Project)-[:LINK {id, type, weight}]->(Project)`, only for `accepted` project arcs
+
+What is **not** built: `(:Area)` nodes and the `IN_PROJECT` / `IN_AREA` edges. Project
+nodes exist only as arc endpoints today; nothing derives them from `project_id` and
+nothing derives scope membership. That is the remaining half of step 5.
 
 ## 6. Schema validation
 
@@ -244,10 +303,16 @@ it rather than against a bare error:
 | memory whose area belongs to another project     | refused by `trg_memoria_areas_tiene_progetto`             |
 | duplicate area name within a project             | refused by `uq_areas_project_name`                        |
 | deleting an area still used as a scope           | refused by `23503` at commit                              |
-| arc with a valid weight                          | accepted                                                  |
-| duplicate `(from, to, type)` triple              | refused by `uq_arcs_triple`                               |
-| arc from a node to itself                        | refused by `chk_arcs_distinct`                            |
-| weight outside `0..1`                            | refused by `chk_arcs_weight`                              |
+| memory arc with a valid weight                   | accepted                                                  |
+| duplicate memory `(from, to, type)` triple       | refused by `uq_memory_arcs_triple`                        |
+| memory arc from a node to itself                 | refused by `chk_memory_arcs_distinct`                     |
+| memory arc weight outside `0..1`                 | refused by `chk_memory_arcs_weight`                       |
+| influence cycle between two memories             | accepted — cycles are legitimate                          |
+| duplicate project `(from, to, type)` triple      | refused by `uq_project_arcs_triple`                       |
+| project arc weight outside `0..1`                | refused by `chk_project_arcs_weight`                      |
+| hierarchy cycle among `sotto-progetto` arcs      | refused by `project_arcs_acyclic`                         |
+| same cycle with a non-hierarchical type          | accepted — the type is not in `hierarchical_relation`     |
+| pending hierarchical arc closing the same cycle  | accepted — only `accepted` arcs take part                 |
 | lifecycle outside the allowed set                | refused by the lifecycle check                            |
 | area created after the memory in one transaction | accepted — confirms `DEFERRABLE INITIALLY DEFERRED` works |
 | deleting a project that holds memories           | refused by `RESTRICT`                                     |
@@ -273,5 +338,4 @@ live memory.
 - The Mac mini deployment and its corpus
 - Removing `memory_revisions` or version history
 - Making Neo4j authoritative
-- Arcs between projects, and hierarchical relations between projects
 - Changing identifier shape
