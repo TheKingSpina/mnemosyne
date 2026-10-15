@@ -85,11 +85,18 @@ export class Neo4jProjection {
       }
       for (const [areaId, area] of areaById) {
         await session.executeWrite((tx) =>
-          tx.run('MERGE (a:Area {id: $id}) SET a.name = $name, a.projectId = $projectId', {
-            id: areaId,
-            name: area.name,
-            projectId: area.projectId,
-          }),
+          tx.run(
+            `MERGE (a:Area {id: $id})
+             SET a.name = $name, a.projectId = $projectId
+             WITH a
+             MERGE (p:Project {id: $projectId})
+             MERGE (a)-[:PART_OF]->(p)`,
+            {
+              id: areaId,
+              name: area.name,
+              projectId: area.projectId,
+            },
+          ),
         );
       }
       for (const memory of memories) {
@@ -356,6 +363,9 @@ export class Neo4jProjection {
           tx.run(
             `MERGE (a:Area {id: $id})
              SET a.name = $name, a.projectId = $projectId
+             WITH a
+             MERGE (p:Project {id: $projectId})
+             MERGE (a)-[:PART_OF]->(p)
              WITH a
              MATCH (m:Memory {id: $memoryId})
              MERGE (m)-[:IN_AREA]->(a)`,

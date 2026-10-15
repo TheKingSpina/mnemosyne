@@ -235,6 +235,10 @@ async function runLifecycle() {
     3,
   );
   await waitForGraphQuery(`MATCH ()-[r:IN_AREA]->(:Area {id: 'e2e-area'}) RETURN count(r);`, 1);
+  await waitForGraphQuery(
+    `MATCH (:Area {id: 'e2e-area'})-[r:PART_OF]->(:Project {id: 'e2e-synthetic'}) RETURN count(r);`,
+    1,
+  );
   const exported = await api('/v1/admin/exports/corpus', { token: ownerToken });
   assert(exported.forgetLedger.length === 0);
   assert(exported.memories.length === 3);
