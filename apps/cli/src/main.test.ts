@@ -32,6 +32,8 @@ describe('Mnemosyne CLI', () => {
           jobs: [],
           jobAttempts: [],
           forgetLedger: [],
+          memoryArcs: [],
+          projectArcs: [],
         }),
       ),
     );

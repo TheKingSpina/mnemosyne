@@ -10,6 +10,11 @@ import {
   memoryFeedbackSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
+  proposeMemoryArcInputSchema,
+  proposeProjectArcInputSchema,
+  reviewArcInputSchema,
+  type MemoryArcView,
+  type ProjectArcView,
   recordEventsInputSchema,
   reviewProposalInputSchema,
   searchMemoriesInputSchema,
@@ -24,8 +29,10 @@ import {
   type AccessPolicy,
   type ClientTokenStore,
   type IdempotencyStore,
+  type MemoryArc,
   type MemoryPermission,
   type MemoryService,
+  type ProjectArc,
   type StoredIdempotentResponse,
 } from '@mnemosyne/core';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -234,6 +241,58 @@ async function handleAuthorizedRequestUnchecked(
     const { id } = paramsSchema.parse({ id: sessionClose[1] });
     bodylessSchema.parse(await readJson(request, maxRequestBodyBytes));
     sendJson(response, 202, await service.closeSession(id));
+    return;
+  }
+  // Arcs. Proposing one is a memory.propose, so it lives outside /v1/admin/:
+  // under that prefix permissionForPath answers proposal.review and a harness
+  // could never reach it.
+  if (request.method === 'POST' && url.pathname === '/v1/arcs') {
+    const input = proposeMemoryArcInputSchema.parse(await readJson(request, maxRequestBodyBytes));
+    await service.assertSessionAccessible(input.sessionId);
+    sendJson(
+      response,
+      201,
+      await service.proposeMemoryArc(input, { actor, explicitDirective: false }),
+    );
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/project-arcs') {
+    const input = proposeProjectArcInputSchema.parse(await readJson(request, maxRequestBodyBytes));
+    sendJson(
+      response,
+      201,
+      await service.proposeProjectArc(input, { actor, explicitDirective: false }),
+    );
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/arcs') {
+    const memoryId = url.searchParams.get('memoryId') ?? '';
+    const listed = await service.listMemoryArcs(memoryId);
+    sendJson(response, 200, {
+      from: listed.from.map(toMemoryArcView),
+      to: listed.to.map(toMemoryArcView),
+    });
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/v1/project-arcs') {
+    const projectId = url.searchParams.get('projectId') ?? '';
+    const items = await service.listProjectArcs(projectId);
+    sendJson(response, 200, { items: items.map(toProjectArcView) });
+    return;
+  }
+  if (request.method === 'POST' && url.pathname.startsWith('/v1/admin/arcs/')) {
+    const review = reviewArcInputSchema.parse(await readJson(request, maxRequestBodyBytes));
+    const arcId = url.pathname.slice('/v1/admin/arcs/'.length).replace('/review', '');
+    const decision = review.decision;
+    // The arc kind is not in the path, so both tables are tried: an id belongs
+    // to exactly one of them, and the miss in the first is the signal for the
+    // second.
+    const reviewed = await service
+      .reviewMemoryArc(arcId, decision)
+      .then(toMemoryArcView, () =>
+        service.reviewProjectArc(arcId, decision).then(toProjectArcView),
+      );
+    sendJson(response, 200, reviewed);
     return;
   }
   if (request.method === 'POST' && url.pathname === '/v1/proposals') {
@@ -660,6 +719,13 @@ async function executeBufferedHandler(
 function permissionForPath(pathname: string, method: string | undefined): MemoryPermission {
   if (pathname === '/v1/proposals' && method === 'GET') return 'proposal.review';
   if (pathname === '/v1/proposals' && method === 'POST') return 'memory.propose';
+  // Arcs keep the same split as proposals: proposing is memory.propose so a
+  // harness can draw an arc, reading is memory.read, and reviewing lands under
+  // /v1/admin/ which is proposal.review.
+  if ((pathname === '/v1/arcs' || pathname === '/v1/project-arcs') && method === 'POST') {
+    return 'memory.propose';
+  }
+  if (pathname === '/v1/arcs' || pathname === '/v1/project-arcs') return 'memory.read';
   if (pathname.startsWith('/v1/admin/')) return 'proposal.review';
   if (pathname.includes('/decision')) return 'proposal.review';
   if (pathname.includes('/corrections')) return 'memory.correct';
@@ -723,6 +789,28 @@ function sendJson(response: ResponseWriter, status: number, body: unknown): void
     'content-length': Buffer.byteLength(payload),
   });
   response.end(payload);
+}
+
+function toMemoryArcView(arc: MemoryArc): MemoryArcView {
+  return {
+    arcId: arc.id,
+    fromMemoryId: arc.fromMemoryId,
+    toMemoryId: arc.toMemoryId,
+    type: arc.type,
+    weight: arc.weight,
+    lifecycle: arc.lifecycle,
+  };
+}
+
+function toProjectArcView(arc: ProjectArc): ProjectArcView {
+  return {
+    arcId: arc.id,
+    fromProjectId: arc.fromProjectId,
+    toProjectId: arc.toProjectId,
+    type: arc.type,
+    weight: arc.weight,
+    lifecycle: arc.lifecycle,
+  };
 }
 
 function sendError(response: ServerResponse, error: unknown): void {

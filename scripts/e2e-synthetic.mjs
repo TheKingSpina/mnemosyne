@@ -208,6 +208,7 @@ async function runLifecycle() {
   await verifyRuntimeCapabilities();
   await verifyProjectConstraints();
   await verifyMemoryProjectIdentity();
+  await verifyArcConstraints();
   const prepared = await api(
     `/v1/memories/${encodeURIComponent(second.memory.memoryId)}/forget/prepare`,
     {
@@ -463,6 +464,67 @@ async function verifyProjectConstraints() {
   // Leave nothing behind that a later assertion could trip over.
   psql("DELETE FROM sessions WHERE id = 'e2e_s1';");
   psql("DELETE FROM projects WHERE id IN ('e2e_alpha', 'e2e_beta');");
+}
+
+async function verifyArcConstraints() {
+  // Arcs are governed rows, so the rules that matter are database rules. Cycles
+  // between influences are legitimate; a cycle between hierarchical relations is
+  // not, and only the latter is refused.
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_arc_a', 'E2E Arc A');");
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_arc_b', 'E2E Arc B');");
+  psql("INSERT INTO projects (id, name) VALUES ('e2e_arc_c', 'E2E Arc C');");
+  psql(
+    "INSERT INTO memories (id, lifecycle, project_id) VALUES ('e2e_arc_m1', 'accepted', 'e2e_arc_a');",
+  );
+  psql(
+    "INSERT INTO memories (id, lifecycle, project_id) VALUES ('e2e_arc_m2', 'accepted', 'e2e_arc_b');",
+  );
+
+  // Influences may cycle.
+  psql(
+    "INSERT INTO memory_arcs (from_memory_id, to_memory_id, type, weight, lifecycle) VALUES ('e2e_arc_m1', 'e2e_arc_m2', 'influenza', 0.7, 'accepted');",
+  );
+  psql(
+    "INSERT INTO memory_arcs (from_memory_id, to_memory_id, type, weight, lifecycle) VALUES ('e2e_arc_m2', 'e2e_arc_m1', 'influenza', 0.4, 'accepted');",
+  );
+  // A self reference and an out of range weight are not legitimate.
+  assert(
+    psqlRejects(
+      "INSERT INTO memory_arcs (from_memory_id, to_memory_id, type, weight, lifecycle) VALUES ('e2e_arc_m1', 'e2e_arc_m1', 'influenza', 0.5, 'accepted');",
+    ),
+    'memory_arc_self_reference_should_be_refused',
+  );
+  assert(
+    psqlRejects(
+      "INSERT INTO memory_arcs (from_memory_id, to_memory_id, type, weight, lifecycle) VALUES ('e2e_arc_m1', 'e2e_arc_m2', 'influenza', 2, 'accepted');",
+    ),
+    'memory_arc_weight_range_not_enforced',
+  );
+
+  // A hierarchy may not cycle.
+  psql(
+    "INSERT INTO project_arcs (from_project_id, to_project_id, type, weight, lifecycle) VALUES ('e2e_arc_a', 'e2e_arc_b', 'sotto-progetto', 1, 'accepted');",
+  );
+  psql(
+    "INSERT INTO project_arcs (from_project_id, to_project_id, type, weight, lifecycle) VALUES ('e2e_arc_b', 'e2e_arc_c', 'sotto-progetto', 1, 'accepted');",
+  );
+  assert(
+    psqlRejects(
+      "INSERT INTO project_arcs (from_project_id, to_project_id, type, weight, lifecycle) VALUES ('e2e_arc_c', 'e2e_arc_a', 'sotto-progetto', 1, 'accepted');",
+    ),
+    'hierarchical_project_cycle_should_be_refused',
+  );
+  // A relation that is not declared hierarchical keeps its cycles.
+  psql(
+    "INSERT INTO project_arcs (from_project_id, to_project_id, type, lifecycle) VALUES ('e2e_arc_c', 'e2e_arc_a', 'dipende', 'accepted');",
+  );
+  // A proposal that has not been accepted cannot close a cycle.
+  psql(
+    "INSERT INTO project_arcs (from_project_id, to_project_id, type, lifecycle) VALUES ('e2e_arc_c', 'e2e_arc_a', 'sotto-progetto', 'pending_approval');",
+  );
+
+  psql("DELETE FROM memories WHERE id IN ('e2e_arc_m1', 'e2e_arc_m2');");
+  psql("DELETE FROM projects WHERE id IN ('e2e_arc_a', 'e2e_arc_b', 'e2e_arc_c');");
 }
 
 async function verifyMemoryProjectIdentity() {

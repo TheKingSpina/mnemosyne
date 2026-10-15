@@ -109,6 +109,39 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       ),
   );
 
+  // Arcs follow the same rule as memories: a harness may propose one, only the
+  // owner may accept it.
+  server.registerTool(
+    'memory_propose_arc',
+    {
+      description:
+        'Propose a directed, optionally weighted arc between two memories. It lands pending approval; only the owner can accept it. Influences may form cycles.',
+      inputSchema: {
+        sessionId: z.string().min(1),
+        fromMemoryId: z.string().min(1),
+        toMemoryId: z.string().min(1),
+        type: z.string().min(1).max(100),
+        weight: z.number().min(0).max(1).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (input) =>
+      result(
+        await authorized(profile, 'memory.propose', async () => {
+          await service.assertSessionAccessible(input.sessionId);
+          return service.proposeMemoryArc(
+            {
+              fromMemoryId: input.fromMemoryId,
+              toMemoryId: input.toMemoryId,
+              type: input.type,
+              weight: input.weight,
+            },
+            { actor: 'harness', explicitDirective: false },
+          );
+        }),
+      ),
+  );
+
   server.registerTool(
     'memory_close_session',
     {
@@ -323,6 +356,27 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
           return mcpError(error);
         }
       },
+    );
+
+    server.registerTool(
+      'memory_review_arc',
+      {
+        description: 'Accept or reject a pending arc. Accepting is what puts it in the graph.',
+        inputSchema: { arcId: z.string().min(1), decision: z.enum(['accept', 'reject']) },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      async ({ arcId, decision }) =>
+        result(
+          await authorized(profile, 'proposal.review', async () => {
+            try {
+              return await service.reviewMemoryArc(arcId, decision);
+            } catch {
+              // The id belongs to exactly one arc table, so a miss here means it
+              // was a project arc.
+              return service.reviewProjectArc(arcId, decision);
+            }
+          }),
+        ),
     );
 
     server.registerTool(

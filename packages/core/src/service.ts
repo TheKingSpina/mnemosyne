@@ -64,7 +64,14 @@ export const WORKER_CAPABILITY_COMPONENT = 'worker';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { areDirectlyContradictory } from './conflict-detector.js';
 import { DomainError } from './errors.js';
-import { RESERVED_PERSONAL_PROJECT_ID } from './types.js';
+import {
+  RESERVED_PERSONAL_PROJECT_ID,
+  type CreateMemoryArcInput,
+  type CreateProjectArcInput,
+  type MemoryArc,
+  type ProjectArc,
+  type ProposalArcResult,
+} from './types.js';
 import { containsSecret, decideProposal } from './policy.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import {
@@ -244,6 +251,11 @@ export class CoreMemoryService implements MemoryService {
     const memories = await this.repository.listMemoryViews();
     const revisions = await this.repository.listAllMemoryRevisions();
     const forgetLedger = await this.repository.listForgetLedger();
+    // Arcs are exported because they are corpus content, not graph internals: a
+    // restore that dropped them would return a corpus with no relations and say
+    // nothing about it.
+    const memoryArcs = await this.repository.listAllMemoryArcs();
+    const projectArcs = await this.repository.listAllProjectArcs();
     return corpusExportSchema.parse({
       schemaVersion: 1,
       exportedAt: this.now().toISOString(),
@@ -256,6 +268,8 @@ export class CoreMemoryService implements MemoryService {
       jobs: await this.repository.listAllJobs(),
       jobAttempts: await this.repository.listAllJobAttempts(),
       forgetLedger,
+      memoryArcs,
+      projectArcs,
     });
   }
 
@@ -300,6 +314,8 @@ export class CoreMemoryService implements MemoryService {
       jobs: validated.jobs,
       jobAttempts: validated.jobAttempts,
       forgetLedger: [...forgetLedger].map(([memoryId, forgottenAt]) => ({ memoryId, forgottenAt })),
+      memoryArcs: validated.memoryArcs,
+      projectArcs: validated.projectArcs,
     });
     try {
       await this.options.corpusCache?.clear();
@@ -385,6 +401,98 @@ export class CoreMemoryService implements MemoryService {
       duplicateEventIds: result.duplicates.map((event) => event.id),
       jobIds: [job.id],
     };
+  }
+
+  // A harness may only draw an arc inside a session it actually has open, so
+  // the session is checked before anything is written.
+  async assertSessionAccessible(sessionId: string): Promise<void> {
+    const session = await this.repository.findSession(sessionId);
+    if (!session) throw new DomainError('session_not_found', 'Session not found', 404);
+    if (session.status !== 'open') {
+      throw new DomainError('session_not_open', 'Session must be open', 409);
+    }
+  }
+
+  // Arcs go through the same governance as memories: a client proposes and the
+  // owner accepts. The only shortcut is the owner path, which lands accepted.
+  async proposeMemoryArc(
+    input: CreateMemoryArcInput,
+    context: ProposalContext = { actor: 'harness', explicitDirective: false },
+  ): Promise<ProposalArcResult> {
+    if (context.actor === 'harness' && context.explicitDirective) {
+      throw new Error('harness_cannot_issue_owner_directive');
+    }
+    if (input.weight !== undefined && (input.weight < 0 || input.weight > 1)) {
+      throw new DomainError('arc_weight_out_of_range', 'Arc weight must be between 0 and 1', 400);
+    }
+    const from = await this.repository.getMemory(input.fromMemoryId);
+    if (!from) throw new DomainError('memory_not_found', 'Memory not found', 404);
+    const to = await this.repository.getMemory(input.toMemoryId);
+    if (!to) throw new DomainError('memory_not_found', 'Memory not found', 404);
+
+    const lifecycle =
+      context.actor === 'owner' ? (input.lifecycle ?? 'accepted') : 'pending_approval';
+    const arc = await this.repository.createMemoryArc({ ...input, lifecycle });
+    return {
+      status: lifecycle === 'accepted' ? 'accepted' : 'pending_approval',
+      arcId: arc.id,
+      fromMemoryId: arc.fromMemoryId,
+      toMemoryId: arc.toMemoryId,
+      type: arc.type,
+      weight: arc.weight,
+      lifecycle: arc.lifecycle,
+    };
+  }
+
+  async reviewMemoryArc(arcId: string, decision: 'accept' | 'reject'): Promise<MemoryArc> {
+    return this.repository.reviewMemoryArc(arcId, decision);
+  }
+
+  async proposeProjectArc(
+    input: CreateProjectArcInput,
+    context: ProposalContext = { actor: 'harness', explicitDirective: false },
+  ): Promise<ProposalArcResult> {
+    if (context.actor === 'harness' && context.explicitDirective) {
+      throw new Error('harness_cannot_issue_owner_directive');
+    }
+    if (input.weight !== undefined && (input.weight < 0 || input.weight > 1)) {
+      throw new DomainError('arc_weight_out_of_range', 'Arc weight must be between 0 and 1', 400);
+    }
+    if (input.fromProjectId === input.toProjectId) {
+      throw new DomainError('arc_self_reference', 'An arc cannot link an element to itself', 400);
+    }
+    const from = await this.repository.findProjectById(input.fromProjectId);
+    if (!from) throw new DomainError('project_not_found', 'Project not found', 404);
+    const to = await this.repository.findProjectById(input.toProjectId);
+    if (!to) throw new DomainError('project_not_found', 'Project not found', 404);
+
+    const lifecycle =
+      context.actor === 'owner' ? (input.lifecycle ?? 'accepted') : 'pending_approval';
+    const arc = await this.repository.createProjectArc({ ...input, lifecycle });
+    return {
+      status: lifecycle === 'accepted' ? 'accepted' : 'pending_approval',
+      arcId: arc.id,
+      fromProjectId: arc.fromProjectId,
+      toProjectId: arc.toProjectId,
+      type: arc.type,
+      weight: arc.weight,
+      lifecycle: arc.lifecycle,
+    };
+  }
+
+  async reviewProjectArc(arcId: string, decision: 'accept' | 'reject'): Promise<ProjectArc> {
+    return this.repository.reviewProjectArc(arcId, decision);
+  }
+
+  async listMemoryArcs(memoryId: string): Promise<{ from: MemoryArc[]; to: MemoryArc[] }> {
+    return {
+      from: await this.repository.listMemoryArcsFrom(memoryId),
+      to: await this.repository.listMemoryArcsTo(memoryId),
+    };
+  }
+
+  async listProjectArcs(projectId: string): Promise<ProjectArc[]> {
+    return this.repository.listProjectArcs(projectId);
   }
 
   async proposeMemory(

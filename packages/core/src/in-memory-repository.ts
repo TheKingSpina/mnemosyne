@@ -11,6 +11,10 @@ import { randomUUID, randomUUID as createRandomId } from 'node:crypto';
 import type {
   ConflictRecord,
   CorpusRevision,
+  CreateMemoryArcInput,
+  CreateProjectArcInput,
+  MemoryArc,
+  ProjectArc,
   CreateMemoryInput,
   ProjectRecord,
   AreaRecord,
@@ -39,6 +43,8 @@ import type { ListJobAttemptsOutput } from '@mnemosyne/contracts';
 export class InMemoryRepository implements MemoryRepository {
   constructor(private readonly now: () => Date = () => new Date()) {}
 
+  private readonly memoryArcs = new Map<string, MemoryArc>();
+  private readonly projectArcs = new Map<string, ProjectArc>();
   private readonly projects = new Map<string, ProjectRecord>();
   private readonly areas = new Map<string, AreaRecord>();
   private readonly sessions = new Map<string, SessionRecord>();
@@ -223,6 +229,102 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.areas.values()]
       .filter((area) => area.projectId === projectId)
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async createMemoryArc(input: CreateMemoryArcInput): Promise<MemoryArc> {
+    const duplicate = [...this.memoryArcs.values()].some(
+      (arc) =>
+        arc.fromMemoryId === input.fromMemoryId &&
+        arc.toMemoryId === input.toMemoryId &&
+        arc.type === input.type,
+    );
+    if (duplicate) throw new Error('arc_duplicate');
+    if (input.fromMemoryId === input.toMemoryId) throw new Error('arc_self_reference');
+    if (!this.memories.has(input.fromMemoryId) || !this.memories.has(input.toMemoryId)) {
+      throw new Error('memory_not_found');
+    }
+    const arc: MemoryArc = {
+      id: `arc_${randomUUID()}`,
+      fromMemoryId: input.fromMemoryId,
+      toMemoryId: input.toMemoryId,
+      type: input.type,
+      weight: input.weight ?? null,
+      lifecycle: input.lifecycle ?? 'pending_approval',
+      createdAt: this.now().toISOString(),
+    };
+    this.memoryArcs.set(arc.id, arc);
+    return arc;
+  }
+
+  async listMemoryArcsFrom(memoryId: string): Promise<MemoryArc[]> {
+    return [...this.memoryArcs.values()].filter((arc) => arc.fromMemoryId === memoryId);
+  }
+
+  async listMemoryArcsTo(memoryId: string): Promise<MemoryArc[]> {
+    return [...this.memoryArcs.values()].filter((arc) => arc.toMemoryId === memoryId);
+  }
+
+  async reviewMemoryArc(id: string, decision: 'accept' | 'reject'): Promise<MemoryArc> {
+    const arc = this.memoryArcs.get(id);
+    if (!arc) throw new Error('arc_not_found');
+    if (arc.lifecycle !== 'pending_approval') throw new Error('arc_not_pending');
+    const reviewed: MemoryArc = {
+      ...arc,
+      lifecycle: decision === 'accept' ? 'accepted' : 'rejected',
+    };
+    this.memoryArcs.set(id, reviewed);
+    return reviewed;
+  }
+
+  async createProjectArc(input: CreateProjectArcInput): Promise<ProjectArc> {
+    const duplicate = [...this.projectArcs.values()].some(
+      (arc) =>
+        arc.fromProjectId === input.fromProjectId &&
+        arc.toProjectId === input.toProjectId &&
+        arc.type === input.type,
+    );
+    if (duplicate) throw new Error('arc_duplicate');
+    if (input.fromProjectId === input.toProjectId) throw new Error('arc_self_reference');
+    if (!this.projects.has(input.fromProjectId) || !this.projects.has(input.toProjectId)) {
+      throw new Error('project_not_found');
+    }
+    const arc: ProjectArc = {
+      id: `arc_${randomUUID()}`,
+      fromProjectId: input.fromProjectId,
+      toProjectId: input.toProjectId,
+      type: input.type,
+      weight: input.weight ?? null,
+      lifecycle: input.lifecycle ?? 'pending_approval',
+      createdAt: this.now().toISOString(),
+    };
+    this.projectArcs.set(arc.id, arc);
+    return arc;
+  }
+
+  async listProjectArcs(projectId: string): Promise<ProjectArc[]> {
+    return [...this.projectArcs.values()].filter(
+      (arc) => arc.fromProjectId === projectId || arc.toProjectId === projectId,
+    );
+  }
+
+  async reviewProjectArc(id: string, decision: 'accept' | 'reject'): Promise<ProjectArc> {
+    const arc = this.projectArcs.get(id);
+    if (!arc) throw new Error('arc_not_found');
+    if (arc.lifecycle !== 'pending_approval') throw new Error('arc_not_pending');
+    const reviewed: ProjectArc = {
+      ...arc,
+      lifecycle: decision === 'accept' ? 'accepted' : 'rejected',
+    };
+    this.projectArcs.set(id, reviewed);
+    return reviewed;
+  }
+
+  async listAllMemoryArcs(): Promise<MemoryArc[]> {
+    return [...this.memoryArcs.values()];
+  }
+
+  async listAllProjectArcs(): Promise<ProjectArc[]> {
+    return [...this.projectArcs.values()];
   }
 
   async createSession(input: OpenSessionInput): Promise<SessionRecord> {

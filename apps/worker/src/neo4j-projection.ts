@@ -1,6 +1,6 @@
 import neo4j, { type Driver } from 'neo4j-driver';
 import { randomUUID } from 'node:crypto';
-import type { MemoryRepository, OutboxEvent } from '@mnemosyne/core';
+import type { MemoryArc, MemoryRepository, OutboxEvent, ProjectArc } from '@mnemosyne/core';
 
 export interface Neo4jProjectionOptions {
   uri: string;
@@ -59,6 +59,8 @@ export class Neo4jProjection {
   async rebuild(): Promise<void> {
     const memories = await this.repository.listMemoryViews();
     const conflicts = await this.repository.listAllConflicts();
+    const memoryArcs = await this.repository.listAllMemoryArcs();
+    const projectArcs = await this.repository.listAllProjectArcs();
     const session = this.driver.session(this.database ? { database: this.database } : {});
     try {
       await session.executeWrite((tx) => tx.run('MATCH (n) DETACH DELETE n'));
@@ -100,6 +102,50 @@ export class Neo4jProjection {
               status: conflict.status,
               first: conflict.memoryIds[0],
               second: conflict.memoryIds[1],
+            },
+          ),
+        );
+      }
+      // Accepted arcs are part of the graph, so a rebuild has to restore them.
+      // A wiped projection that came back without its arcs would be a silent
+      // corruption of what the dashboard shows.
+      for (const arc of memoryArcs) {
+        if (arc.lifecycle !== 'accepted') continue;
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MATCH (a:Memory {id: $from})
+             MATCH (b:Memory {id: $to})
+             MERGE (a)-[r:LINK {id: $id}]->(b)
+             SET r.type = $type, r.weight = $weight`,
+            {
+              id: arc.id,
+              from: arc.fromMemoryId,
+              to: arc.toMemoryId,
+              type: arc.type,
+              weight: arc.weight,
+            },
+          ),
+        );
+      }
+      for (const arc of projectArcs) {
+        if (arc.lifecycle !== 'accepted') continue;
+        const from = await this.repository.findProjectById(arc.fromProjectId);
+        const to = await this.repository.findProjectById(arc.toProjectId);
+        if (!from || !to) continue;
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MERGE (a:Project {id: $fromId}) SET a.name = $fromName
+             MERGE (b:Project {id: $toId}) SET b.name = $toName
+             MERGE (a)-[r:LINK {id: $id}]->(b)
+             SET r.type = $type, r.weight = $weight`,
+            {
+              id: arc.id,
+              fromId: arc.fromProjectId,
+              fromName: from.name,
+              toId: arc.toProjectId,
+              toName: to.name,
+              type: arc.type,
+              weight: arc.weight,
             },
           ),
         );
@@ -165,6 +211,51 @@ export class Neo4jProjection {
             `MATCH (a)-[r:CONFLICTS {id: $id}]->(b)
              SET r.status = 'resolved'`,
             { id: event.aggregateId },
+          ),
+        );
+        return;
+      }
+      if (event.eventType === 'arc.accepted') {
+        // Only accepted arcs reach the graph. A proposed arc must not appear:
+        // the point of the lifecycle is that the graph shows what was approved.
+        const arc = event.payload as unknown as MemoryArc;
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MATCH (a:Memory {id: $from})
+             MATCH (b:Memory {id: $to})
+             MERGE (a)-[r:LINK {id: $id}]->(b)
+             SET r.type = $type, r.weight = $weight`,
+            {
+              id: arc.id,
+              from: arc.fromMemoryId,
+              to: arc.toMemoryId,
+              type: arc.type,
+              weight: arc.weight,
+            },
+          ),
+        );
+        return;
+      }
+      if (event.eventType === 'project_arc.accepted') {
+        const arc = event.payload as unknown as ProjectArc;
+        const from = await this.repository.findProjectById(arc.fromProjectId);
+        const to = await this.repository.findProjectById(arc.toProjectId);
+        if (!from || !to) return;
+        await session.executeWrite((tx) =>
+          tx.run(
+            `MERGE (a:Project {id: $fromId}) SET a.name = $fromName
+             MERGE (b:Project {id: $toId}) SET b.name = $toName
+             MERGE (a)-[r:LINK {id: $id}]->(b)
+             SET r.type = $type, r.weight = $weight`,
+            {
+              id: arc.id,
+              fromId: arc.fromProjectId,
+              fromName: from.name,
+              toId: arc.toProjectId,
+              toName: to.name,
+              type: arc.type,
+              weight: arc.weight,
+            },
           ),
         );
         return;

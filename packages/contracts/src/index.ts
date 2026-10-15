@@ -107,6 +107,83 @@ export const openSessionOutputSchema = z.object({
 });
 export type OpenSessionOutput = z.infer<typeof openSessionOutputSchema>;
 
+// Arcs are proposed by clients and accepted by the owner, exactly like memories,
+// so they carry the same lifecycle in the contract.
+export const arcLifecycleSchema = z.enum(['pending_approval', 'accepted', 'rejected', 'retracted']);
+
+export const proposeMemoryArcInputSchema = z.object({
+  sessionId: z.string().min(1),
+  fromMemoryId: z.string().min(1),
+  toMemoryId: z.string().min(1),
+  type: z.string().min(1).max(100),
+  weight: z.number().min(0).max(1).optional(),
+});
+export type ProposeMemoryArcInput = z.infer<typeof proposeMemoryArcInputSchema>;
+
+export const proposeProjectArcInputSchema = z.object({
+  fromProjectId: z.string().min(1),
+  toProjectId: z.string().min(1),
+  type: z.string().min(1).max(100),
+  weight: z.number().min(0).max(1).optional(),
+});
+export type ProposeProjectArcInput = z.infer<typeof proposeProjectArcInputSchema>;
+
+export const memoryArcViewSchema = z.object({
+  arcId: z.string().min(1),
+  fromMemoryId: z.string().min(1),
+  toMemoryId: z.string().min(1),
+  type: z.string().min(1),
+  weight: z.number().min(0).max(1).nullable(),
+  lifecycle: arcLifecycleSchema,
+});
+export type MemoryArcView = z.infer<typeof memoryArcViewSchema>;
+
+export const projectArcViewSchema = z.object({
+  arcId: z.string().min(1),
+  fromProjectId: z.string().min(1),
+  toProjectId: z.string().min(1),
+  type: z.string().min(1),
+  weight: z.number().min(0).max(1).nullable(),
+  lifecycle: arcLifecycleSchema,
+});
+export type ProjectArcView = z.infer<typeof projectArcViewSchema>;
+
+export const proposalArcResultSchema = z.union([
+  memoryArcViewSchema.extend({ status: z.enum(['accepted', 'pending_approval']) }),
+  projectArcViewSchema.extend({ status: z.enum(['accepted', 'pending_approval']) }),
+]);
+export type ProposalArcResult = z.infer<typeof proposalArcResultSchema>;
+
+export const listMemoryArcsInputSchema = z.object({
+  memoryId: z.string().min(1),
+});
+export type ListMemoryArcsInput = z.infer<typeof listMemoryArcsInputSchema>;
+
+export const listMemoryArcsOutputSchema = z.object({
+  from: z.array(memoryArcViewSchema),
+  to: z.array(memoryArcViewSchema),
+});
+export type ListMemoryArcsOutput = z.infer<typeof listMemoryArcsOutputSchema>;
+
+export const listProjectArcsInputSchema = z.object({
+  projectId: z.string().min(1),
+});
+export type ListProjectArcsInput = z.infer<typeof listProjectArcsInputSchema>;
+
+export const listProjectArcsOutputSchema = z.object({
+  items: z.array(projectArcViewSchema),
+});
+export type ListProjectArcsOutput = z.infer<typeof listProjectArcsOutputSchema>;
+
+export const reviewArcInputSchema = z.object({
+  expectedLifecycle: z.literal('pending_approval').default('pending_approval'),
+  decision: z.enum(['accept', 'reject']),
+});
+export type ReviewArcInput = z.infer<typeof reviewArcInputSchema>;
+
+export const reviewArcOutputSchema = z.union([memoryArcViewSchema, projectArcViewSchema]);
+export type ReviewArcOutput = z.infer<typeof reviewArcOutputSchema>;
+
 export const listPendingProposalsInputSchema = z.object({
   sessionId: z.string().min(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -489,6 +566,28 @@ export const corpusExportSchema = z.object({
       errorCode: z.string().max(200).optional(),
       createdAt: z.string().datetime({ offset: true }),
       updatedAt: z.string().datetime({ offset: true }),
+    }),
+  ),
+  memoryArcs: z.array(
+    z.object({
+      id: z.string().min(1),
+      fromMemoryId: z.string().min(1),
+      toMemoryId: z.string().min(1),
+      type: z.string().min(1),
+      weight: z.number().min(0).max(1).nullable(),
+      lifecycle: z.enum(['pending_approval', 'accepted', 'rejected', 'retracted']),
+      createdAt: z.string().datetime({ offset: true }),
+    }),
+  ),
+  projectArcs: z.array(
+    z.object({
+      id: z.string().min(1),
+      fromProjectId: z.string().min(1),
+      toProjectId: z.string().min(1),
+      type: z.string().min(1),
+      weight: z.number().min(0).max(1).nullable(),
+      lifecycle: z.enum(['pending_approval', 'accepted', 'rejected', 'retracted']),
+      createdAt: z.string().datetime({ offset: true }),
     }),
   ),
   forgetLedger: z.array(

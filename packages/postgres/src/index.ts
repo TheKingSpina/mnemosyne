@@ -30,6 +30,10 @@ import type {
   SessionRecord,
   RuntimeCapabilityReport,
   CreateMemoryInput,
+  CreateMemoryArcInput,
+  CreateProjectArcInput,
+  MemoryArc,
+  ProjectArc,
   ProjectRecord,
   AreaRecord,
   CreateProjectInput,
@@ -77,6 +81,50 @@ function scopeFromRow(row: MemoryRevisionRow): Scope {
     return { type: 'global', id: RESERVED_PERSONAL_PROJECT_ID };
   }
   return { type: 'project', id: row.project_id };
+}
+
+interface MemoryArcRow extends QueryResultRow {
+  id: string;
+  from_memory_id: string;
+  to_memory_id: string;
+  type: string;
+  weight: number | null;
+  lifecycle: MemoryArc['lifecycle'];
+  created_at: Date;
+}
+
+interface ProjectArcRow extends QueryResultRow {
+  id: string;
+  from_project_id: string;
+  to_project_id: string;
+  type: string;
+  weight: number | null;
+  lifecycle: ProjectArc['lifecycle'];
+  created_at: Date;
+}
+
+function memoryArcFromRow(row: MemoryArcRow): MemoryArc {
+  return {
+    id: row.id,
+    fromMemoryId: row.from_memory_id,
+    toMemoryId: row.to_memory_id,
+    type: row.type,
+    weight: row.weight,
+    lifecycle: row.lifecycle,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function projectArcFromRow(row: ProjectArcRow): ProjectArc {
+  return {
+    id: row.id,
+    fromProjectId: row.from_project_id,
+    toProjectId: row.to_project_id,
+    type: row.type,
+    weight: row.weight,
+    lifecycle: row.lifecycle,
+    createdAt: row.created_at.toISOString(),
+  };
 }
 
 function projectFromRow(row: ProjectRow): ProjectRecord {
@@ -361,6 +409,43 @@ export class PostgresMemoryRepository implements MemoryRepository {
           entry.forgottenAt,
         ]);
       }
+      // Arcs go in after the memories they point at, and an arc whose endpoint was
+      // forgotten is skipped rather than failing the whole restore.
+      const restoredMemoryIdSet = new Set(restoredMemories.map((memory) => memory.record.id));
+      for (const arc of input.memoryArcs) {
+        if (!restoredMemoryIdSet.has(arc.fromMemoryId)) continue;
+        if (!restoredMemoryIdSet.has(arc.toMemoryId)) continue;
+        await client.query(
+          `INSERT INTO memory_arcs (id, from_memory_id, to_memory_id, type, weight, lifecycle, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            arc.id,
+            arc.fromMemoryId,
+            arc.toMemoryId,
+            arc.type,
+            arc.weight,
+            arc.lifecycle,
+            arc.createdAt,
+          ],
+        );
+      }
+      for (const arc of input.projectArcs) {
+        await client.query(
+          `INSERT INTO project_arcs (id, from_project_id, to_project_id, type, weight, lifecycle, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            arc.id,
+            arc.fromProjectId,
+            arc.toProjectId,
+            arc.type,
+            arc.weight,
+            arc.lifecycle,
+            arc.createdAt,
+          ],
+        );
+      }
       await client.query(
         `UPDATE corpus_state
          SET epoch = gen_random_uuid(), revision = 1, updated_at = now()
@@ -483,6 +568,142 @@ export class PostgresMemoryRepository implements MemoryRepository {
       [projectId],
     );
     return result.rows.map(areaFromRow);
+  }
+
+  async createMemoryArc(input: CreateMemoryArcInput): Promise<MemoryArc> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<MemoryArcRow>(
+        `INSERT INTO memory_arcs (from_memory_id, to_memory_id, type, weight, lifecycle)
+         VALUES ($1, $2, $3, $4, COALESCE($5, 'pending_approval')) RETURNING *`,
+        [
+          input.fromMemoryId,
+          input.toMemoryId,
+          input.type,
+          input.weight ?? null,
+          input.lifecycle ?? null,
+        ],
+      );
+      const arc = memoryArcFromRow(result.rows[0]);
+      await this.bumpCorpus(client, 'arc.proposed', arc.id, undefined, { ...arc });
+      await client.query('COMMIT');
+      return arc;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async listMemoryArcsFrom(memoryId: string): Promise<MemoryArc[]> {
+    const result = await this.database.query<MemoryArcRow>(
+      'SELECT * FROM memory_arcs WHERE from_memory_id = $1 ORDER BY created_at',
+      [memoryId],
+    );
+    return result.rows.map(memoryArcFromRow);
+  }
+
+  async listMemoryArcsTo(memoryId: string): Promise<MemoryArc[]> {
+    const result = await this.database.query<MemoryArcRow>(
+      'SELECT * FROM memory_arcs WHERE to_memory_id = $1 ORDER BY created_at',
+      [memoryId],
+    );
+    return result.rows.map(memoryArcFromRow);
+  }
+
+  async reviewMemoryArc(id: string, decision: 'accept' | 'reject'): Promise<MemoryArc> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<MemoryArcRow>(
+        `UPDATE memory_arcs SET lifecycle = $2
+         WHERE id = $1 AND lifecycle = 'pending_approval' RETURNING *`,
+        [id, decision === 'accept' ? 'accepted' : 'rejected'],
+      );
+      if (!result.rows[0]) throw new Error('arc_not_pending');
+      const arc = memoryArcFromRow(result.rows[0]);
+      // Only acceptance changes the graph, so only acceptance is announced as a
+      // lifecycle change the projection has to act on.
+      if (arc.lifecycle === 'accepted') {
+        await this.bumpCorpus(client, 'arc.accepted', arc.id, undefined, { ...arc });
+      }
+      await client.query('COMMIT');
+      return arc;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async createProjectArc(input: CreateProjectArcInput): Promise<ProjectArc> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<ProjectArcRow>(
+        `INSERT INTO project_arcs (from_project_id, to_project_id, type, weight, lifecycle)
+         VALUES ($1, $2, $3, $4, COALESCE($5, 'pending_approval')) RETURNING *`,
+        [
+          input.fromProjectId,
+          input.toProjectId,
+          input.type,
+          input.weight ?? null,
+          input.lifecycle ?? null,
+        ],
+      );
+      const arc = projectArcFromRow(result.rows[0]);
+      await this.bumpCorpus(client, 'project_arc.proposed', arc.id, undefined, { ...arc });
+      await client.query('COMMIT');
+      return arc;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async listProjectArcs(projectId: string): Promise<ProjectArc[]> {
+    const result = await this.database.query<ProjectArcRow>(
+      `SELECT * FROM project_arcs
+       WHERE from_project_id = $1 OR to_project_id = $1
+       ORDER BY created_at`,
+      [projectId],
+    );
+    return result.rows.map(projectArcFromRow);
+  }
+
+  async reviewProjectArc(id: string, decision: 'accept' | 'reject'): Promise<ProjectArc> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<ProjectArcRow>(
+        `UPDATE project_arcs SET lifecycle = $2
+         WHERE id = $1 AND lifecycle = 'pending_approval' RETURNING *`,
+        [id, decision === 'accept' ? 'accepted' : 'rejected'],
+      );
+      if (!result.rows[0]) throw new Error('arc_not_pending');
+      const arc = projectArcFromRow(result.rows[0]);
+      if (arc.lifecycle === 'accepted') {
+        await this.bumpCorpus(client, 'project_arc.accepted', arc.id, undefined, { ...arc });
+      }
+      await client.query('COMMIT');
+      return arc;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async listAllMemoryArcs(): Promise<MemoryArc[]> {
+    const result = await this.database.query<MemoryArcRow>(
+      'SELECT * FROM memory_arcs ORDER BY created_at',
+    );
+    return result.rows.map(memoryArcFromRow);
+  }
+
+  async listAllProjectArcs(): Promise<ProjectArc[]> {
+    const result = await this.database.query<ProjectArcRow>(
+      'SELECT * FROM project_arcs ORDER BY created_at',
+    );
+    return result.rows.map(projectArcFromRow);
   }
 
   async createSession(input: OpenSessionInput): Promise<SessionRecord> {
@@ -1548,6 +1769,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
     eventType: string,
     aggregateId: string,
     version?: number,
+    payload?: Record<string, unknown>,
   ): Promise<void> {
     const result = await client.query<{ revision: string }>(
       'UPDATE corpus_state SET revision = revision + 1, updated_at = now() WHERE id = $1 RETURNING revision',
@@ -1560,7 +1782,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
         eventType,
         aggregateId,
         row.revision,
-        version === undefined ? { memoryId: aggregateId } : { memoryId: aggregateId, version },
+        payload ??
+          (version === undefined ? { memoryId: aggregateId } : { memoryId: aggregateId, version }),
       ],
     );
   }

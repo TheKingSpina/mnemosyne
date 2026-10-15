@@ -210,6 +210,114 @@ CREATE OR REPLACE TRIGGER trg_memoria_scope_tiene_progetto
 ALTER TABLE memory_revisions DROP COLUMN IF EXISTS scope_type;
 ALTER TABLE memory_revisions DROP COLUMN IF EXISTS scope_id;
 
+-- Arcs are governed rows, like memories: PostgreSQL stays authoritative and
+-- Neo4j projects them. Two tables rather than one polymorphic pair, because a
+-- polymorphic from_id/to_id can carry no foreign key and then forgetting a
+-- memory leaves dangling arcs. memory_arcs may cross projects, because a memory
+-- in one project can legitimately depend on a memory in another.
+
+CREATE TABLE IF NOT EXISTS memory_arcs (
+  id text PRIMARY KEY DEFAULT gen_random_uuid(),
+  from_memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  to_memory_id text NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  type text NOT NULL,
+  weight real,
+  lifecycle text NOT NULL DEFAULT 'pending_approval'
+    CHECK (lifecycle IN ('pending_approval', 'accepted', 'rejected', 'retracted')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- A memory does not influence itself.
+  CONSTRAINT chk_memory_arcs_distinct CHECK (from_memory_id <> to_memory_id),
+  -- Duplicate parallel arcs would make the weight ambiguous and retrying a
+  -- proposal non-idempotent.
+  CONSTRAINT uq_memory_arcs_triple UNIQUE (from_memory_id, to_memory_id, type),
+  CONSTRAINT chk_memory_arcs_weight CHECK (weight IS NULL OR weight BETWEEN 0 AND 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_arcs_from ON memory_arcs (from_memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_arcs_to ON memory_arcs (to_memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_arcs_lifecycle ON memory_arcs (lifecycle);
+
+CREATE TABLE IF NOT EXISTS project_arcs (
+  id text PRIMARY KEY DEFAULT gen_random_uuid(),
+  from_project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  to_project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  type text NOT NULL,
+  weight real,
+  lifecycle text NOT NULL DEFAULT 'pending_approval'
+    CHECK (lifecycle IN ('pending_approval', 'accepted', 'rejected', 'retracted')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_project_arcs_distinct CHECK (from_project_id <> to_project_id),
+  CONSTRAINT uq_project_arcs_triple UNIQUE (from_project_id, to_project_id, type),
+  CONSTRAINT chk_project_arcs_weight CHECK (weight IS NULL OR weight BETWEEN 0 AND 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_arcs_from ON project_arcs (from_project_id);
+CREATE INDEX IF NOT EXISTS idx_project_arcs_to ON project_arcs (to_project_id);
+CREATE INDEX IF NOT EXISTS idx_project_arcs_lifecycle ON project_arcs (lifecycle);
+
+-- Cycles are legitimate: two memories that influence each other is ordinary,
+-- and so is two projects that depend on each other. A *hierarchy* with a cycle
+-- is not a hierarchy, so only relation types listed here have to be acyclic.
+-- The set is data, not code: declaring another hierarchical relation is one row.
+CREATE TABLE IF NOT EXISTS hierarchical_relation (
+  type text PRIMARY KEY,
+  description text
+);
+
+COMMENT ON TABLE hierarchical_relation IS
+  'relation types that must form an acyclic structure; changeable without a migration';
+
+INSERT INTO hierarchical_relation (type, description)
+VALUES ('sotto-progetto', 'il progetto di destinazione sta dentro quello di origine'),
+       ('sovraprogetto', 'inverse of sotto-progetto, declared explicitly rather than inferred')
+ON CONFLICT (type) DO NOTHING;
+
+-- Refuses a project arc that would close a cycle among hierarchical relations.
+--
+-- UNION and not UNION ALL is deliberate: UNION deduplicates, so the walk still
+-- terminates when the existing data already contains a cycle, which is exactly
+-- the case a trigger has to report rather than hang on.
+--
+-- pg_advisory_xact_lock is not an optimisation. Without it two transactions
+-- inserting the opposite halves of a cycle both read the pre-commit state, both
+-- pass, and the cycle forms anyway. The lock serialises the walk against other
+-- hierarchical writes.
+CREATE OR REPLACE FUNCTION project_arcs_acyclic() RETURNS trigger AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM hierarchical_relation WHERE type = NEW.type) THEN
+    RETURN NEW;
+  END IF;
+  -- Only accepted arcs take part: a proposal that has not been approved yet
+  -- cannot close a cycle.
+  IF NEW.lifecycle <> 'accepted' OR NEW.from_project_id = NEW.to_project_id THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtext('project_arcs_hierarchy'));
+
+  IF EXISTS (
+    WITH RECURSIVE raggiungibili(id) AS (
+      SELECT NEW.to_project_id
+      UNION
+      SELECT a.to_project_id
+      FROM project_arcs a
+      JOIN raggiungibili r ON a.from_project_id = r.id
+      JOIN hierarchical_relation h ON h.type = a.type
+      WHERE a.lifecycle = 'accepted'
+    )
+    SELECT 1 FROM raggiungibili WHERE id = NEW.from_project_id
+  ) THEN
+    RAISE EXCEPTION 'project_arc_would_close_cycle: % -> % of type %',
+      NEW.from_project_id, NEW.to_project_id, NEW.type USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_project_arcs_acyclic
+  BEFORE INSERT OR UPDATE ON project_arcs
+  FOR EACH ROW EXECUTE FUNCTION project_arcs_acyclic();
+
 
 CREATE INDEX IF NOT EXISTS memory_revisions_current_content_idx
   ON memory_revisions USING gin (to_tsvector('simple', content));

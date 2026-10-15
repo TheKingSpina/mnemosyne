@@ -390,6 +390,345 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/ApiProblem'
                   - $ref: '#/components/schemas/ApiError'
+  /v1/arcs:
+    post:
+      tags:
+        - Memories
+      operationId: proposeMemoryArc
+      summary: Propone un arco pesato fra due memorie
+      description: Come per le memorie, la proposal del profilo harness resta pending
+        finche il owner non la revisiona. Gli archi di influenza possono formare
+        cicli.
+      x-required-profile: harness_or_owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposeMemoryArcInput'
+      responses:
+        '201':
+          description: Arco creato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalArcResult'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+    get:
+      tags:
+        - Memories
+      operationId: listMemoryArcs
+      summary: Elenca gli archi che toccano una memoria, da entrambi i lati
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: memoryId
+          in: query
+          required: true
+          description: Memoria di cui elencare gli archi.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Archi in uscita e in ingresso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListMemoryArcsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/project-arcs:
+    post:
+      tags:
+        - Administration
+      operationId: proposeProjectArc
+      summary: Propone un arco fra due progetti
+      description: I tipi di relazione dichiarati gerarchici devono restare aciclici;
+        ogni altra relazione puo formare cicli.
+      x-required-profile: harness_or_owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposeProjectArcInput'
+      responses:
+        '201':
+          description: Arco creato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalArcResult'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Il corpo della richiesta supera il limite di 1.048.576 byte.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+    get:
+      tags:
+        - Administration
+      operationId: listProjectArcs
+      summary: Elenca gli archi che toccano un progetto
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          description: Progetto di cui elencare gli archi.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Archi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListProjectArcsOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/arcs/{arc_id}/review:
+    post:
+      tags:
+        - Administration
+      operationId: reviewArc
+      summary: Accetta o respinge un arco pending
+      description: L'accettazione e l'evento che porta l'arco nel grafo Neo4j.
+      x-required-profile: owner
+      parameters:
+        - name: arc_id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewArcRequest'
+      responses:
+        '200':
+          description: Arco revisionato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewArcOutput'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Conflitto di stato, versione, idempotenza o precondizione.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
   /v1/proposals:
     post:
       tags:
@@ -2813,6 +3152,421 @@ components:
         - kind
         - scope
         - epistemicBasis
+    ProposeMemoryArcInput:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          minLength: 1
+        fromMemoryId:
+          type: string
+          minLength: 1
+        toMemoryId:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+          maxLength: 100
+        weight:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+        - sessionId
+        - fromMemoryId
+        - toMemoryId
+        - type
+    ProposeProjectArcInput:
+      type: object
+      properties:
+        fromProjectId:
+          type: string
+          minLength: 1
+        toProjectId:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+          maxLength: 100
+        weight:
+          type: number
+          minimum: 0
+          maximum: 1
+      required:
+        - fromProjectId
+        - toProjectId
+        - type
+    MemoryArcView:
+      type: object
+      properties:
+        arcId:
+          type: string
+          minLength: 1
+        fromMemoryId:
+          type: string
+          minLength: 1
+        toMemoryId:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+        weight:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        lifecycle:
+          type: string
+          enum:
+            - pending_approval
+            - accepted
+            - rejected
+            - retracted
+      required:
+        - arcId
+        - fromMemoryId
+        - toMemoryId
+        - type
+        - weight
+        - lifecycle
+      additionalProperties: false
+    ProjectArcView:
+      type: object
+      properties:
+        arcId:
+          type: string
+          minLength: 1
+        fromProjectId:
+          type: string
+          minLength: 1
+        toProjectId:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          minLength: 1
+        weight:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        lifecycle:
+          type: string
+          enum:
+            - pending_approval
+            - accepted
+            - rejected
+            - retracted
+      required:
+        - arcId
+        - fromProjectId
+        - toProjectId
+        - type
+        - weight
+        - lifecycle
+      additionalProperties: false
+    ProposalArcResult:
+      anyOf:
+        - type: object
+          properties:
+            arcId:
+              type: string
+              minLength: 1
+            fromMemoryId:
+              type: string
+              minLength: 1
+            toMemoryId:
+              type: string
+              minLength: 1
+            type:
+              type: string
+              minLength: 1
+            weight:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            lifecycle:
+              type: string
+              enum:
+                - pending_approval
+                - accepted
+                - rejected
+                - retracted
+            status:
+              type: string
+              enum:
+                - accepted
+                - pending_approval
+          required:
+            - arcId
+            - fromMemoryId
+            - toMemoryId
+            - type
+            - weight
+            - lifecycle
+            - status
+          additionalProperties: false
+        - type: object
+          properties:
+            arcId:
+              type: string
+              minLength: 1
+            fromProjectId:
+              type: string
+              minLength: 1
+            toProjectId:
+              type: string
+              minLength: 1
+            type:
+              type: string
+              minLength: 1
+            weight:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            lifecycle:
+              type: string
+              enum:
+                - pending_approval
+                - accepted
+                - rejected
+                - retracted
+            status:
+              type: string
+              enum:
+                - accepted
+                - pending_approval
+          required:
+            - arcId
+            - fromProjectId
+            - toProjectId
+            - type
+            - weight
+            - lifecycle
+            - status
+          additionalProperties: false
+    ListMemoryArcsOutput:
+      type: object
+      properties:
+        from:
+          type: array
+          items:
+            type: object
+            properties:
+              arcId:
+                type: string
+                minLength: 1
+              fromMemoryId:
+                type: string
+                minLength: 1
+              toMemoryId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+            required:
+              - arcId
+              - fromMemoryId
+              - toMemoryId
+              - type
+              - weight
+              - lifecycle
+            additionalProperties: false
+        to:
+          type: array
+          items:
+            type: object
+            properties:
+              arcId:
+                type: string
+                minLength: 1
+              fromMemoryId:
+                type: string
+                minLength: 1
+              toMemoryId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+            required:
+              - arcId
+              - fromMemoryId
+              - toMemoryId
+              - type
+              - weight
+              - lifecycle
+            additionalProperties: false
+      required:
+        - from
+        - to
+      additionalProperties: false
+    ListProjectArcsOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              arcId:
+                type: string
+                minLength: 1
+              fromProjectId:
+                type: string
+                minLength: 1
+              toProjectId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+            required:
+              - arcId
+              - fromProjectId
+              - toProjectId
+              - type
+              - weight
+              - lifecycle
+            additionalProperties: false
+      required:
+        - items
+      additionalProperties: false
+    ReviewArcRequest:
+      type: object
+      properties:
+        expectedLifecycle:
+          default: pending_approval
+          type: string
+          const: pending_approval
+        decision:
+          type: string
+          enum:
+            - accept
+            - reject
+      required:
+        - decision
+    ReviewArcOutput:
+      anyOf:
+        - type: object
+          properties:
+            arcId:
+              type: string
+              minLength: 1
+            fromMemoryId:
+              type: string
+              minLength: 1
+            toMemoryId:
+              type: string
+              minLength: 1
+            type:
+              type: string
+              minLength: 1
+            weight:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            lifecycle:
+              type: string
+              enum:
+                - pending_approval
+                - accepted
+                - rejected
+                - retracted
+          required:
+            - arcId
+            - fromMemoryId
+            - toMemoryId
+            - type
+            - weight
+            - lifecycle
+          additionalProperties: false
+        - type: object
+          properties:
+            arcId:
+              type: string
+              minLength: 1
+            fromProjectId:
+              type: string
+              minLength: 1
+            toProjectId:
+              type: string
+              minLength: 1
+            type:
+              type: string
+              minLength: 1
+            weight:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            lifecycle:
+              type: string
+              enum:
+                - pending_approval
+                - accepted
+                - rejected
+                - retracted
+          required:
+            - arcId
+            - fromProjectId
+            - toProjectId
+            - type
+            - weight
+            - lifecycle
+          additionalProperties: false
     ProposalResult:
       type: object
       properties:
@@ -5809,6 +6563,90 @@ components:
               - status
               - createdAt
               - updatedAt
+        memoryArcs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              fromMemoryId:
+                type: string
+                minLength: 1
+              toMemoryId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - fromMemoryId
+              - toMemoryId
+              - type
+              - weight
+              - lifecycle
+              - createdAt
+        projectArcs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              fromProjectId:
+                type: string
+                minLength: 1
+              toProjectId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - fromProjectId
+              - toProjectId
+              - type
+              - weight
+              - lifecycle
+              - createdAt
         forgetLedger:
           type: array
           items:
@@ -5835,6 +6673,8 @@ components:
         - conflicts
         - jobs
         - jobAttempts
+        - memoryArcs
+        - projectArcs
         - forgetLedger
     CorpusRestoreResult:
       type: object

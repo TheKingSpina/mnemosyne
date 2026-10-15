@@ -121,6 +121,69 @@ export interface MemoryRecord {
   updatedAt: string;
 }
 
+export type ArcLifecycle = 'pending_approval' | 'accepted' | 'rejected' | 'retracted';
+
+// Arcs are governed like memories, so they carry the same lifecycle. Weight is
+// nullable because "these are related" is a legitimate claim without one.
+export interface MemoryArc {
+  id: string;
+  fromMemoryId: string;
+  toMemoryId: string;
+  type: string;
+  weight: number | null;
+  lifecycle: ArcLifecycle;
+  createdAt: string;
+}
+
+export interface ProjectArc {
+  id: string;
+  fromProjectId: string;
+  toProjectId: string;
+  type: string;
+  weight: number | null;
+  lifecycle: ArcLifecycle;
+  createdAt: string;
+}
+
+export interface CreateMemoryArcInput {
+  fromMemoryId: string;
+  toMemoryId: string;
+  type: string;
+  weight?: number;
+  lifecycle?: ArcLifecycle;
+}
+
+export interface CreateProjectArcInput {
+  fromProjectId: string;
+  toProjectId: string;
+  type: string;
+  weight?: number;
+  lifecycle?: ArcLifecycle;
+}
+
+// An arc proposal reports the arc it created, whichever kind it is. The two
+// shapes are a union rather than one shape with nullable halves because an arc
+// always has exactly one kind of endpoints.
+export type ProposalArcResult =
+  | {
+      status: 'accepted' | 'pending_approval';
+      arcId: string;
+      fromMemoryId: string;
+      toMemoryId: string;
+      type: string;
+      weight: number | null;
+      lifecycle: ArcLifecycle;
+    }
+  | {
+      status: 'accepted' | 'pending_approval';
+      arcId: string;
+      fromProjectId: string;
+      toProjectId: string;
+      type: string;
+      weight: number | null;
+      lifecycle: ArcLifecycle;
+    };
+
 // A proposal resolves to exactly one root project. `proposeMemory` derives it from
 // the session, so callers cannot name a project the scope does not sit in.
 export type CreateMemoryInput = ProposeMemoryInput & { projectId: string };
@@ -175,6 +238,19 @@ export interface MemoryService {
   listFeedback(memoryId: string): Promise<ListMemoryFeedbackOutput>;
   openSession(input: OpenSessionInput): Promise<OpenSessionOutput>;
   recordEvents(input: RecordEventsInput): Promise<RecordEventsOutput>;
+  assertSessionAccessible(sessionId: string): Promise<void>;
+  proposeMemoryArc(
+    input: CreateMemoryArcInput,
+    context?: ProposalContext,
+  ): Promise<ProposalArcResult>;
+  reviewMemoryArc(arcId: string, decision: 'accept' | 'reject'): Promise<MemoryArc>;
+  proposeProjectArc(
+    input: CreateProjectArcInput,
+    context?: ProposalContext,
+  ): Promise<ProposalArcResult>;
+  reviewProjectArc(arcId: string, decision: 'accept' | 'reject'): Promise<ProjectArc>;
+  listMemoryArcs(memoryId: string): Promise<{ from: MemoryArc[]; to: MemoryArc[] }>;
+  listProjectArcs(projectId: string): Promise<ProjectArc[]>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
   searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]>;
   resolveContext(input: ContextInput): Promise<ContextOutput>;
@@ -231,6 +307,17 @@ export interface MemoryRepository {
   createArea(input: CreateAreaInput): Promise<AreaRecord>;
   findAreaById(id: string): Promise<AreaRecord | null>;
   listAreas(projectId: string): Promise<AreaRecord[]>;
+  // Arcs are governed rows, not graph internals. A client proposes them and the
+  // owner accepts, exactly like a memory; only accepted arcs reach Neo4j.
+  createMemoryArc(input: CreateMemoryArcInput): Promise<MemoryArc>;
+  listMemoryArcsFrom(memoryId: string): Promise<MemoryArc[]>;
+  listMemoryArcsTo(memoryId: string): Promise<MemoryArc[]>;
+  reviewMemoryArc(id: string, decision: 'accept' | 'reject'): Promise<MemoryArc>;
+  createProjectArc(input: CreateProjectArcInput): Promise<ProjectArc>;
+  listProjectArcs(projectId: string): Promise<ProjectArc[]>;
+  reviewProjectArc(id: string, decision: 'accept' | 'reject'): Promise<ProjectArc>;
+  listAllMemoryArcs(): Promise<MemoryArc[]>;
+  listAllProjectArcs(): Promise<ProjectArc[]>;
   createSession(input: OpenSessionInput): Promise<SessionRecord>;
   findSession(id: string): Promise<SessionRecord | null>;
   closeSession(id: string): Promise<SessionRecord>;
@@ -364,6 +451,8 @@ export interface CorpusRestore {
   jobs: CorpusExport['jobs'];
   jobAttempts: CorpusExport['jobAttempts'];
   forgetLedger: CorpusExport['forgetLedger'];
+  memoryArcs: CorpusExport['memoryArcs'];
+  projectArcs: CorpusExport['projectArcs'];
 }
 
 export interface CorpusRestoreCounts {
