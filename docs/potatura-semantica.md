@@ -6,13 +6,19 @@
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
 Stato: **fase (a) implementata e verificata; privacy e analyzer implementati**.
+Decisione modelli (locale, niente download ancora — solo valutazione): proponente
+**Gemma 3** in locale (classe 4B, `gemma3:4B` su Ollama; il 12B non entra nel mini
+con lo stack acceso), giudice **encoder** (NLI multilingua + coseno sugli embedding
+esistenti). Gemma 4 via BYOK resta l'alternativa remota se la resa locale delude.
+Finestra notturna (dopo il backup delle 02:00) con rientranza per batch.
 Marking manuale su progetti e nodi (endpoint owner + CLI, default `local_only`, nessuna
 inferenza), export/restore lo conservano. Analyzer Gemma via BYOK con flag OFF default:
 compone batch same-flag, filtra id allucinati prima della tabella, scrive proposte
 `llm` pending; la retention le decide col veto (concordanti eseguite, il resto
-rifiutato con motivo in attesa del giudice). Probing italiano differito (golden set
-~30 coppie, misurazione separata). **Resta aperto: il giudice calibrato Mercury Decide**
-(client System One + fusione esplicita) e le marcature reali sui dati (atto del
+rifiutato con motivo in attesa del giudice). Probing differito su golden set di ~30
+coppie etichettate, per entrambi i modelli prima di accenderli: resa delle proposte
+(Gemma 3) e calibrazione dei verdetti (encoder). **Resta aperto: il giudice encoder**
+(servizio di scoring + fusione esplicita) e le marcature reali sui dati (atto del
 proprietario, non codice). — score deterministico con segnali
 esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
 detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con
@@ -51,8 +57,8 @@ Deviazioni decise rispetto alla prima stesura (motivate sotto, non unilaterali):
                                             [Ledger (indelebile)]
 ```
 
-- **Stadio 1 (asincrono, worker, fase (c)):** Gemma 4 (default 26B A4B MoE per velocità e 256K di contesto, 31B dense dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Vincoli invariati: niente tabelle di retention parallele (si estende `balancedRetentionPolicy`), il detector `direct_contradiction` deterministico vince sempre sull'LLM, supersede resta stato finché il merge cross-sessione non è progettato per bene.
-- **Fase (b), il giudice:** Mercury Decide (`mercury-decide:free`, endpoint System One, non chat) non genera proposte: risponde a domande tipizzate (choice/score/sì-no) con probabilità calibrata. Uso previsto: seconda opinione calibrata sulle coppie candidate generate dal lato deterministico (top-k vicini lessicali/semantici), non analisi libera. La `confidence` a ledger diventa una probabilità calibrata vera.
+- **Stadio 1 (asincrono, worker, fase (c)):** Gemma 3 locale via Ollama (stesso endpoint OpenAI-compatibile del resto del plumbing: cambia `baseUrl`, dal container via host gateway) oppure, in alternativa remota, Gemma 4 (default 26B A4B MoE per velocità e 256K di contesto, 31B dense dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Vincoli invariati: niente tabelle di retention parallele (si estende `balancedRetentionPolicy`), il detector `direct_contradiction` deterministico vince sempre sull'LLM, supersede resta stato finché il merge cross-sessione non è progettato per bene.
+- **Fase (b), il giudice encoder (deciso, non scaricato):** niente modello generativo per giudicare — un encoder multilingua piccolo (classe 100-500M parametri, CPU-friendly, deterministico per costruzione: stesso input, stesso output, niente JSON, niente id inventati). Due teste, una per domanda: similarità coseno per la ridondanza (riusando gli embedding che l'indice semantico già calcola: costo quasi zero) e NLI multilingua (XNLI include l'italiano) per entailment/neutro/contraddizione con probabilità softmax come score calibrato. Runtime: micro-servizio Python (FastAPI + sentence-transformers/onnx) in compose chiamato dal worker via HTTP, oppure onnxruntime-node senza Python. La `confidence` a ledger diventa una probabilità calibrata vera. Mercury Decide resta l'alternativa remota con la stessa forma (scelta/punteggio/sì-no, endpoint System One).
 - **Stadio 2 (job deterministico, fase (a)):** scrive proposte, le decide rileggendo stato fresco, esegue. Con due punteggi in campo (deterministico + calibrato) la fusione è policy esplicita da definire all'implementazione; in parità vince lo score deterministico. Sempre.
 
 ---
