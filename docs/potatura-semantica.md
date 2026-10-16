@@ -5,11 +5,13 @@
 > Principio fondante: **«il modello propone, il servizio decide»**.
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
-Stato: **fase (a) in implementazione** — score deterministico con segnali esistenti,
-decay e potatura archi sul macchinario attuale (balanced retention estesa, non tabelle
-parallele), ledger e stale detection da subito. Fase (b) (tracking accessi) rinviata:
-solo se serve davvero. Fase (c) (stadio LLM) **bloccata su due decisioni esplicite**:
-quale provider remoto autorizzare, e come marcare i dati PUBLIC/ANONYMIZED.
+Stato: **fase (a) implementata e verificata** — score deterministico con segnali
+esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
+detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con
+scenario dedicato (memoria invecchiata via psql, arco debole, LINK rimosso
+verificato sul grafo live), eval invariato. Fase (b) (tracking accessi) rinviata: solo
+se serve davvero. Fase (c) (stadio LLM) **bloccata su due decisioni esplicite**: quale
+provider remoto autorizzare, e come marcare i dati PUBLIC/ANONYMIZED.
 
 Deviazioni decise rispetto alla prima stesura (motivate sotto, non unilaterali):
 
