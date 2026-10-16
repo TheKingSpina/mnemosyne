@@ -1,5 +1,6 @@
 import {
   balancedRetentionPolicy,
+  pruningPolicy,
   corpusExportSchema,
   contextInputSchema,
   correctMemoryInputSchema,
@@ -74,6 +75,7 @@ import {
   type ProposalArcResult,
 } from './types.js';
 import { containsSecret, decideProposal } from './policy.js';
+import { findStaleSource, isPruningExempt, scoreMemoryForPruning } from './pruning-score.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import {
   analyzeQuery,
@@ -1004,6 +1006,7 @@ export class CoreMemoryService implements MemoryService {
       processedOutboxEvents: days(balancedRetentionPolicy.processedOutboxEventDays),
     };
     const deleted = await this.repository.runBalancedRetention(cutoffs);
+    const pruning = await this.runDeterministicPruning(startedAt);
     const completedAt = this.now();
     await this.repository.recordRetentionRun(completedAt.toISOString());
     return {
@@ -1012,7 +1015,190 @@ export class CoreMemoryService implements MemoryService {
       completedAt: completedAt.toISOString(),
       cutoffs,
       deleted,
+      pruning,
     };
+  }
+
+  // Phase (a) of semantic pruning: the deterministic scorer proposes, this job
+  // decides by re-reading fresh state, and execution follows the existing
+  // governed paths (expiry through updateMemoryLifecycle, edge removal through
+  // the arc deletes that announce arc.deleted). Memories decay to expired,
+  // never straight to deleted: expiry leaves the row inspectable and out of
+  // context in one move. Every execution lands in the pruning ledger with the
+  // score that caused it.
+  async runDeterministicPruning(startedAt: Date): Promise<{
+    batchId: string;
+    proposalsWritten: number;
+    memoriesExpired: number;
+    arcsPruned: number;
+    stale: number;
+  }> {
+    const batchId = `pruning_${startedAt.getTime()}`;
+    const now = startedAt.toISOString();
+    const counts = { proposalsWritten: 0, memoriesExpired: 0, arcsPruned: 0, stale: 0 };
+    const memoryArcs = (await this.repository.listAllMemoryArcs()).filter(
+      (arc) => arc.lifecycle === 'accepted',
+    );
+    const projectArcs = (await this.repository.listAllProjectArcs()).filter(
+      (arc) => arc.lifecycle === 'accepted',
+    );
+    const hierarchical = new Set(await this.repository.listHierarchicalRelationTypes());
+    const incidentWeights = new Map<string, Array<number | null>>();
+    for (const arc of memoryArcs) {
+      for (const memoryId of [arc.fromMemoryId, arc.toMemoryId]) {
+        const weights = incidentWeights.get(memoryId) ?? [];
+        weights.push(arc.weight);
+        incidentWeights.set(memoryId, weights);
+      }
+    }
+
+    const prunedArcIds = new Set<string>();
+    const memories = (await this.repository.listMemoryViews()).filter(
+      (memory) => memory.record.lifecycle === 'accepted' && !isPruningExempt(memory.current.kind),
+    );
+    for (const memory of memories) {
+      const scored = scoreMemoryForPruning({
+        updatedAt: memory.record.updatedAt,
+        kind: memory.current.kind,
+        arcWeights: incidentWeights.get(memory.record.id) ?? [],
+        now,
+      });
+      if (scored.score >= pruningPolicy.memoryScoreThreshold) continue;
+      const rationale =
+        `score ${scored.score.toFixed(3)} < ${pruningPolicy.memoryScoreThreshold} ` +
+        `(recency ${scored.components.recency.toFixed(3)}, ` +
+        `edge ${scored.components.edgeWeight.toFixed(3)}, ` +
+        `kind ${scored.components.kind.toFixed(3)})`;
+      const proposal = await this.repository.createPruningProposal({
+        batchId,
+        proposer: 'deterministic',
+        proposalType: 'decay',
+        sourceIds: [memory.record.id],
+        sourceVersions: { [memory.record.id]: memory.record.currentVersion },
+        rationale,
+        confidence: scored.score,
+        scoreSnapshot: { ...scored.components },
+      });
+      counts.proposalsWritten += 1;
+      const fresh = await this.repository.getMemory(memory.record.id);
+      const usable = fresh !== null && fresh.record.lifecycle === 'accepted';
+      const staleId = findStaleSource([memory.record.id], proposal.sourceVersions, {
+        [memory.record.id]: {
+          snapshot: usable && fresh ? fresh.record.currentVersion : 'gone',
+          usable,
+        },
+      });
+      if (staleId !== null) {
+        await this.repository.updatePruningProposalStatus(
+          proposal.id,
+          'stale',
+          `source moved before decision: ${staleId}`,
+        );
+        counts.stale += 1;
+        continue;
+      }
+      await this.repository.updatePruningProposalStatus(proposal.id, 'accepted', rationale);
+      await this.repository.updateMemoryLifecycle(memory.record.id, 'expired');
+      await this.repository.recordPruningLedgerEntry({
+        subjectType: 'memory',
+        subjectId: memory.record.id,
+        reason: 'decay',
+        proposalId: proposal.id,
+        score: scored.score,
+        scoreComponents: { ...scored.components },
+      });
+      counts.memoriesExpired += 1;
+      // Relations of a non-visible node are noise: prune the incident arcs
+      // with the same proposal rather than leaving LINKs to an expired node.
+      for (const arc of memoryArcs) {
+        if (arc.fromMemoryId !== memory.record.id && arc.toMemoryId !== memory.record.id) continue;
+        if (prunedArcIds.has(arc.id)) continue;
+        prunedArcIds.add(arc.id);
+        await this.repository.deleteMemoryArc(arc.id);
+        counts.arcsPruned += 1;
+        await this.repository.recordPruningLedgerEntry({
+          subjectType: 'arc',
+          subjectId: arc.id,
+          reason: 'decay',
+          proposalId: proposal.id,
+          score: scored.score,
+        });
+      }
+    }
+
+    // Fresh arc state for the decide step: an owner review may have accepted,
+    // rejected or removed an arc between the propose scan and now.
+    const freshArcs = new Map<string, { weight: number | null; usable: boolean; kind: string }>();
+    for (const arc of await this.repository.listAllMemoryArcs()) {
+      freshArcs.set(arc.id, {
+        weight: arc.weight,
+        usable: arc.lifecycle === 'accepted',
+        kind: 'memory',
+      });
+    }
+    for (const arc of await this.repository.listAllProjectArcs()) {
+      freshArcs.set(arc.id, {
+        weight: arc.weight,
+        usable: arc.lifecycle === 'accepted',
+        kind: 'project',
+      });
+    }
+    const candidates = [...memoryArcs, ...projectArcs].filter(
+      (arc) =>
+        !hierarchical.has(arc.type) &&
+        arc.weight !== null &&
+        arc.weight < pruningPolicy.edgeWeightThreshold &&
+        !prunedArcIds.has(arc.id),
+    );
+    for (const arc of candidates) {
+      const proposal = await this.repository.createPruningProposal({
+        batchId,
+        proposer: 'deterministic',
+        proposalType: 'edge',
+        sourceIds: [arc.id],
+        sourceVersions: { [arc.id]: arc.weight as number },
+        rationale: `weight ${arc.weight} < ${pruningPolicy.edgeWeightThreshold}`,
+        confidence: arc.weight as number,
+        scoreSnapshot: { weight: arc.weight as number },
+      });
+      counts.proposalsWritten += 1;
+      const state = freshArcs.get(arc.id);
+      const staleId = findStaleSource([arc.id], proposal.sourceVersions, {
+        [arc.id]: {
+          snapshot: state === undefined || !state.usable ? 'gone' : (state.weight as number),
+          usable: state !== undefined && state.usable && state.weight === arc.weight,
+        },
+      });
+      if (staleId !== null) {
+        await this.repository.updatePruningProposalStatus(
+          proposal.id,
+          'stale',
+          `source moved before decision: ${staleId}`,
+        );
+        counts.stale += 1;
+        continue;
+      }
+      await this.repository.updatePruningProposalStatus(
+        proposal.id,
+        'accepted',
+        proposal.rationale,
+      );
+      if (state?.kind === 'project') {
+        await this.repository.deleteProjectArc(arc.id);
+      } else {
+        await this.repository.deleteMemoryArc(arc.id);
+      }
+      await this.repository.recordPruningLedgerEntry({
+        subjectType: 'arc',
+        subjectId: arc.id,
+        reason: 'edge_weight',
+        proposalId: proposal.id,
+        score: arc.weight as number,
+        scoreComponents: { weight: arc.weight as number },
+      });
+      counts.arcsPruned += 1;
+    }
+    return { batchId, ...counts };
   }
 
   async consolidateSession(sessionId: string): Promise<SessionConsolidationOutput> {

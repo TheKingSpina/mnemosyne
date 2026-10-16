@@ -294,6 +294,7 @@ async function runLifecycle() {
   // After the final export, so the memory it creates cannot change what the
   // restore below is verified against.
   await verifyScopeIsolation();
+  await verifyDeterministicPruning();
   return {
     export: finalExport,
     sourceCorpusRevision: finalExport.corpusRevision,
@@ -596,6 +597,89 @@ async function verifyMemoryProjectIdentity() {
   psql("UPDATE memories SET lifecycle = 'pending_approval' WHERE id = 'e2e_m1';");
   psql("DELETE FROM memories WHERE id = 'e2e_m1';");
   psql("DELETE FROM projects WHERE id IN ('e2e_gamma', 'e2e_delta');");
+}
+
+async function verifyDeterministicPruning() {
+  // The deterministic pruner runs inside the retention run. Everything here is
+  // crafted for it: an episode aged past any threshold decays to expired, and
+  // a weak arc between two fresh memories is pruned, each with an accepted
+  // proposal and a ledger row. Runs after the final export so none of this
+  // disturbs the restore below.
+  const session = await api('/v1/sessions', {
+    token: harnessToken,
+    method: 'POST',
+    key: 'e2e-prune-session',
+    body: { projectId: 'e2e-synthetic' },
+    status: 201,
+  });
+  async function acceptedEpisode(content, key) {
+    const proposed = await api('/v1/proposals', {
+      token: ownerToken,
+      method: 'POST',
+      key: `e2e-prune-propose-${key}`,
+      body: {
+        sessionId: session.sessionId,
+        content,
+        kind: 'episode',
+        scope: { type: 'project', id: 'e2e-synthetic' },
+        epistemicBasis: 'verified',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      status: 201,
+    });
+    return api(`/v1/proposals/${encodeURIComponent(proposed.memoryId)}/decision`, {
+      token: ownerToken,
+      method: 'POST',
+      key: `e2e-prune-accept-${key}`,
+      body: { expectedVersion: 1, decision: 'accept' },
+    });
+  }
+  const old = await acceptedEpisode('il vecchio archivio sta in cantina', 'old');
+  const left = await acceptedEpisode('il magazzino e ordinato', 'left');
+  const right = await acceptedEpisode('lo scaffale e etichettato', 'right');
+  const oldId = old.memory.memoryId;
+  // Age past any plausible threshold: updatedAt drives recency, nothing else.
+  psql(`UPDATE memories SET updated_at = '2018-01-01T00:00:00Z' WHERE id = '${oldId}';`);
+  const arc = await api('/v1/arcs', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-prune-arc',
+    body: {
+      sessionId: session.sessionId,
+      fromMemoryId: left.memory.memoryId,
+      toMemoryId: right.memory.memoryId,
+      type: 'cita',
+      weight: 0.05,
+    },
+    status: 201,
+  });
+  assert(arc.lifecycle === 'accepted', `prune_arc_not_accepted:${arc.lifecycle}`);
+
+  const run = await api('/v1/admin/retention/run', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-prune-retention',
+    body: {},
+  });
+  assert(run.pruning.memoriesExpired >= 1, 'prune_expired_nothing');
+  assert(run.pruning.arcsPruned >= 1, 'prune_arcs_nothing');
+
+  // Expired memories are invisible to harness reads by design (only accepted
+  // is), so the lifecycle is asserted at the database, not through the API.
+  const decayed = psql(`SELECT lifecycle FROM memories WHERE id = '${oldId}';`);
+  assert(decayed === 'expired', `prune_not_expired:${decayed}`);
+  const arcs = await api('/v1/admin/arcs', { token: ownerToken });
+  assert(!arcs.memoryArcs.some((entry) => entry.arcId === arc.arcId), 'prune_arc_still_listed');
+  // The LINK leaves the graph through the arc.deleted event, asynchronously.
+  await waitForGraphQuery(`MATCH ()-[r:LINK {id: '${arc.arcId}'}]->() RETURN count(r);`, 0);
+  const ledger = psql('SELECT count(*) FROM pruning_ledger;');
+  assert(Number(ledger) >= 2, `prune_ledger_missing:${ledger}`);
+  const proposals = psql("SELECT count(*) FROM pruning_proposals WHERE status = 'accepted';");
+  assert(Number(proposals) >= 2, `prune_proposals_missing:${proposals}`);
 }
 
 async function verifyScopeIsolation() {

@@ -1,4 +1,5 @@
 # POTATURA_SEMANTICA.md
+
 ## Mnemosyne V2 — Sistema di potatura a due stadi (LLM free)
 
 > Principio fondante: **«il modello propone, il servizio decide»**.
@@ -99,6 +100,7 @@ score = w_r · recency + w_e · avg_edge_weight + w_t · kind_factor
 - Pesi `w_r + w_e + w_t = 1`: lo score resta in 0..1 e `confidence` lo riusa.
 
 Regole di decisione, in ordine:
+
 1. **Whitelist:** kind mai in scadenza (`fact`, `decision`) filtrati via in `WHERE` prima del calcolo. Non entrano nel gioco.
 2. **Campo `protected`:** rinviato (vedi sopra) — quando esisterà, freezing manuale che vince su tutto.
 3. Proposta + score concordanti → esecuzione.
@@ -121,14 +123,14 @@ Esecuzione in fase (a):
 Facts immutabili: **mai potate**. Quando obsolete vengono **superseded** — il meccanismo
 di correction esistente conserva la storia epistemica, senza archi inventati.
 
-| categoria  | decadimento   | potabile            | note                                   |
-|------------|---------------|---------------------|----------------------------------------|
-| fact       | 0 (immutabile)| mai, solo supersede | correction esistente conserva la storia|
-| decision   | lentissimo    | solo con supersede  | whitelist di default                   |
-| preference | lentissimo    | sì (→ expired)      | decadimento per disuso                 |
-| goal       | lento         | sì (→ expired)      | expire quando riformulato              |
-| episodic   | medio         | sì (→ expired)      | candidato tipico del decay             |
-| detail     | veloce        | sì (→ expired)      | la prima a sparire                     |
+| categoria  | decadimento    | potabile            | note                                    |
+| ---------- | -------------- | ------------------- | --------------------------------------- |
+| fact       | 0 (immutabile) | mai, solo supersede | correction esistente conserva la storia |
+| decision   | lentissimo     | solo con supersede  | whitelist di default                    |
+| preference | lentissimo     | sì (→ expired)      | decadimento per disuso                  |
+| goal       | lento          | sì (→ expired)      | expire quando riformulato               |
+| episodic   | medio          | sì (→ expired)      | candidato tipico del decay              |
+| detail     | veloce         | sì (→ expired)      | la prima a sparire                      |
 
 Implementazione su macchinario attuale: i coefficienti estendono `balancedRetentionPolicy`
 (pesi, soglie, fattori per kind, kind mai in scadenza), riportati nel report del run.
@@ -140,12 +142,12 @@ Niente tabelle parallele.
 
 The link dies before the memory: an edge below threshold gets pruned even if both nodes stay.
 
-| tipo arco        | decadimento | note                                        |
-|------------------|-------------|---------------------------------------------|
-| gerarchici       | mai auto    | solo review esplicita (vedi §4.6)           |
-| causale          | lento       | consolidata dall'uso ripetuto               |
-| associativa      | medio       | decade col disuso                           |
-| contestuale      | veloce      | la più volatile, tipo sinapsi deboli        |
+| tipo arco   | decadimento | note                                 |
+| ----------- | ----------- | ------------------------------------ |
+| gerarchici  | mai auto    | solo review esplicita (vedi §4.6)    |
+| causale     | lento       | consolidata dall'uso ripetuto        |
+| associativa | medio       | decade col disuso                    |
+| contestuale | veloce      | la più volatile, tipo sinapsi deboli |
 
 Implementazione su macchinario attuale: soglia di peso nel report del run (`edgeWeight`
 sotto soglia → prune). Il tipo guida la soglia futura, non tabelle separate oggi.

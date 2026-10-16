@@ -320,6 +320,16 @@ export class Neo4jProjection {
         );
         return;
       }
+      if (event.eventType === 'arc.deleted') {
+        // Pruning removes the LINK the same way acceptance added it. Matched
+        // without endpoints on purpose: the arc row is already gone, so there
+        // is nothing to join against, and the id is unique to the edge.
+        const payload = event.payload as unknown as { arcId: string };
+        await session.executeWrite((tx) =>
+          tx.run('MATCH ()-[r:LINK {id: $id}]->() DELETE r', { id: payload.arcId }),
+        );
+        return;
+      }
       const memory = await this.repository.getMemory(event.aggregateId);
       if (!memory) return;
       const current = memory.current;

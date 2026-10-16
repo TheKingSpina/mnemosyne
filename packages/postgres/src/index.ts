@@ -780,6 +780,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
     return result.rows.map(memoryArcFromRow);
   }
 
+  async listHierarchicalRelationTypes(): Promise<string[]> {
+    const result = await this.database.query<{ type: string }>(
+      'SELECT type FROM hierarchical_relation ORDER BY type',
+    );
+    return result.rows.map((row) => row.type);
+  }
+
   async deleteMemoryArc(id: string): Promise<void> {
     const client = await this.client();
     try {

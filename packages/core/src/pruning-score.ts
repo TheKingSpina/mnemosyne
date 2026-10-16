@@ -40,6 +40,28 @@ export function scoreMemoryForPruning(input: PruningScoreInput): PruningScoreOut
   return { score, components: { recency, edgeWeight, kind } };
 }
 
+// The decide step re-reads every source and compares against what the propose
+// step saw. Anything that moved — version, lifecycle, weight, existence —
+// makes the proposal stale, because pruning on an old photograph of the graph
+// is exactly the failure mode the ledger exists to rule out.
+export interface PruningFreshSource {
+  snapshot: number | string;
+  usable: boolean;
+}
+
+export function findStaleSource(
+  sourceIds: string[],
+  sourceVersions: Record<string, number | string>,
+  fresh: Record<string, PruningFreshSource>,
+): string | null {
+  for (const id of sourceIds) {
+    const seen = sourceVersions[id];
+    const now = fresh[id];
+    if (now === undefined || !now.usable || now.snapshot !== seen) return id;
+  }
+  return null;
+}
+
 export function isPruningExempt(kind: MemoryKind): boolean {
   return (pruningPolicy.neverExpireKinds as readonly string[]).includes(kind);
 }

@@ -732,6 +732,17 @@ export const retentionRunOutputSchema = z.object({
     // corpus and must not count towards the corpus revision bump.
     processedOutboxEvents: z.number().int().nonnegative(),
   }),
+  // Deterministic pruning rides the same run on the same schedule. Its counts
+  // live beside deleted rather than inside it, because expiring a memory is a
+  // lifecycle change and pruning an edge removes a relation: neither is the
+  // age-based row deletion above.
+  pruning: z.object({
+    batchId: z.string().min(1),
+    proposalsWritten: z.number().int().nonnegative(),
+    memoriesExpired: z.number().int().nonnegative(),
+    arcsPruned: z.number().int().nonnegative(),
+    stale: z.number().int().nonnegative(),
+  }),
 });
 export type RetentionRunOutput = z.infer<typeof retentionRunOutputSchema>;
 

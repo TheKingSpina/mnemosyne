@@ -338,6 +338,13 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.projectArcs.values()];
   }
 
+  // Mirrors the seeded rows in schema.sql. The in-memory backend does not
+  // enforce acyclicity (pre-existing parity gap, trigger only in PostgreSQL),
+  // but the pruning job must still know which types are structural.
+  async listHierarchicalRelationTypes(): Promise<string[]> {
+    return ['sotto-progetto', 'sovraprogetto'];
+  }
+
   async deleteMemoryArc(id: string): Promise<void> {
     if (!this.memoryArcs.delete(id)) throw new Error('arc_not_found');
     this.corpusRevision += 1n;

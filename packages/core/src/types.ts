@@ -382,6 +382,7 @@ export interface MemoryRepository {
   reviewProjectArc(id: string, decision: 'accept' | 'reject'): Promise<ProjectArc>;
   listAllMemoryArcs(): Promise<MemoryArc[]>;
   listAllProjectArcs(): Promise<ProjectArc[]>;
+  listHierarchicalRelationTypes(): Promise<string[]>;
   deleteMemoryArc(id: string): Promise<void>;
   deleteProjectArc(id: string): Promise<void>;
   // Pruning proposals and their ledger are working state, not corpus content:

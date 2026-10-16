@@ -1674,3 +1674,111 @@ describe('capability provenance', () => {
     expect(capabilities.reporter).toBe('mcp');
   });
 });
+
+describe('deterministic pruning inside the retention run', () => {
+  const pruneSecret = 'a-secure-test-secret-that-is-long-enough';
+  let now: Date;
+  // One clock for both layers: the repository stamps updatedAt with its own
+  // clock, so time travel has to move both or records never age.
+  const createDatedService = (repository: InMemoryRepository) =>
+    new CoreMemoryService(repository, { forgetSecret: pruneSecret, now: () => now });
+
+  async function acceptedMemory(
+    service: CoreMemoryService,
+    sessionId: string,
+    content: string,
+    kind: 'episode' | 'fact',
+    scope: { type: 'project'; id: string },
+  ) {
+    const result = await service.proposeMemory(
+      {
+        sessionId,
+        content,
+        kind,
+        scope,
+        epistemicBasis: 'verified',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    if (result.status !== 'accepted' || !result.memoryId) {
+      throw new Error(`proposal_not_accepted:${result.status}`);
+    }
+    return result.memoryId;
+  }
+
+  it('expires decayed memories, prunes weak arcs, and keeps the rest', async () => {
+    now = new Date('2026-10-16T12:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = createDatedService(repository);
+    const first = await service.openSession({ projectId: 'prune-p1' });
+    // Provisions the second project; the binding itself is never read.
+    await service.openSession({ projectId: 'prune-p2' });
+
+    const oldEpisode = await acceptedMemory(
+      service,
+      first.sessionId,
+      'ricordo della vecchia sede',
+      'episode',
+      { type: 'project', id: 'prune-p1' },
+    );
+    const keeper = await acceptedMemory(service, first.sessionId, 'legge fondamentale', 'fact', {
+      type: 'project',
+      id: 'prune-p1',
+    });
+
+    // Eight years pass: the episode decays below threshold, the fact is exempt.
+    now = new Date('2034-10-16T12:00:00.000Z');
+    const fresh = await acceptedMemory(service, first.sessionId, 'novita di oggi', 'episode', {
+      type: 'project',
+      id: 'prune-p1',
+    });
+    const weak = await service.proposeMemoryArc(
+      { fromMemoryId: keeper, toMemoryId: fresh, type: 'cita', weight: 0.05 },
+      { actor: 'owner', explicitDirective: false },
+    );
+    if (!('arcId' in weak)) throw new Error('expected_a_memory_arc');
+    const structural = await service.proposeProjectArc(
+      { fromProjectId: 'prune-p1', toProjectId: 'prune-p2', type: 'sotto-progetto', weight: 0.05 },
+      { actor: 'owner', explicitDirective: false },
+    );
+    if (!('arcId' in structural)) throw new Error('expected_a_project_arc');
+    // A fresh pending proposal is none of the job's business.
+    await service.proposeMemory(
+      {
+        sessionId: first.sessionId,
+        content: 'appena proposta',
+        kind: 'episode',
+        scope: { type: 'project', id: 'prune-p1' },
+        epistemicBasis: 'verified',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'harness', explicitDirective: false },
+    );
+
+    const run = await service.runRetention();
+
+    expect(run.pruning.memoriesExpired).toBe(1);
+    expect(run.pruning.arcsPruned).toBe(1);
+    expect(run.pruning.proposalsWritten).toBe(2);
+    expect(run.pruning.stale).toBe(0);
+    expect((await repository.getMemory(oldEpisode))?.record.lifecycle).toBe('expired');
+    expect((await repository.getMemory(keeper))?.record.lifecycle).toBe('accepted');
+    expect((await repository.getMemory(fresh))?.record.lifecycle).toBe('accepted');
+    // The weak arc is gone, the weak hierarchical one stays: hierarchy is
+    // never restructured by weight.
+    expect(await repository.listAllMemoryArcs()).toHaveLength(0);
+    expect(await repository.listAllProjectArcs()).toHaveLength(1);
+    const ledger = await repository.listPruningLedger();
+    expect(ledger.map((entry) => entry.reason).sort()).toEqual(['decay', 'edge_weight']);
+    expect(await repository.listPruningProposals('accepted')).toHaveLength(2);
+  });
+});

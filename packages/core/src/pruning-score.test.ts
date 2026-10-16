@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scoreMemoryForPruning, isPruningExempt } from './pruning-score.js';
+import { scoreMemoryForPruning, isPruningExempt, findStaleSource } from './pruning-score.js';
 
 const NOW = '2026-10-16T12:00:00.000Z';
 
@@ -61,5 +61,53 @@ describe('scoreMemoryForPruning', () => {
     expect(isPruningExempt('decision')).toBe(true);
     expect(isPruningExempt('episode')).toBe(false);
     expect(isPruningExempt('preference')).toBe(false);
+  });
+});
+
+describe('findStaleSource', () => {
+  const proposal = { sourceIds: ['m1', 'a1'], sourceVersions: { m1: 2, a1: 0.4 } };
+
+  it('returns null when everything matches', () => {
+    expect(
+      findStaleSource(proposal.sourceIds, proposal.sourceVersions, {
+        m1: { snapshot: 2, usable: true },
+        a1: { snapshot: 0.4, usable: true },
+      }),
+    ).toBeNull();
+  });
+
+  it('names a memory whose version moved', () => {
+    expect(
+      findStaleSource(proposal.sourceIds, proposal.sourceVersions, {
+        m1: { snapshot: 3, usable: true },
+        a1: { snapshot: 0.4, usable: true },
+      }),
+    ).toBe('m1');
+  });
+
+  it('names a source that is no longer usable', () => {
+    expect(
+      findStaleSource(proposal.sourceIds, proposal.sourceVersions, {
+        m1: { snapshot: 2, usable: false },
+        a1: { snapshot: 0.4, usable: true },
+      }),
+    ).toBe('m1');
+  });
+
+  it('names an arc whose weight changed', () => {
+    expect(
+      findStaleSource(proposal.sourceIds, proposal.sourceVersions, {
+        m1: { snapshot: 2, usable: true },
+        a1: { snapshot: 0.9, usable: true },
+      }),
+    ).toBe('a1');
+  });
+
+  it('names a source that vanished', () => {
+    expect(
+      findStaleSource(proposal.sourceIds, proposal.sourceVersions, {
+        m1: { snapshot: 2, usable: true },
+      }),
+    ).toBe('a1');
   });
 });
