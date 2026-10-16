@@ -665,6 +665,36 @@ export const balancedRetentionPolicy = {
   processedOutboxEventDays: 3,
 } as const;
 
+// Deterministic pruning coefficients. Data, not code: tuning decay is an edit
+// here, not a migration, the same way hierarchical_relation tunes acyclicity.
+// Phase (a) uses recency, edge weight and kind only; access frequency does not
+// exist in the system and is not promised.
+export const pruningPolicy = {
+  weights: { recency: 0.5, edgeWeight: 0.3, kind: 0.2 },
+  recencyHalfLifeDays: 180,
+  // Neutral component when a memory has no weighted arcs: isolation must not
+  // read as worthlessness, or every young unlinked memory would decay.
+  noArcNeutralWeight: 0.5,
+  // Below this score an accepted memory is proposed for expiry.
+  memoryScoreThreshold: 0.25,
+  // Below this raw weight an accepted non-hierarchical arc is proposed for pruning.
+  edgeWeightThreshold: 0.2,
+  // Never expire, whatever the score: identity-grade content.
+  neverExpireKinds: ['fact', 'decision'],
+  kindFactors: {
+    fact: 1.0,
+    decision: 0.9,
+    preference: 0.7,
+    instruction: 0.7,
+    convention: 0.6,
+    constraint: 0.6,
+    goal: 0.5,
+    hypothesis: 0.4,
+    episode: 0.3,
+  },
+} as const;
+export type PruningPolicy = typeof pruningPolicy;
+
 export const retentionStatusOutputSchema = z.object({
   managed: z.literal(true),
   profile: z.literal(balancedRetentionPolicy.profile),
