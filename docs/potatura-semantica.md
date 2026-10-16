@@ -9,14 +9,19 @@ Stato: **fase (a) implementata e verificata** — score deterministico con segna
 esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
 detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con
 scenario dedicato (memoria invecchiata via psql, arco debole, LINK rimosso
-verificato sul grafo live), eval invariato. Fase (b) (tracking accessi) rinviata: solo
-se serve davvero. Fase (c) (stadio LLM) **bloccata su due decisioni esplicite**: quale
+verificato sul grafo live), eval invariato. Fase (b) (tracking accessi):
+**implementazione futura** — il segnale che manca allo score, da aggiungere solo quando
+il suo valore supera il costo (scrittura a ogni lettura sul percorso hot + estensione
+della postura "telemetria sono solo conteggi"). Ambito quando si farà: contatore letture,
+quarto addendo con pesi ribilanciati, formula sempre dichiarata. Fase (c) (stadio LLM)
+**bloccata su due decisioni esplicite**: quale
 provider remoto autorizzare, e come marcare i dati PUBLIC/ANONYMIZED.
 
 Deviazioni decise rispetto alla prima stesura (motivate sotto, non unilaterali):
 
 - La formula dichiara esplicitamente i segnali che esistono — recency, peso archi, kind.
-  `access_frequency` non esiste nel sistema e non viene promesso (fase (b), eventuale).
+  `access_frequency` non esiste nel sistema e non viene promesso (fase (b),
+  implementazione futura).
 - I coefficienti vivono nella policy esistente estesa, non in tabelle `node_retention` /
   `edge_retention` parallele: una sola fonte di verità su "cosa si cancella quando".
 - L'esecuzione del decay su memorie usa il lifecycle `expired` esistente (mai scritto da
