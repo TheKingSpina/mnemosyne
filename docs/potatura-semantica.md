@@ -5,16 +5,15 @@
 > Principio fondante: **«il modello propone, il servizio decide»**.
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
-Stato: **fase (a) implementata e verificata**. Fase (b) ridefinita: **giudice
-calibrato Mercury Decide** sulle coppie candidate (tracking accessi fuori dal piano).
-Fase (c) **sbloccata**: analizzatore Gemma 4 via BYOK Google AI Studio (default 26B,
-31B dove serve qualità), enablement dietro flag esplicito OFF di default, credenziali
-solo via env mai nel repo. Analyzer strettamente stadio 1 (scrive proposte, zero
-scritture sulle memorie). Fusione punteggi all'implementazione, veto deterministico
-sempre. Ogni proposta con `model_version` + `prompt_hash` va nel pruning ledger (il
-forget ledger resta per i forget: registri separati, non si mischiano). Il probing in
-italiano NON blocca l'enablement: golden set di ~30 coppie etichettate dopo, come
-misurazione separata. — score deterministico con segnali
+Stato: **fase (a) implementata e verificata; privacy e analyzer implementati**.
+Marking manuale su progetti e nodi (endpoint owner + CLI, default `local_only`, nessuna
+inferenza), export/restore lo conservano. Analyzer Gemma via BYOK con flag OFF default:
+compone batch same-flag, filtra id allucinati prima della tabella, scrive proposte
+`llm` pending; la retention le decide col veto (concordanti eseguite, il resto
+rifiutato con motivo in attesa del giudice). Probing italiano differito (golden set
+~30 coppie, misurazione separata). **Resta aperto: il giudice calibrato Mercury Decide**
+(client System One + fusione esplicita) e le marcature reali sui dati (atto del
+proprietario, non codice). — score deterministico con segnali
 esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
 detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con
 scenario dedicato (memoria invecchiata via psql, arco debole, LINK rimosso
