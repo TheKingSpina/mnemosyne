@@ -49,6 +49,7 @@ that were still open at the previous handoff.
 | `b72ec97` | The dashboard draws projects and the arcs between them                                                 |
 | `7485661` | Areas link to their project in the Neo4j projection                                                    |
 | `47c9200` | AGENTS.md points at the parallel v2 work                                                               |
+| `428748c` | Fix: restore the dropped `resolved` binding in the graph canvas                                        |
 
 ## Decisions that are not obvious from the code
 
@@ -87,6 +88,15 @@ from every session: the scope list carries it as policy and the write path keeps
 same carve-out. Removing the write path inside a rename would have broken
 "ricorda globalmente" with a loud `scope_not_available`, which is a behaviour change
 smuggled into a contract change. The scope enum is now `session | project | area`.
+
+**Inline dashboard scripts fail silently through every gate but the browser.**
+The memory-arc patch dropped a `const` while keeping its uses. Non-conflict
+edges never evaluate that branch, so the draw harness passed without a
+conflict edge, and prettier does not check undefined names in inline HTML.
+In production every draw reaching a conflict edge threw after painting the
+earlier edges: nodes never painted, fit and labels dead, pointer handlers
+broke mid-gesture. The console named it in one line. The harness now draws a
+conflict edge, which throws on the old code.
 
 **Cypher needs `WITH` between `SET` and `MATCH`.** The area-edge query put `MATCH`
 after `SET`, which Neo4j refuses. The write threw on every attempt, the outbox batch

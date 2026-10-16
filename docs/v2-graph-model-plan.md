@@ -63,8 +63,8 @@ attached to that project rather than a scope kind.
 2. `feat: a memory belongs to a project, permanently` — **done, `939e10f`**
 3. `feat: proposals carry nodes and arcs` — **superseded, see section 4**
 4. `feat: governed weighted arcs, within and across projects` — **done, `0434e88`**
-5. `feat: project and area roots in the Neo4j projection` — **partly done, see section 5**
-6. `docs: retire the global scope in favour of the personal project` — **open**
+5. `feat: project and area roots in the Neo4j projection` — **done, `4056448` plus `(Area)-[:PART_OF]->(Project)` in `7485661`**
+6. `docs: retire the global scope in favour of the personal project` — **done, `ead27be`**
 
 Commit 2 is a breaking schema change: `memories.project_id` is `NOT NULL`, and an
 existing corpus cannot be migrated mechanically, because the old `scope_id` was free text
@@ -283,6 +283,7 @@ Rebuilt from the outbox, never authoritative:
 - `(:Area {id, name, projectId})`
 - `(Memory)-[:IN_PROJECT]->(Project)` and `(Memory)-[:IN_AREA]->(Area)`, derived from
   `project_id` / `area_id`
+- `(Area)-[:PART_OF]->(Project)`, so membership is a walkable edge and not only a property
 - `(Memory)-[:LINK {id, type, weight}]->(Memory)`, only for `accepted` memory arcs
 - `(Project)-[:LINK {id, type, weight}]->(Project)`, only for `accepted` project arcs
 
