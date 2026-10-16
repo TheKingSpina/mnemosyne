@@ -19,6 +19,7 @@ export function toDomainError(error: unknown): DomainError {
       area_not_found: ['Area not found', 404],
       area_not_in_project: ['Area does not belong to the project', 409],
       memory_not_found: ['Memory not found', 404],
+      project_not_found: ['Project not found', 404],
       memory_not_active: ['Memory is not active', 409],
       proposal_not_pending: ['Proposal is not pending', 409],
       memory_version_conflict: ['Memory version is stale', 409],

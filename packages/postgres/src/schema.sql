@@ -30,10 +30,14 @@ CREATE TABLE IF NOT EXISTS projects (
   id text PRIMARY KEY,
   name text NOT NULL,
   description text,
+  privacy text NOT NULL DEFAULT 'local_only'
+    CHECK (privacy IN ('local_only', 'anonymized', 'public')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_projects_name UNIQUE (name)
 );
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS privacy text NOT NULL DEFAULT 'local_only'
+  CHECK (privacy IN ('local_only', 'anonymized', 'public'));
 
 -- Case-insensitive uniqueness, so "Alpha" and "alpha" cannot both exist and
 -- make a lookup by name ambiguous.
@@ -93,8 +97,11 @@ CREATE TABLE IF NOT EXISTS memories (
   current_version integer NOT NULL DEFAULT 1,
   lifecycle text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  privacy text CHECK (privacy IN ('local_only', 'anonymized', 'public'))
 );
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS privacy text
+  CHECK (privacy IN ('local_only', 'anonymized', 'public'));
 
 -- Project membership is identity, not content: a memory never changes project.
 -- RESTRICT rather than CASCADE, because a cascade would remove memories without

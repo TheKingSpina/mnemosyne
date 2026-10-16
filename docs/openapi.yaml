@@ -2343,6 +2343,76 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/ApiProblem'
                   - $ref: '#/components/schemas/ApiError'
+  /v1/admin/projects/{id}/privacy:
+    post:
+      tags:
+        - Administration
+      operationId: setProjectPrivacy
+      summary: Marca la privacy di un progetto (manuale, mai inferita)
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProjectPrivacyRequest'
+      responses:
+        '200':
+          description: Privacy aggiornata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
   /v1/admin/conflicts:
     get:
       tags:
@@ -3178,6 +3248,12 @@ components:
           required:
             - type
             - id
+        privacy:
+          type: string
+          enum:
+            - local_only
+            - anonymized
+            - public
         epistemicBasis:
           type: string
           enum:
@@ -4793,9 +4869,16 @@ components:
         description:
           type: string
           minLength: 1
+        privacy:
+          type: string
+          enum:
+            - local_only
+            - anonymized
+            - public
       required:
         - id
         - name
+        - privacy
       additionalProperties: false
     ListProjectsOutput:
       type: object
@@ -4814,13 +4897,31 @@ components:
               description:
                 type: string
                 minLength: 1
+              privacy:
+                type: string
+                enum:
+                  - local_only
+                  - anonymized
+                  - public
             required:
               - id
               - name
+              - privacy
             additionalProperties: false
       required:
         - projects
       additionalProperties: false
+    SetProjectPrivacyRequest:
+      type: object
+      properties:
+        privacy:
+          type: string
+          enum:
+            - local_only
+            - anonymized
+            - public
+      required:
+        - privacy
     ConflictListOutput:
       type: object
       properties:
@@ -6386,6 +6487,12 @@ components:
               description:
                 type: string
                 minLength: 1
+              privacy:
+                type: string
+                enum:
+                  - local_only
+                  - anonymized
+                  - public
               createdAt:
                 type: string
                 format: date-time
@@ -6397,6 +6504,7 @@ components:
             required:
               - id
               - name
+              - privacy
               - createdAt
               - updatedAt
         areas:
@@ -6497,6 +6605,14 @@ components:
                       - expired
                       - retracted
                       - forgotten
+                  privacy:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - local_only
+                          - anonymized
+                          - public
+                      - type: 'null'
                   createdAt:
                     type: string
                     format: date-time
@@ -6510,6 +6626,7 @@ components:
                   - projectId
                   - currentVersion
                   - lifecycle
+                  - privacy
                   - createdAt
                   - updatedAt
               current:

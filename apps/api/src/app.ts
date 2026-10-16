@@ -13,6 +13,7 @@ import {
   proposeMemoryArcInputSchema,
   proposeProjectArcInputSchema,
   reviewArcInputSchema,
+  setProjectPrivacyInputSchema,
   type MemoryArcView,
   type ProjectArcView,
   recordEventsInputSchema,
@@ -374,6 +375,21 @@ async function handleAuthorizedRequestUnchecked(
         name: project.name,
         ...(project.description === undefined ? {} : { description: project.description }),
       })),
+    });
+    return;
+  }
+  const adminProjectPrivacy = url.pathname.match(/^\/v1\/admin\/projects\/([^/]+)\/privacy$/u);
+  if (request.method === 'POST' && adminProjectPrivacy) {
+    const { id } = paramsSchema.parse({ id: adminProjectPrivacy[1] });
+    const body = setProjectPrivacyInputSchema.parse(
+      await readJson(request, maxRequestBodyBytes),
+    );
+    // Unknown projects surface as 404 through the shared domain error map.
+    const project = await service.setProjectPrivacy(id, body.privacy);
+    sendJson(response, 200, {
+      id: project.id,
+      name: project.name,
+      privacy: project.privacy,
     });
     return;
   }

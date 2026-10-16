@@ -71,6 +71,7 @@ import {
   type CreateProjectArcInput,
   type MemoryArc,
   type ProjectArc,
+  type PrivacyFlag,
   type ProjectRecord,
   type ProposalArcResult,
 } from './types.js';
@@ -513,6 +514,12 @@ export class CoreMemoryService implements MemoryService {
   // needs every project in one call.
   async listProjects(): Promise<ProjectRecord[]> {
     return this.repository.listProjects();
+  }
+
+  async setProjectPrivacy(projectId: string, privacy: PrivacyFlag): Promise<ProjectRecord> {
+    const project = await this.repository.findProjectById(projectId);
+    if (!project) throw new Error('project_not_found');
+    return this.repository.updateProjectPrivacy(projectId, privacy);
   }
 
   // The owner dashboard draws the whole graph at once, so it needs every arc

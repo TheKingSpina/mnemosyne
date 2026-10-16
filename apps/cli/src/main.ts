@@ -17,6 +17,8 @@ import {
   corpusRestoreResultSchema,
   memoryAdminViewSchema,
   pendingProposalsOutputSchema,
+  projectViewSchema,
+  privacyFlagSchema,
   retentionRunOutputSchema,
   retentionStatusOutputSchema,
   searchMemoriesInputSchema,
@@ -166,6 +168,20 @@ async function run(name: string, args: string[]): Promise<void> {
     );
     return;
   }
+  if (name === 'project-privacy') {
+    const id = required(args, 0, 'project ID');
+    const privacy = privacyFlagSchema.parse(required(args, 1, 'privacy flag'));
+    if (!args.includes('--yes'))
+      await confirm(`Marcare il progetto ${id} come ${privacy}? (LOCAL_ONLY e il default sicuro)`);
+    printJson(
+      await request(`/v1/admin/projects/${encodeURIComponent(id)}/privacy`, projectViewSchema, {
+        method: 'POST',
+        headers: { 'idempotency-key': randomUUID() },
+        body: JSON.stringify({ privacy }),
+      }),
+    );
+    return;
+  }
   if (name === 'export') {
     const destination = required(args, 0, 'output path');
     const value = corpusExportSchema.parse(await request('/v1/admin/exports/corpus', z.unknown()));
@@ -266,6 +282,7 @@ function printHelp(): void {
       'mnemosyne jobs [limit] [offset]',
       'mnemosyne conflicts',
       'mnemosyne resolve-conflict <conflict-id> --yes',
+      'mnemosyne project-privacy <project-id> <local_only|anonymized|public> --yes',
       'mnemosyne export <output.json>',
       'mnemosyne restore <input.json>',
       '',

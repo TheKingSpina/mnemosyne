@@ -360,6 +360,52 @@ describe('Mnemosyne API authorization', () => {
     expect(asHarness.status).toBe(403);
   });
 
+  it('lets the owner mark project privacy, manually and explicitly', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    await service.openSession({ projectId: 'synthetic-marked' });
+
+    const marked = await fetch(`${baseUrl}/v1/admin/projects/synthetic-marked/privacy`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'privacy-mark-1',
+      },
+      body: JSON.stringify({ privacy: 'public' }),
+    });
+    expect(marked.status).toBe(200);
+    expect(await marked.json()).toMatchObject({ id: 'synthetic-marked', privacy: 'public' });
+
+    const listed = await fetch(`${baseUrl}/v1/admin/projects`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+    const projects = (await listed.json()) as { projects: Array<{ id: string }> };
+    expect(projects.projects.map((project) => project.id)).toContain('synthetic-marked');
+
+    const missing = await fetch(`${baseUrl}/v1/admin/projects/ghost/privacy`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'privacy-mark-2',
+      },
+      body: JSON.stringify({ privacy: 'public' }),
+    });
+    expect(missing.status).toBe(404);
+
+    const asHarness = await fetch(`${baseUrl}/v1/admin/projects/synthetic-marked/privacy`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'privacy-mark-3',
+      },
+      body: JSON.stringify({ privacy: 'public' }),
+    });
+    expect(asHarness.status).toBe(403);
+  });
+
   it('exposes embedding health and reindex to the owner only', async () => {
     const { server } = createTestServer();
     const baseUrl = await listen(server);

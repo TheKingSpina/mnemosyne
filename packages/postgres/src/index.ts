@@ -38,6 +38,7 @@ import type {
   PruningProposal,
   PruningProposalStatus,
   RecordPruningLedgerInput,
+  PrivacyFlag,
   ProjectArc,
   ProjectRecord,
   AreaRecord,
@@ -63,6 +64,7 @@ interface ProjectRow extends QueryResultRow {
   id: string;
   name: string;
   description: string | null;
+  privacy: PrivacyFlag;
   created_at: Date;
   updated_at: Date;
 }
@@ -199,6 +201,7 @@ function projectFromRow(row: ProjectRow): ProjectRecord {
     id: row.id,
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
+    privacy: row.privacy,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -239,6 +242,7 @@ interface MemoryRow extends QueryResultRow {
   project_id: string;
   current_version: number;
   lifecycle: MemoryLifecycle;
+  privacy: PrivacyFlag | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -372,16 +376,18 @@ export class PostgresMemoryRepository implements MemoryRepository {
       // there on an otherwise empty corpus, and the export is its truth.
       for (const project of input.projects) {
         await client.query(
-          `INSERT INTO projects (id, name, description, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO projects (id, name, description, privacy, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (id) DO UPDATE
            SET name = EXCLUDED.name,
                description = EXCLUDED.description,
+               privacy = EXCLUDED.privacy,
                updated_at = EXCLUDED.updated_at`,
           [
             project.id,
             project.name,
             project.description ?? null,
+            project.privacy,
             project.createdAt,
             project.updatedAt,
           ],
@@ -583,9 +589,9 @@ export class PostgresMemoryRepository implements MemoryRepository {
 
   async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
     const result = await this.database.query<ProjectRow>(
-      `INSERT INTO projects (id, name, description)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [input.id, input.name, input.description ?? null],
+      `INSERT INTO projects (id, name, description, privacy)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [input.id, input.name, input.description ?? null, input.privacy ?? 'local_only'],
     );
     return projectFromRow(result.rows[0]);
   }
@@ -607,6 +613,16 @@ export class PostgresMemoryRepository implements MemoryRepository {
     const existing = await this.findProjectById(id);
     if (!existing) throw new Error(`project_not_found:${id}`);
     return existing;
+  }
+
+  async updateProjectPrivacy(id: string, privacy: PrivacyFlag): Promise<ProjectRecord> {
+    const result = await this.database.query<ProjectRow>(
+      `UPDATE projects SET privacy = $2, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [id, privacy],
+    );
+    if (!result.rows[0]) throw new Error('project_not_found');
+    return projectFromRow(result.rows[0]);
   }
 
   async findProjectById(id: string): Promise<ProjectRecord | null> {
@@ -996,8 +1012,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     try {
       await client.query('BEGIN');
       const result = await client.query<MemoryRow>(
-        "INSERT INTO memories (id, lifecycle, project_id) VALUES ($1, 'pending_approval', $2) RETURNING *",
-        [`mem_${randomUUID()}`, input.projectId],
+        "INSERT INTO memories (id, lifecycle, project_id, privacy) VALUES ($1, 'pending_approval', $2, $3) RETURNING *",
+        [`mem_${randomUUID()}`, input.projectId, input.privacy ?? null],
       );
       const record = result.rows[0];
       await this.insertRevision(client, record.id, this.revisionFromInput(record.id, input));
@@ -2028,6 +2044,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       projectId: row.project_id,
       currentVersion: row.current_version,
       lifecycle: row.lifecycle,
+      privacy: row.privacy,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };

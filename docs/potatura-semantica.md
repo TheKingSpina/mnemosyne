@@ -5,11 +5,16 @@
 > Principio fondante: **«il modello propone, il servizio decide»**.
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
-Stato: **fase (a) implementata e verificata**. Fase (b) ridefinita: **giudizio
-calibrato con Mercury Decide** (il tracking accessi esce dal piano, sostituito dal
-giudizio). Fase (c): **analizzatore Gemma 4 via BYOK Google AI Studio** (decisione
-provider presa). Resta aperta una sola delle due decisioni: come marcare i dati
-PUBLIC/ANONYMIZED (default LOCAL_ONLY, pipeline inerte finché non si marca). — score deterministico con segnali
+Stato: **fase (a) implementata e verificata**. Fase (b) ridefinita: **giudice
+calibrato Mercury Decide** sulle coppie candidate (tracking accessi fuori dal piano).
+Fase (c) **sbloccata**: analizzatore Gemma 4 via BYOK Google AI Studio (default 26B,
+31B dove serve qualità), enablement dietro flag esplicito OFF di default, credenziali
+solo via env mai nel repo. Analyzer strettamente stadio 1 (scrive proposte, zero
+scritture sulle memorie). Fusione punteggi all'implementazione, veto deterministico
+sempre. Ogni proposta con `model_version` + `prompt_hash` va nel pruning ledger (il
+forget ledger resta per i forget: registri separati, non si mischiano). Il probing in
+italiano NON blocca l'enablement: golden set di ~30 coppie etichettate dopo, come
+misurazione separata. — score deterministico con segnali
 esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
 detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con
 scenario dedicato (memoria invecchiata via psql, arco debole, LINK rimosso
@@ -47,17 +52,31 @@ Deviazioni decise rispetto alla prima stesura (motivate sotto, non unilaterali):
                                             [Ledger (indelebile)]
 ```
 
-- **Stadio 1 (asincrono, worker, fase (c)):** Gemma 4 (default 26B A4B MoE per velocità e 256K di contesto, 31B dense dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Prima di fidarsi: probing su batch reale (quota di proposte parsabili e sensate in italiano), perché la resa va misurata, non presunta.
+- **Stadio 1 (asincrono, worker, fase (c)):** Gemma 4 (default 26B A4B MoE per velocità e 256K di contesto, 31B dense dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Vincoli invariati: niente tabelle di retention parallele (si estende `balancedRetentionPolicy`), il detector `direct_contradiction` deterministico vince sempre sull'LLM, supersede resta stato finché il merge cross-sessione non è progettato per bene.
 - **Fase (b), il giudice:** Mercury Decide (`mercury-decide:free`, endpoint System One, non chat) non genera proposte: risponde a domande tipizzate (choice/score/sì-no) con probabilità calibrata. Uso previsto: seconda opinione calibrata sulle coppie candidate generate dal lato deterministico (top-k vicini lessicali/semantici), non analisi libera. La `confidence` a ledger diventa una probabilità calibrata vera.
 - **Stadio 2 (job deterministico, fase (a)):** scrive proposte, le decide rileggendo stato fresco, esegue. Con due punteggi in campo (deterministico + calibrato) la fusione è policy esplicita da definire all'implementazione; in parità vince lo score deterministico. Sempre.
 
 ---
 
-### 2. Privacy (provider deciso, marcatura aperta — fase (c) parte qui)
+### 2. Privacy marking (deciso — la pipeline parte da qui)
 
-- Flag `privacy` a livello di **progetto** con override più fine a livello di **nodo**: `PUBLIC` / `ANONYMIZED` / `LOCAL_ONLY`.
-- Il worker compone i batch rispettando il flag: `LOCAL_ONLY` non esce mai dal perimetro; `ANONYMIZED` esce solo come riassunto senza identificatori; `PUBLIC` può uscire intero.
-- **Default sicuro: `LOCAL_ONLY`** per tutto ciò che non è esplicitamente marcato altrimenti.
+- Flag `privacy` a livello di **progetto**, tre valori: `LOCAL_ONLY` (default) |
+  `ANONYMIZED` | `PUBLIC`. Colonne dedicate su `projects` e, come override, su `memories`
+  (null = si eredita dal progetto; l'override vince sempre sul progetto).
+- **La pipeline resta inerte per design** finché non c'è marking esplicito: con tutto a
+  `LOCAL_ONLY` il compositore produce zero batch e l'analyzer non parte. È voluto, non
+  un bug. Nessun default permissivo, mai.
+- `ANONYMIZED`: al modello remoto esce SOLO riassunto deterministico + categoria —
+  kind, tipo di scope (non gli id), fascia d'età, tipi di arco incidenti. Mai contenuto
+  grezzo, mai identificatori: niente persone, path, credenziali, date precise. Il
+  riassunto è volutamente lossy: la sicurezza sta nel non mandare, non nel mascherare.
+- `PUBLIC`: il nodo può uscire intero (contenuto + metadati).
+- I batch contengono solo nodi con lo **stesso flag effettivo**: mai mescolare PUBLIC e
+  ANONYMIZED nella stessa richiesta — il formato del payload dipende dal flag.
+- Marking **manuale del proprietario alla creazione**: endpoint admin per il progetto
+  (`POST /v1/admin/projects/{id}/privacy`), comando CLI (`project-privacy`), override
+  del nodo in proposta. **NESSUNA inferenza automatica del flag**: indovinare la
+  privacy è il modo più veloce per violarla.
 
 ---
 

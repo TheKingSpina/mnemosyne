@@ -39,6 +39,7 @@ import type {
   ReviewProposalOutput,
   RetentionRunOutput,
   RetentionStatusOutput,
+  PrivacyFlag,
   Scope,
   SearchMemoriesInput,
   SessionConsolidationOutput,
@@ -49,6 +50,7 @@ import type {
 } from '@mnemosyne/contracts';
 
 export type { MemoryFeedbackInput, MemoryFeedbackOutput } from '@mnemosyne/contracts';
+export type { PrivacyFlag } from '@mnemosyne/contracts';
 
 export interface SessionRecord {
   id: string;
@@ -69,6 +71,8 @@ export interface ProjectRecord {
   id: string;
   name: string;
   description?: string;
+  // Manual marking by the owner at creation; default local_only. Never inferred.
+  privacy: PrivacyFlag;
   createdAt: string;
   updatedAt: string;
 }
@@ -87,6 +91,7 @@ export interface CreateProjectInput {
   id: string;
   name: string;
   description?: string;
+  privacy?: PrivacyFlag;
 }
 
 export interface CreateAreaInput {
@@ -117,6 +122,8 @@ export interface MemoryRecord {
   projectId: string;
   currentVersion: number;
   lifecycle: MemoryLifecycle;
+  // Per-node override; null inherits the project flag.
+  privacy: PrivacyFlag | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -314,6 +321,7 @@ export interface MemoryService {
   listMemoryArcs(memoryId: string): Promise<{ from: MemoryArc[]; to: MemoryArc[] }>;
   listAllArcs(): Promise<{ memoryArcs: MemoryArc[]; projectArcs: ProjectArc[] }>;
   listProjects(): Promise<ProjectRecord[]>;
+  setProjectPrivacy(projectId: string, privacy: PrivacyFlag): Promise<ProjectRecord>;
   listProjectArcs(projectId: string): Promise<ProjectArc[]>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
   searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]>;
@@ -366,6 +374,9 @@ export interface MemoryRepository {
   createProject(input: CreateProjectInput): Promise<ProjectRecord>;
   ensureProject(id: string): Promise<ProjectRecord>;
   findProjectById(id: string): Promise<ProjectRecord | null>;
+  // Manual marking by the owner. Projects are otherwise provisioned silently,
+  // so without this there would be no path from default local_only outward.
+  updateProjectPrivacy(id: string, privacy: PrivacyFlag): Promise<ProjectRecord>;
   findProjectByName(name: string): Promise<ProjectRecord | null>;
   listProjects(): Promise<ProjectRecord[]>;
   createArea(input: CreateAreaInput): Promise<AreaRecord>;

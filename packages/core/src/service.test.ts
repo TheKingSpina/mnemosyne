@@ -925,6 +925,7 @@ describe('CoreMemoryService', () => {
             projectId: 'memory-service',
             currentVersion: 1,
             lifecycle: 'accepted' as const,
+            privacy: null,
             createdAt: '2026-01-20T10:00:00.000Z',
             updatedAt: '2026-01-20T10:00:00.000Z',
           },
@@ -1672,6 +1673,57 @@ describe('capability provenance', () => {
     const capabilities = await service.getAdminCapabilities();
 
     expect(capabilities.reporter).toBe('mcp');
+  });
+});
+
+describe('project privacy marking', () => {
+  const secret = 'a-secure-test-secret-that-is-long-enough';
+  const create = () => new CoreMemoryService(new InMemoryRepository(), { forgetSecret: secret });
+
+  it('provisions projects as local_only and marks them manually', async () => {
+    const service = create();
+    const session = await service.openSession({ projectId: 'marked' });
+    expect((await service.listProjects()).find((p) => p.id === 'marked')?.privacy).toBe(
+      'local_only',
+    );
+
+    const marked = await service.setProjectPrivacy('marked', 'public');
+    expect(marked.privacy).toBe('public');
+    await expect(service.setProjectPrivacy('missing', 'public')).rejects.toThrow(
+      'project_not_found',
+    );
+    expect(session.sessionId.startsWith('ses_')).toBe(true);
+  });
+
+  it('stores the node override at propose time and defaults to null', async () => {
+    const service = create();
+    const session = await service.openSession({ projectId: 'marked' });
+    async function propose(content: string, privacy?: 'public' | 'anonymized') {
+      const result = await service.proposeMemory(
+        {
+          sessionId: session.sessionId,
+          content,
+          kind: 'fact',
+          scope: { type: 'project', id: 'marked' },
+          epistemicBasis: 'verified',
+          assessment: 'uncontested',
+          confidence: 1,
+          sensitivity: 'normal',
+          activation: 'on_demand',
+          sourceEventIds: [],
+          ...(privacy === undefined ? {} : { privacy }),
+        },
+        { actor: 'owner', explicitDirective: true },
+      );
+      if (result.status !== 'accepted' || !result.memoryId) throw new Error('not_accepted');
+      return result.memoryId;
+    }
+    const withOverride = await propose('contenuto pubblico', 'public');
+    const withoutOverride = await propose('contenuto ereditato');
+
+    const repository = (service as unknown as { repository: InMemoryRepository }).repository;
+    expect((await repository.getMemory(withOverride))?.record.privacy).toBe('public');
+    expect((await repository.getMemory(withoutOverride))?.record.privacy).toBeNull();
   });
 });
 

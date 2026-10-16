@@ -44,6 +44,7 @@ import {
   listAllArcsOutputSchema,
   projectViewSchema,
   listProjectsOutputSchema,
+  setProjectPrivacyInputSchema,
   listProjectArcsOutputSchema,
   reviewArcInputSchema,
   reviewArcOutputSchema,
@@ -853,6 +854,25 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/projects/{id}/privacy': {
+      post: operation({
+        tags: ['Administration'],
+        operationId: 'setProjectPrivacy',
+        summary: 'Marca la privacy di un progetto (manuale, mai inferita)',
+        requiredProfile: 'owner',
+        idempotent: true,
+        requestBody: requestBody(schemaRef('SetProjectPrivacyRequest')),
+        parameters: [pathIdParameter()],
+        responses: {
+          200: jsonResponse('Privacy aggiornata.', schemaRef('ProjectView')),
+          400: errorResponse(400),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          404: errorResponse(404),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/conflicts': {
       get: operation({
         tags: ['Administration'],
@@ -1114,6 +1134,7 @@ export const openApiDocument: Oas3_1Definition = {
       ListAllArcsOutput: schemaRefValue(listAllArcsOutputSchema),
       ProjectView: schemaRefValue(projectViewSchema),
       ListProjectsOutput: schemaRefValue(listProjectsOutputSchema),
+      SetProjectPrivacyRequest: schemaRefValue(setProjectPrivacyInputSchema, 'input'),
       ConflictListOutput: schemaRefValue(conflictListOutputSchema),
       CorrectMemoryRequest: schemaRefValue(inputSchemas.correction, 'input'),
       CorrectMemoryOutput: schemaRefValue(correctMemoryOutputSchema),

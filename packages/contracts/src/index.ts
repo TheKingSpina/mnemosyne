@@ -9,6 +9,9 @@ export const scopeSchema = z.object({
 });
 export type Scope = z.infer<typeof scopeSchema>;
 
+export const privacyFlagSchema = z.enum(['local_only', 'anonymized', 'public']);
+export type PrivacyFlag = z.infer<typeof privacyFlagSchema>;
+
 export const memoryKindSchema = z.enum([
   'fact',
   'preference',
@@ -179,6 +182,7 @@ export const projectViewSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().min(1).optional(),
+  privacy: privacyFlagSchema,
 });
 export type ProjectView = z.infer<typeof projectViewSchema>;
 
@@ -186,6 +190,11 @@ export const listProjectsOutputSchema = z.object({
   projects: z.array(projectViewSchema),
 });
 export type ListProjectsOutput = z.infer<typeof listProjectsOutputSchema>;
+
+export const setProjectPrivacyInputSchema = z.object({
+  privacy: privacyFlagSchema,
+});
+export type SetProjectPrivacyInput = z.infer<typeof setProjectPrivacyInputSchema>;
 
 export const listAllArcsOutputSchema = z.object({
   memoryArcs: z.array(memoryArcViewSchema),
@@ -417,6 +426,9 @@ export const proposeMemoryInputSchema = z.object({
   content: z.string().min(1).max(10_000),
   kind: memoryKindSchema,
   scope: scopeSchema,
+  // Optional per-node privacy override; null/absent inherits the project flag.
+  // Manual marking only: nothing infers this value.
+  privacy: privacyFlagSchema.optional(),
   epistemicBasis: epistemicBasisSchema,
   assessment: assessmentSchema.default('uncontested'),
   confidence: z.number().min(0).max(1).nullable().default(null),
@@ -550,6 +562,7 @@ export const corpusExportSchema = z.object({
       id: z.string().min(1),
       name: z.string().min(1),
       description: z.string().min(1).optional(),
+      privacy: privacyFlagSchema,
       createdAt: z.string().datetime({ offset: true }),
       updatedAt: z.string().datetime({ offset: true }),
     }),
@@ -571,6 +584,7 @@ export const corpusExportSchema = z.object({
         projectId: z.string().min(1),
         currentVersion: z.number().int().positive(),
         lifecycle: memoryLifecycleSchema,
+        privacy: privacyFlagSchema.nullable(),
         createdAt: z.string().datetime({ offset: true }),
         updatedAt: z.string().datetime({ offset: true }),
       }),

@@ -14,6 +14,7 @@ import type {
   CreateMemoryArcInput,
   CreateProjectArcInput,
   MemoryArc,
+  PrivacyFlag,
   CreatePruningProposalInput,
   PruningLedgerEntry,
   PruningProposal,
@@ -108,6 +109,7 @@ export class InMemoryRepository implements MemoryRepository {
         id: project.id,
         name: project.name,
         ...(project.description === undefined ? {} : { description: project.description }),
+        privacy: project.privacy,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       });
@@ -188,6 +190,7 @@ export class InMemoryRepository implements MemoryRepository {
       id: input.id,
       name: input.name,
       ...(input.description === undefined ? {} : { description: input.description }),
+      privacy: input.privacy ?? 'local_only',
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -203,6 +206,14 @@ export class InMemoryRepository implements MemoryRepository {
 
   async findProjectById(id: string): Promise<ProjectRecord | null> {
     return this.projects.get(id) ?? null;
+  }
+
+  async updateProjectPrivacy(id: string, privacy: PrivacyFlag): Promise<ProjectRecord> {
+    const project = this.projects.get(id);
+    if (!project) throw new Error('project_not_found');
+    const marked: ProjectRecord = { ...project, privacy, updatedAt: this.now().toISOString() };
+    this.projects.set(id, marked);
+    return marked;
   }
 
   async findProjectByName(name: string): Promise<ProjectRecord | null> {
@@ -486,6 +497,7 @@ export class InMemoryRepository implements MemoryRepository {
       projectId: input.projectId,
       currentVersion: 1,
       lifecycle: 'pending_approval',
+      privacy: input.privacy ?? null,
       createdAt: now,
       updatedAt: now,
     };
