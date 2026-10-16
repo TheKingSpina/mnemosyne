@@ -12,6 +12,7 @@ import {
 } from '@mnemosyne/postgres';
 import { connectCorpusCache } from '@mnemosyne/redis';
 import { Pool } from 'pg';
+import { RemotePruningAnalyzer } from '@mnemosyne/core';
 import { createApiServer } from './app.js';
 
 const connectionString = process.env.DATABASE_URL;
@@ -43,6 +44,23 @@ const service = new CoreMemoryService(repository, {
 const host = process.env.API_HOST ?? '127.0.0.1';
 const port = Number(process.env.API_PORT ?? 3000);
 const clientTokenStore = new PostgresClientTokenStore(pool);
+// Analyzer enablement is explicit and off by default: without the flag, or
+// without a key and a model, the endpoint answers disabled and nothing leaves.
+// Credentials come from env only, never the repo.
+const pruningAnalyzerEnabled = process.env.PRUNING_ANALYZER_ENABLED === 'true';
+const pruningAnalyzer =
+  pruningAnalyzerEnabled &&
+  process.env.PRUNING_ANALYZER_API_KEY &&
+  process.env.PRUNING_ANALYZER_MODEL
+    ? new RemotePruningAnalyzer({
+        apiKey: process.env.PRUNING_ANALYZER_API_KEY,
+        model: process.env.PRUNING_ANALYZER_MODEL,
+        baseUrl: process.env.PRUNING_ANALYZER_BASE_URL,
+      })
+    : null;
+if (pruningAnalyzerEnabled && !pruningAnalyzer) {
+  throw new Error('PRUNING_ANALYZER_API_KEY and PRUNING_ANALYZER_MODEL are required together');
+}
 const server = createApiServer(service, {
   accessPolicy: createIssuedTokenAccessPolicy({
     base: createAccessPolicy({ ownerToken, harnessToken }),
@@ -51,6 +69,7 @@ const server = createApiServer(service, {
   idempotencyStore: new PostgresIdempotencyStore(pool),
   clientTokenStore,
   requireIdempotencyKey: true,
+  pruningAnalyzer,
 });
 server.listen(port, host, () => {
   process.stdout.write(`Mnemosyne API listening on ${host}:${port}\n`);

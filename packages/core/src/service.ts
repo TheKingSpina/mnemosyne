@@ -43,6 +43,7 @@ import {
   type PrepareForgetOutput,
   type ProposalResult,
   type ProposeMemoryInput,
+  type PruningAnalysisOutput,
   type RecordEventsInput,
   type RecordEventsOutput,
   type ReviewProposalInput,
@@ -73,10 +74,13 @@ import {
   type ProjectArc,
   type PrivacyFlag,
   type ProjectRecord,
+  type PruningProposalType,
   type ProposalArcResult,
 } from './types.js';
 import { containsSecret, decideProposal } from './policy.js';
+import { composeAnalyzerBatches } from './privacy-batch.js';
 import { findStaleSource, isPruningExempt, scoreMemoryForPruning } from './pruning-score.js';
+import type { PruningAnalyzer } from './pruning-analyzer.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import {
   analyzeQuery,
@@ -1014,6 +1018,7 @@ export class CoreMemoryService implements MemoryService {
     };
     const deleted = await this.repository.runBalancedRetention(cutoffs);
     const pruning = await this.runDeterministicPruning(startedAt);
+    await this.decidePendingLlmProposals(pruning);
     const completedAt = this.now();
     await this.repository.recordRetentionRun(completedAt.toISOString());
     return {
@@ -1206,6 +1211,303 @@ export class CoreMemoryService implements MemoryService {
       counts.arcsPruned += 1;
     }
     return { batchId, ...counts };
+  }
+
+  // Stage-1 analysis entry point: composes same-flag batches (local_only never
+  // leaves) and lets the analyzer sign proposals. No auto-decide here: pending
+  // llm proposals wait for decidePendingLlmProposals inside the retention run,
+  // where the deterministic score keeps its veto. Without an analyzer the
+  // answer is disabled, never an error: enablement is explicit and off default.
+  async runPruningAnalysis(analyzer?: PruningAnalyzer): Promise<PruningAnalysisOutput> {
+    if (!analyzer) {
+      return {
+        status: 'disabled',
+        batches: 0,
+        proposalsWritten: 0,
+        reason: 'analyzer_not_configured',
+      };
+    }
+    const batchId = `analysis_${this.now().getTime()}`;
+    const views = (await this.repository.listMemoryViews()).filter(
+      (memory) => memory.record.lifecycle === 'accepted',
+    );
+    const projectPrivacy = new Map(
+      (await this.repository.listProjects()).map((project) => [project.id, project.privacy]),
+    );
+    const arcs = (await this.repository.listAllMemoryArcs()).filter(
+      (arc) => arc.lifecycle === 'accepted',
+    );
+    const incidentTypes = new Map<string, string[]>();
+    for (const arc of arcs) {
+      for (const memoryId of [arc.fromMemoryId, arc.toMemoryId]) {
+        const types = incidentTypes.get(memoryId) ?? [];
+        types.push(arc.type);
+        incidentTypes.set(memoryId, types);
+      }
+    }
+    const batches = composeAnalyzerBatches(
+      views.map((memory) => ({
+        memoryId: memory.record.id,
+        kind: memory.current.kind,
+        scopeKind: memory.current.scope.type,
+        updatedAt: memory.record.updatedAt,
+        content: memory.current.content,
+        recordPrivacy: memory.record.privacy,
+        projectPrivacy: projectPrivacy.get(memory.record.projectId),
+        incidentArcTypes: incidentTypes.get(memory.record.id) ?? [],
+      })),
+      pruningPolicy.analyzerMaxBatchSize,
+      this.now().toISOString(),
+    );
+    let proposalsWritten = 0;
+    for (const batch of batches) {
+      const { candidates, promptHash } = await analyzer.analyze(batch);
+      const batchIds = new Set(batch.items.map((item) => item.memoryId));
+      const versions = new Map(
+        views
+          .filter((memory) => batchIds.has(memory.record.id))
+          .map((memory) => [memory.record.id, memory.record.currentVersion]),
+      );
+      for (const candidate of candidates) {
+        // Hallucinated ids die here, before the table: every source must be a
+        // batch member, and versions come from our reads, never the model.
+        if (!candidate.sourceIds.every((id) => versions.has(id))) continue;
+        await this.repository.createPruningProposal({
+          batchId,
+          proposer: 'llm',
+          proposalType: candidate.proposalType,
+          sourceIds: [...candidate.sourceIds],
+          sourceVersions: Object.fromEntries(
+            candidate.sourceIds.map((id) => [id, versions.get(id) as number]),
+          ),
+          ...(candidate.targetId === undefined ? {} : { targetId: candidate.targetId }),
+          rationale: candidate.rationale,
+          confidence: candidate.confidence,
+          scoreSnapshot: {},
+          modelVersion: analyzer.modelVersion,
+          promptHash,
+        });
+        proposalsWritten += 1;
+      }
+    }
+    return { status: 'ran', batches: batches.length, proposalsWritten };
+  }
+
+  // Decides pending llm proposals with the same rules as deterministic ones,
+  // plus the veto: anything the deterministic side cannot judge on its own
+  // (redundancy, merge, non-direct contradiction) is rejected with reason and
+  // waits for the calibrated judge. Called from runRetention after the
+  // deterministic pass; counts merge into the same report block.
+  async decidePendingLlmProposals(counts: {
+    proposalsWritten: number;
+    memoriesExpired: number;
+    arcsPruned: number;
+    stale: number;
+  }): Promise<void> {
+    const now = this.now().toISOString();
+    const pending = (await this.repository.listPruningProposals('pending')).filter(
+      (proposal) => proposal.proposer === 'llm',
+    );
+    if (pending.length === 0) return;
+    const views = new Map(
+      (await this.repository.listMemoryViews()).map((memory) => [memory.record.id, memory]),
+    );
+    const memoryArcs = await this.repository.listAllMemoryArcs();
+    const projectArcs = await this.repository.listAllProjectArcs();
+    const arcsById = new Map<
+      string,
+      {
+        weight: number | null;
+        usable: boolean;
+        kind: 'memory' | 'project';
+        type: string;
+        fromMemoryId?: string;
+        toMemoryId?: string;
+      }
+    >();
+    for (const arc of memoryArcs) {
+      arcsById.set(arc.id, {
+        weight: arc.weight,
+        usable: arc.lifecycle === 'accepted',
+        kind: 'memory',
+        type: arc.type,
+        fromMemoryId: arc.fromMemoryId,
+        toMemoryId: arc.toMemoryId,
+      });
+    }
+    for (const arc of projectArcs) {
+      arcsById.set(arc.id, {
+        weight: arc.weight,
+        usable: arc.lifecycle === 'accepted',
+        kind: 'project',
+        type: arc.type,
+      });
+    }
+    const incidentWeights = new Map<string, Array<number | null>>();
+    for (const arc of memoryArcs) {
+      if (arc.lifecycle !== 'accepted') continue;
+      for (const memoryId of [arc.fromMemoryId, arc.toMemoryId]) {
+        const weights = incidentWeights.get(memoryId) ?? [];
+        weights.push(arc.weight);
+        incidentWeights.set(memoryId, weights);
+      }
+    }
+    const hierarchical = new Set(await this.repository.listHierarchicalRelationTypes());
+    for (const proposal of pending) {
+      const fresh: Record<string, { snapshot: number | string; usable: boolean }> = {};
+      for (const id of proposal.sourceIds) {
+        const memory = views.get(id);
+        if (memory) {
+          fresh[id] = {
+            snapshot: memory.record.currentVersion,
+            usable: memory.record.lifecycle === 'accepted',
+          };
+          continue;
+        }
+        const arc = arcsById.get(id);
+        fresh[id] =
+          arc === undefined || !arc.usable || arc.weight === null
+            ? { snapshot: 'gone', usable: false }
+            : { snapshot: arc.weight, usable: true };
+      }
+      const staleId = findStaleSource(proposal.sourceIds, proposal.sourceVersions, fresh);
+      if (staleId !== null) {
+        await this.repository.updatePruningProposalStatus(
+          proposal.id,
+          'stale',
+          `source moved before decision: ${staleId}`,
+        );
+        counts.stale += 1;
+        continue;
+      }
+      const verdict = await this.judgeLlmProposal(
+        proposal,
+        views,
+        arcsById,
+        incidentWeights,
+        hierarchical,
+        now,
+      );
+      if (verdict === null) {
+        await this.repository.updatePruningProposalStatus(
+          proposal.id,
+          'rejected',
+          'no_deterministic_basis',
+        );
+        continue;
+      }
+      await this.repository.updatePruningProposalStatus(proposal.id, 'accepted', verdict.reason);
+      await verdict.execute();
+      await this.repository.recordPruningLedgerEntry({
+        subjectType: verdict.subjectType,
+        subjectId: verdict.subjectId,
+        reason: 'llm_proposal',
+        proposalId: proposal.id,
+        ...(verdict.score === undefined ? {} : { score: verdict.score }),
+      });
+      if (verdict.subjectType === 'memory') counts.memoriesExpired += 1;
+      else counts.arcsPruned += 1;
+    }
+  }
+
+  // The deterministic veto, one proposal type at a time. Returns null where no
+  // deterministic rule can judge: rejection with reason, never a guess.
+  // Redundancy and merge wait for the calibrated judge; contradiction executes
+  // only when the exact detector confirms, anything softer is not ours to call.
+  private async judgeLlmProposal(
+    proposal: {
+      id: string;
+      proposalType: PruningProposalType;
+      sourceIds: string[];
+    },
+    views: Map<string, MemoryWithCurrent>,
+    arcsById: Map<
+      string,
+      { weight: number | null; usable: boolean; kind: 'memory' | 'project'; type: string }
+    >,
+    incidentWeights: Map<string, Array<number | null>>,
+    hierarchical: Set<string>,
+    now: string,
+  ): Promise<{
+    reason: string;
+    subjectType: 'memory' | 'arc';
+    subjectId: string;
+    score?: number;
+    execute: () => Promise<void>;
+  } | null> {
+    if (proposal.proposalType === 'decay' && proposal.sourceIds.length === 1) {
+      const memory = views.get(proposal.sourceIds[0]);
+      if (
+        !memory ||
+        memory.record.lifecycle !== 'accepted' ||
+        isPruningExempt(memory.current.kind)
+      ) {
+        return null;
+      }
+      const scored = scoreMemoryForPruning({
+        updatedAt: memory.record.updatedAt,
+        kind: memory.current.kind,
+        arcWeights: incidentWeights.get(memory.record.id) ?? [],
+        now,
+      });
+      if (scored.score >= pruningPolicy.memoryScoreThreshold) return null;
+      return {
+        reason: `deterministic score ${scored.score.toFixed(3)} agrees`,
+        subjectType: 'memory',
+        subjectId: memory.record.id,
+        score: scored.score,
+        execute: async () => {
+          await this.repository.updateMemoryLifecycle(memory.record.id, 'expired');
+        },
+      };
+    }
+    if (proposal.proposalType === 'edge' && proposal.sourceIds.length === 1) {
+      const arc = arcsById.get(proposal.sourceIds[0]);
+      if (
+        !arc ||
+        !arc.usable ||
+        arc.weight === null ||
+        hierarchical.has(arc.type) ||
+        arc.weight >= pruningPolicy.edgeWeightThreshold
+      ) {
+        return null;
+      }
+      const arcId = proposal.sourceIds[0];
+      const kind = arc.kind;
+      return {
+        reason: `deterministic weight ${arc.weight} agrees`,
+        subjectType: 'arc',
+        subjectId: arcId,
+        score: arc.weight,
+        execute: async () => {
+          if (kind === 'project') await this.repository.deleteProjectArc(arcId);
+          else await this.repository.deleteMemoryArc(arcId);
+        },
+      };
+    }
+    if (proposal.proposalType === 'contradiction' && proposal.sourceIds.length === 2) {
+      const first = views.get(proposal.sourceIds[0]);
+      const second = views.get(proposal.sourceIds[1]);
+      if (
+        !first ||
+        !second ||
+        first.record.lifecycle !== 'accepted' ||
+        second.record.lifecycle !== 'accepted' ||
+        !areDirectlyContradictory(first.current, second.current)
+      ) {
+        return null;
+      }
+      const ids = [first.record.id, second.record.id];
+      return {
+        reason: 'direct contradiction confirmed by the exact detector',
+        subjectType: 'memory',
+        subjectId: first.record.id,
+        execute: async () => {
+          await this.repository.createConflict(ids);
+        },
+      };
+    }
+    return null;
   }
 
   async consolidateSession(sessionId: string): Promise<SessionConsolidationOutput> {

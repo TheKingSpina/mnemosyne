@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { extractionProviderNameSchema, type ExtractionProviderName } from '@mnemosyne/contracts';
 import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
 import { PostgresMemoryRepository, WORKER_CAPABILITY_COMPONENT } from '@mnemosyne/postgres';
+import { RemotePruningAnalyzer } from '@mnemosyne/core';
 import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
 import { OpenRouterExtractor } from './provider-extractor.js';
 import { ProviderRouter } from './provider-router.js';
@@ -29,6 +30,24 @@ const retentionIntervalMs = integerOption(
   process.env.WORKER_RETENTION_INTERVAL_MS ?? '86400000',
   60_000,
 );
+// Analyzer schedule: weekly by default, 0 disables. Like retention it runs
+// inline on the worker loop, and like retention it is inert without data to
+// work on — plus inert without an analyzer at all.
+const analyzerIntervalMs = integerOption(process.env.WORKER_ANALYZER_INTERVAL_MS ?? '604800000', 0);
+const pruningAnalyzerEnabled = process.env.PRUNING_ANALYZER_ENABLED === 'true';
+const pruningAnalyzer =
+  pruningAnalyzerEnabled &&
+  process.env.PRUNING_ANALYZER_API_KEY &&
+  process.env.PRUNING_ANALYZER_MODEL
+    ? new RemotePruningAnalyzer({
+        apiKey: process.env.PRUNING_ANALYZER_API_KEY,
+        model: process.env.PRUNING_ANALYZER_MODEL,
+        baseUrl: process.env.PRUNING_ANALYZER_BASE_URL,
+      })
+    : null;
+if (pruningAnalyzerEnabled && !pruningAnalyzer) {
+  throw new Error('PRUNING_ANALYZER_API_KEY and PRUNING_ANALYZER_MODEL are required together');
+}
 const capabilityHeartbeatMs = integerOption(
   process.env.WORKER_CAPABILITY_HEARTBEAT_MS ?? '60000',
   5_000,
@@ -77,6 +96,7 @@ process.on('SIGTERM', () => stop('SIGTERM'));
 
 process.stdout.write(`Mnemosyne extraction worker ${workerId} started\n`);
 let nextRetentionRun = Date.now() + retentionIntervalMs;
+let nextAnalyzerRun = Date.now() + analyzerIntervalMs;
 let nextCapabilityHeartbeat = 0;
 while (!stopping) {
   try {
@@ -89,6 +109,10 @@ while (!stopping) {
     if (retentionIntervalMs > 0 && Date.now() >= nextRetentionRun) {
       await service.runRetention();
       nextRetentionRun = Date.now() + retentionIntervalMs;
+    }
+    if (pruningAnalyzer && analyzerIntervalMs > 0 && Date.now() >= nextAnalyzerRun) {
+      await service.runPruningAnalysis(pruningAnalyzer);
+      nextAnalyzerRun = Date.now() + analyzerIntervalMs;
     }
     if (!result) await delay(pollIntervalMs);
   } catch (error) {

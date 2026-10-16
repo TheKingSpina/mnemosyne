@@ -374,6 +374,44 @@ export const jobAttemptViewSchema = z.object({
 });
 export type JobAttemptView = z.infer<typeof jobAttemptViewSchema>;
 
+export const analyzerCandidateSchema = z.object({
+  proposalType: z.enum(['decay', 'edge', 'redundancy', 'contradiction', 'merge']),
+  sourceIds: z.array(z.string().min(1)).min(1),
+  targetId: z.string().min(1).optional(),
+  rationale: z.string().min(1).max(2000),
+  confidence: z.number().min(0).max(1),
+});
+export type AnalyzerCandidate = z.infer<typeof analyzerCandidateSchema>;
+
+export const analyzerNodeSchema = z.object({
+  memoryId: z.string().min(1),
+  kind: memoryKindSchema,
+  scopeKind: z.enum(['session', 'project', 'area']),
+  ageBucket: z.enum(['<7d', '<30d', '<180d', 'older']),
+  incidentArcTypes: z.array(z.string()),
+  content: z.string().max(10_000).optional(),
+});
+export type AnalyzerNode = z.infer<typeof analyzerNodeSchema>;
+
+export const analyzerBatchSchema = z.object({
+  privacy: z.enum(['public', 'anonymized']),
+  items: z.array(analyzerNodeSchema).min(1),
+});
+export type AnalyzerBatch = z.infer<typeof analyzerBatchSchema>;
+
+export const analyzerResultSchema = z.object({
+  candidates: z.array(analyzerCandidateSchema).default([]),
+});
+export type AnalyzerResult = z.infer<typeof analyzerResultSchema>;
+
+export const pruningAnalysisOutputSchema = z.object({
+  status: z.enum(['ran', 'disabled']),
+  batches: z.number().int().nonnegative(),
+  proposalsWritten: z.number().int().nonnegative(),
+  reason: z.string().min(1).optional(),
+});
+export type PruningAnalysisOutput = z.infer<typeof pruningAnalysisOutputSchema>;
+
 export const extractionCandidateSchema = z.object({
   sessionId: z.string().min(1),
   eventIds: z.array(z.string().min(1)).min(1),
@@ -693,6 +731,8 @@ export const pruningPolicy = {
   memoryScoreThreshold: 0.25,
   // Below this raw weight an accepted non-hierarchical arc is proposed for pruning.
   edgeWeightThreshold: 0.2,
+  // Analyzer batches never mix privacy flags; this caps each batch.
+  analyzerMaxBatchSize: 20,
   // Never expire, whatever the score: identity-grade content.
   neverExpireKinds: ['fact', 'decision'],
   kindFactors: {

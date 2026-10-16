@@ -406,6 +406,39 @@ describe('Mnemosyne API authorization', () => {
     expect(asHarness.status).toBe(403);
   });
 
+  it('answers pruning analysis as disabled without an analyzer', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+
+    const response = await fetch(`${baseUrl}/v1/admin/pruning/analyze`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${ownerToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'pruning-analyze-1',
+      },
+      body: JSON.stringify({}),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: 'disabled',
+      batches: 0,
+      proposalsWritten: 0,
+      reason: 'analyzer_not_configured',
+    });
+
+    const asHarness = await fetch(`${baseUrl}/v1/admin/pruning/analyze`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${harnessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'pruning-analyze-2',
+      },
+      body: JSON.stringify({}),
+    });
+    expect(asHarness.status).toBe(403);
+  });
+
   it('exposes embedding health and reindex to the owner only', async () => {
     const { server } = createTestServer();
     const baseUrl = await listen(server);

@@ -34,6 +34,7 @@ import {
   type MemoryPermission,
   type MemoryService,
   type ProjectArc,
+  type PruningAnalyzer,
   type StoredIdempotentResponse,
 } from '@mnemosyne/core';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -64,6 +65,7 @@ interface ApiServerOptions {
   clientTokenStore?: ClientTokenStore;
   maxRequestBodyBytes?: number;
   requireIdempotencyKey?: boolean;
+  pruningAnalyzer?: PruningAnalyzer | null;
 }
 
 type ApiRequest = IncomingMessage | BufferedApiRequest;
@@ -148,6 +150,7 @@ async function handleRequest(
       options.idempotencyStore,
       options.requireIdempotencyKey ?? false,
       options.clientTokenStore,
+      options.pruningAnalyzer,
     );
     return;
   }
@@ -165,6 +168,7 @@ async function handleAuthorizedRequest(
   idempotencyStore: IdempotencyStore | undefined,
   requireIdempotencyKey: boolean,
   clientTokenStore: ClientTokenStore | undefined,
+  pruningAnalyzer: PruningAnalyzer | null | undefined,
 ): Promise<void> {
   if (
     !isBufferedApiRequest(request) &&
@@ -181,6 +185,7 @@ async function handleAuthorizedRequest(
         url,
         maxRequestBodyBytes,
         clientTokenStore,
+        pruningAnalyzer,
       );
     await handleIdempotentPost(
       idempotencyStore,
@@ -199,6 +204,7 @@ async function handleAuthorizedRequest(
           url,
           maxRequestBodyBytes,
           clientTokenStore,
+          pruningAnalyzer,
         ),
       service,
     );
@@ -212,6 +218,7 @@ async function handleAuthorizedRequest(
     url,
     maxRequestBodyBytes,
     clientTokenStore,
+    pruningAnalyzer,
   );
 }
 
@@ -223,6 +230,7 @@ async function handleAuthorizedRequestUnchecked(
   url: URL,
   maxRequestBodyBytes: number,
   clientTokenStore: ClientTokenStore | undefined,
+  pruningAnalyzer: PruningAnalyzer | null | undefined,
 ): Promise<void> {
   if (request.method === 'POST' && url.pathname === '/v1/sessions') {
     const body = await readJson(request, maxRequestBodyBytes);
@@ -381,9 +389,7 @@ async function handleAuthorizedRequestUnchecked(
   const adminProjectPrivacy = url.pathname.match(/^\/v1\/admin\/projects\/([^/]+)\/privacy$/u);
   if (request.method === 'POST' && adminProjectPrivacy) {
     const { id } = paramsSchema.parse({ id: adminProjectPrivacy[1] });
-    const body = setProjectPrivacyInputSchema.parse(
-      await readJson(request, maxRequestBodyBytes),
-    );
+    const body = setProjectPrivacyInputSchema.parse(await readJson(request, maxRequestBodyBytes));
     // Unknown projects surface as 404 through the shared domain error map.
     const project = await service.setProjectPrivacy(id, body.privacy);
     sendJson(response, 200, {
@@ -391,6 +397,11 @@ async function handleAuthorizedRequestUnchecked(
       name: project.name,
       privacy: project.privacy,
     });
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/admin/pruning/analyze') {
+    bodylessSchema.parse(await readJson(request, maxRequestBodyBytes));
+    sendJson(response, 200, await service.runPruningAnalysis(pruningAnalyzer ?? undefined));
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/admin/conflicts') {

@@ -1834,3 +1834,159 @@ describe('deterministic pruning inside the retention run', () => {
     expect(await repository.listPruningProposals('accepted')).toHaveLength(2);
   });
 });
+
+describe('pruning analysis entry point', () => {
+  const secret = 'a-secure-test-secret-that-is-long-enough';
+
+  async function acceptedEpisode(
+    service: CoreMemoryService,
+    sessionId: string,
+    content: string,
+    privacy?: 'public' | 'anonymized' | 'local_only',
+    projectId = 'analysis-p1',
+  ) {
+    const result = await service.proposeMemory(
+      {
+        sessionId,
+        content,
+        kind: 'episode',
+        scope: { type: 'project', id: projectId },
+        epistemicBasis: 'verified',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+        ...(privacy === undefined ? {} : { privacy }),
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    if (result.status !== 'accepted' || !result.memoryId) throw new Error('not_accepted');
+    return result.memoryId;
+  }
+
+  it('answers disabled without an analyzer, never an error', async () => {
+    const service = new CoreMemoryService(new InMemoryRepository(), { forgetSecret: secret });
+    expect(await service.runPruningAnalysis()).toEqual({
+      status: 'disabled',
+      batches: 0,
+      proposalsWritten: 0,
+      reason: 'analyzer_not_configured',
+    });
+  });
+
+  it('batches by flag, drops local_only, and drops hallucinated ids', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, { forgetSecret: secret });
+    const session = await service.openSession({ projectId: 'analysis-p1' });
+    await service.setProjectPrivacy('analysis-p1', 'public');
+    const pub = await acceptedEpisode(service, session.sessionId, 'memoria pubblica', 'public');
+    const anon = await acceptedEpisode(service, session.sessionId, 'memoria anonima', 'anonymized');
+    // No override would inherit the marked project, so the local case pins
+    // local_only explicitly: override wins downward too.
+    const local = await acceptedEpisode(service, session.sessionId, 'memoria locale', 'local_only');
+    const seen: string[] = [];
+    const analyzer = {
+      modelVersion: 'test-model',
+      analyze: async (batch: { privacy: string; items: Array<{ memoryId: string }> }) => {
+        seen.push(`${batch.privacy}:${batch.items.map((item) => item.memoryId).join(',')}`);
+        return {
+          candidates: [
+            {
+              proposalType: 'redundancy' as const,
+              sourceIds: [pub],
+              rationale: 'duplicato',
+              confidence: 0.7,
+            },
+            {
+              proposalType: 'redundancy' as const,
+              sourceIds: [pub, 'mem_inventata'],
+              rationale: 'sembrano uguali',
+              confidence: 0.7,
+            },
+          ],
+          promptHash: 'abc123',
+        };
+      },
+    };
+
+    const run = await service.runPruningAnalysis(analyzer);
+
+    // Two batches (public + anonymized), the local memory in neither. A
+    // candidate touching one invented id is dropped whole: partial
+    // hallucinations do not execute.
+    expect(run).toMatchObject({ status: 'ran', batches: 2, proposalsWritten: 1 });
+    expect(seen.sort()).toEqual([`anonymized:${anon}`, `public:${pub}`]);
+    const proposals = await repository.listPruningProposals();
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({
+      proposer: 'llm',
+      proposalType: 'redundancy',
+      sourceIds: [pub],
+      modelVersion: 'test-model',
+      promptHash: 'abc123',
+    });
+    expect(local).toBeDefined();
+  });
+
+  it('decides llm proposals: agrees with the score, rejects the rest', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, { forgetSecret: secret });
+    const session = await service.openSession({ projectId: 'decide-p1' });
+    const scope = { type: 'project', id: 'decide-p1' } as const;
+    const first = await (async () => {
+      const result = await service.proposeMemory(
+        {
+          sessionId: session.sessionId,
+          content: 'vecchia cantina',
+          kind: 'episode',
+          scope,
+          epistemicBasis: 'verified',
+          assessment: 'uncontested',
+          confidence: 1,
+          sensitivity: 'normal',
+          activation: 'on_demand',
+          sourceEventIds: [],
+        },
+        { actor: 'owner', explicitDirective: true },
+      );
+      if (result.status !== 'accepted' || !result.memoryId) throw new Error('not_accepted');
+      return result.memoryId;
+    })();
+    // Age past the threshold through the repository clock is impossible here,
+    // so the decay proposal below carries a fresh read: the score will
+    // disagree and the proposal must be rejected, not executed.
+    await repository.createPruningProposal({
+      batchId: 'batch-llm',
+      proposer: 'llm',
+      proposalType: 'decay',
+      sourceIds: [first],
+      sourceVersions: { [first]: 1 },
+      rationale: 'il modello la vuole potare',
+      confidence: 0.9,
+      scoreSnapshot: {},
+      modelVersion: 'test-model',
+      promptHash: 'abc123',
+    });
+    await repository.createPruningProposal({
+      batchId: 'batch-llm',
+      proposer: 'llm',
+      proposalType: 'merge',
+      sourceIds: [first],
+      sourceVersions: { [first]: 1 },
+      rationale: 'il modello vuole fondere',
+      confidence: 0.9,
+      scoreSnapshot: {},
+      modelVersion: 'test-model',
+      promptHash: 'abc123',
+    });
+
+    const run = await service.runRetention();
+
+    expect(run.pruning.stale).toBe(0);
+    expect((await repository.getMemory(first))?.record.lifecycle).toBe('accepted');
+    const decided = await repository.listPruningProposals();
+    expect(decided.filter((p) => p.status === 'rejected')).toHaveLength(2);
+    expect(await repository.listPruningLedger()).toHaveLength(0);
+  });
+});

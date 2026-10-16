@@ -32,6 +32,7 @@ import type {
   PendingProposalsOutput,
   PrepareForgetOutput,
   ProposalResult,
+  PruningAnalysisOutput,
   ProposeMemoryInput,
   RecordEventsInput,
   RecordEventsOutput,
@@ -51,6 +52,7 @@ import type {
 
 export type { MemoryFeedbackInput, MemoryFeedbackOutput } from '@mnemosyne/contracts';
 export type { PrivacyFlag } from '@mnemosyne/contracts';
+import type { PruningAnalyzer } from './pruning-analyzer.js';
 
 export interface SessionRecord {
   id: string;
@@ -322,6 +324,7 @@ export interface MemoryService {
   listAllArcs(): Promise<{ memoryArcs: MemoryArc[]; projectArcs: ProjectArc[] }>;
   listProjects(): Promise<ProjectRecord[]>;
   setProjectPrivacy(projectId: string, privacy: PrivacyFlag): Promise<ProjectRecord>;
+  runPruningAnalysis(analyzer?: PruningAnalyzer): Promise<PruningAnalysisOutput>;
   listProjectArcs(projectId: string): Promise<ProjectArc[]>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
   searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]>;

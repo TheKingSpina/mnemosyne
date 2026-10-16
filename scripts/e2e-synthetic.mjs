@@ -295,6 +295,7 @@ async function runLifecycle() {
   // restore below is verified against.
   await verifyScopeIsolation();
   await verifyDeterministicPruning();
+  await verifyPrivacyGating();
   return {
     export: finalExport,
     sourceCorpusRevision: finalExport.corpusRevision,
@@ -597,6 +598,63 @@ async function verifyMemoryProjectIdentity() {
   psql("UPDATE memories SET lifecycle = 'pending_approval' WHERE id = 'e2e_m1';");
   psql("DELETE FROM memories WHERE id = 'e2e_m1';");
   psql("DELETE FROM projects WHERE id IN ('e2e_gamma', 'e2e_delta');");
+}
+
+async function verifyPrivacyGating() {
+  // Marking is manual and explicit: a project marked public through the owner
+  // endpoint carries the flag through export, and the analyzer endpoint
+  // answers disabled without a configured analyzer (no key in this environment).
+  const session = await api('/v1/sessions', {
+    token: harnessToken,
+    method: 'POST',
+    key: 'e2e-privacy-session',
+    body: { projectId: 'e2e-marked' },
+    status: 201,
+  });
+  const marked = await api('/v1/admin/projects/e2e-marked/privacy', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-privacy-mark',
+    body: { privacy: 'public' },
+    status: 200,
+  });
+  assert(marked.privacy === 'public', `privacy_not_marked:${marked.privacy}`);
+  const proposed = await api('/v1/proposals', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-privacy-proposal',
+    body: {
+      sessionId: session.sessionId,
+      content: 'il progetto marcato e pubblico',
+      kind: 'fact',
+      scope: { type: 'project', id: 'e2e-marked' },
+      epistemicBasis: 'verified',
+      assessment: 'uncontested',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: [],
+    },
+    status: 201,
+  });
+  await api(`/v1/proposals/${encodeURIComponent(proposed.memoryId)}/decision`, {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-privacy-accept',
+    body: { expectedVersion: 1, decision: 'accept' },
+  });
+  const exported = await api('/v1/admin/exports/corpus', { token: ownerToken });
+  const project = exported.projects.find((entry) => entry.id === 'e2e-marked');
+  assert(project?.privacy === 'public', 'privacy_lost_in_export');
+  const memory = exported.memories.find((entry) => entry.record.id === proposed.memoryId);
+  assert(memory && 'privacy' in memory.record, 'memory_privacy_missing_in_export');
+  const analysis = await api('/v1/admin/pruning/analyze', {
+    token: ownerToken,
+    method: 'POST',
+    key: 'e2e-privacy-analyze',
+    body: {},
+  });
+  assert(analysis.status === 'disabled', `analyzer_should_be_disabled:${analysis.status}`);
 }
 
 async function verifyDeterministicPruning() {

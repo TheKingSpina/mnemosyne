@@ -44,6 +44,7 @@ import {
   listAllArcsOutputSchema,
   projectViewSchema,
   listProjectsOutputSchema,
+  pruningAnalysisOutputSchema,
   setProjectPrivacyInputSchema,
   listProjectArcsOutputSchema,
   reviewArcInputSchema,
@@ -873,6 +874,23 @@ export const openApiDocument: Oas3_1Definition = {
         },
       }),
     },
+    '/v1/admin/pruning/analyze': {
+      post: operation({
+        tags: ['Administration'],
+        operationId: 'runPruningAnalysis',
+        summary: 'Esegue una passata di analisi pruning (disabled senza analyzer)',
+        requiredProfile: 'owner',
+        idempotent: true,
+        requestBody: optionalRequestBody(emptyRequest),
+        responses: {
+          200: jsonResponse('Analisi eseguita o disabilitata.', schemaRef('PruningAnalysisOutput')),
+          400: errorResponse(400),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          500: errorResponse(500),
+        },
+      }),
+    },
     '/v1/admin/conflicts': {
       get: operation({
         tags: ['Administration'],
@@ -1134,6 +1152,7 @@ export const openApiDocument: Oas3_1Definition = {
       ListAllArcsOutput: schemaRefValue(listAllArcsOutputSchema),
       ProjectView: schemaRefValue(projectViewSchema),
       ListProjectsOutput: schemaRefValue(listProjectsOutputSchema),
+      PruningAnalysisOutput: schemaRefValue(pruningAnalysisOutputSchema),
       SetProjectPrivacyRequest: schemaRefValue(setProjectPrivacyInputSchema, 'input'),
       ConflictListOutput: schemaRefValue(conflictListOutputSchema),
       CorrectMemoryRequest: schemaRefValue(inputSchemas.correction, 'input'),
