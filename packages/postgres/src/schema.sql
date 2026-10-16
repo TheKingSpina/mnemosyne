@@ -468,3 +468,44 @@ CREATE TABLE IF NOT EXISTS runtime_capabilities (
   capabilities jsonb NOT NULL,
   reported_at timestamptz NOT NULL
 );
+
+-- Semantic pruning working state. Proposals reference live rows and are
+-- deliberately absent from the corpus export: a restore starts from an empty
+-- corpus, where every reference would dangle.
+CREATE TABLE IF NOT EXISTS pruning_proposals (
+  id text PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id text NOT NULL,
+  proposer text NOT NULL CHECK (proposer IN ('deterministic', 'llm')),
+  proposal_type text NOT NULL
+    CHECK (proposal_type IN ('decay', 'edge', 'redundancy', 'contradiction', 'merge')),
+  source_ids text[] NOT NULL,
+  source_versions jsonb NOT NULL DEFAULT '{}'::jsonb,
+  target_id text,
+  rationale text NOT NULL,
+  confidence real NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  score_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  model_version text,
+  prompt_hash text,
+  status text NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'accepted', 'rejected', 'stale')),
+  decided_at timestamptz,
+  decision_reason text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS pruning_proposals_status_idx ON pruning_proposals (status);
+
+-- Every executed cut leaves a row here, whichever stage proposed it. Separate
+-- from the forget ledger, which stays for forgets keyed by memory id.
+CREATE TABLE IF NOT EXISTS pruning_ledger (
+  id text PRIMARY KEY DEFAULT gen_random_uuid(),
+  subject_type text NOT NULL CHECK (subject_type IN ('memory', 'arc')),
+  subject_id text NOT NULL,
+  reason text NOT NULL CHECK (reason IN ('decay', 'edge_weight', 'llm_proposal', 'manual')),
+  proposal_id text REFERENCES pruning_proposals(id) ON DELETE SET NULL,
+  score real,
+  score_components jsonb,
+  decided_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS pruning_ledger_subject_idx ON pruning_ledger (subject_id);

@@ -14,6 +14,11 @@ import type {
   CreateMemoryArcInput,
   CreateProjectArcInput,
   MemoryArc,
+  CreatePruningProposalInput,
+  PruningLedgerEntry,
+  PruningProposal,
+  PruningProposalStatus,
+  RecordPruningLedgerInput,
   ProjectArc,
   CreateMemoryInput,
   ProjectRecord,
@@ -53,6 +58,8 @@ export class InMemoryRepository implements MemoryRepository {
   private readonly revisions = new Map<string, Map<number, MemoryRevision>>();
   private readonly revisionTimestamps = new Map<string, Map<number, string>>();
   private readonly conflicts = new Map<string, ConflictRecord>();
+  private readonly pruningProposals = new Map<string, PruningProposal>();
+  private readonly pruningLedger = new Map<string, PruningLedgerEntry>();
   private readonly jobs = new Map<string, JobRecord>();
   private readonly jobAttempts = new Map<string, JobAttemptRecord[]>();
   private readonly forgetLedger = new Map<string, string>();
@@ -329,6 +336,80 @@ export class InMemoryRepository implements MemoryRepository {
 
   async listAllProjectArcs(): Promise<ProjectArc[]> {
     return [...this.projectArcs.values()];
+  }
+
+  async deleteMemoryArc(id: string): Promise<void> {
+    if (!this.memoryArcs.delete(id)) throw new Error('arc_not_found');
+    this.corpusRevision += 1n;
+  }
+
+  async deleteProjectArc(id: string): Promise<void> {
+    if (!this.projectArcs.delete(id)) throw new Error('arc_not_found');
+    this.corpusRevision += 1n;
+  }
+
+  async createPruningProposal(input: CreatePruningProposalInput): Promise<PruningProposal> {
+    const proposal: PruningProposal = {
+      id: `pruning_${randomUUID()}`,
+      batchId: input.batchId,
+      proposer: input.proposer,
+      proposalType: input.proposalType,
+      sourceIds: [...input.sourceIds],
+      sourceVersions: { ...input.sourceVersions },
+      ...(input.targetId === undefined ? {} : { targetId: input.targetId }),
+      rationale: input.rationale,
+      confidence: input.confidence,
+      scoreSnapshot: { ...input.scoreSnapshot },
+      ...(input.modelVersion === undefined ? {} : { modelVersion: input.modelVersion }),
+      ...(input.promptHash === undefined ? {} : { promptHash: input.promptHash }),
+      status: 'pending',
+      createdAt: this.now().toISOString(),
+    };
+    this.pruningProposals.set(proposal.id, proposal);
+    return proposal;
+  }
+
+  async listPruningProposals(status?: PruningProposalStatus): Promise<PruningProposal[]> {
+    const all = [...this.pruningProposals.values()];
+    return status === undefined ? all : all.filter((proposal) => proposal.status === status);
+  }
+
+  async updatePruningProposalStatus(
+    id: string,
+    status: PruningProposalStatus,
+    decisionReason: string,
+  ): Promise<PruningProposal> {
+    const proposal = this.pruningProposals.get(id);
+    if (!proposal) throw new Error('pruning_proposal_not_found');
+    const decided: PruningProposal = {
+      ...proposal,
+      status,
+      decidedAt: this.now().toISOString(),
+      decisionReason,
+    };
+    this.pruningProposals.set(id, decided);
+    return decided;
+  }
+
+  async recordPruningLedgerEntry(input: RecordPruningLedgerInput): Promise<PruningLedgerEntry> {
+    const entry: PruningLedgerEntry = {
+      id: `pruning_ledger_${randomUUID()}`,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      reason: input.reason,
+      ...(input.proposalId === undefined ? {} : { proposalId: input.proposalId }),
+      ...(input.score === undefined ? {} : { score: input.score }),
+      ...(input.scoreComponents === undefined
+        ? {}
+        : { scoreComponents: { ...input.scoreComponents } }),
+      decidedAt: this.now().toISOString(),
+    };
+    this.pruningLedger.set(entry.id, entry);
+    return entry;
+  }
+
+  async listPruningLedger(): Promise<PruningLedgerEntry[]> {
+    return [...this.pruningLedger.values()];
   }
 
   async createSession(input: OpenSessionInput): Promise<SessionRecord> {

@@ -153,6 +153,68 @@ export interface CreateMemoryArcInput {
   lifecycle?: ArcLifecycle;
 }
 
+export type PruningProposer = 'deterministic' | 'llm';
+export type PruningProposalType = 'decay' | 'edge' | 'redundancy' | 'contradiction' | 'merge';
+export type PruningProposalStatus = 'pending' | 'accepted' | 'rejected' | 'stale';
+
+export interface PruningProposal {
+  id: string;
+  batchId: string;
+  proposer: PruningProposer;
+  proposalType: PruningProposalType;
+  sourceIds: string[];
+  // Versions (memories) or weights (arcs) read when proposing: the decide step
+  // re-reads them, and anything that moved makes the proposal stale.
+  sourceVersions: Record<string, number | string>;
+  targetId?: string;
+  rationale: string;
+  confidence: number;
+  scoreSnapshot: Record<string, number>;
+  modelVersion?: string;
+  promptHash?: string;
+  status: PruningProposalStatus;
+  decidedAt?: string;
+  decisionReason?: string;
+  createdAt: string;
+}
+
+export interface CreatePruningProposalInput {
+  batchId: string;
+  proposer: PruningProposer;
+  proposalType: PruningProposalType;
+  sourceIds: string[];
+  sourceVersions: Record<string, number | string>;
+  targetId?: string;
+  rationale: string;
+  confidence: number;
+  scoreSnapshot: Record<string, number>;
+  modelVersion?: string;
+  promptHash?: string;
+}
+
+export type PruningSubjectType = 'memory' | 'arc';
+export type PruningReason = 'decay' | 'edge_weight' | 'llm_proposal' | 'manual';
+
+export interface PruningLedgerEntry {
+  id: string;
+  subjectType: PruningSubjectType;
+  subjectId: string;
+  reason: PruningReason;
+  proposalId?: string;
+  score?: number;
+  scoreComponents?: Record<string, number>;
+  decidedAt: string;
+}
+
+export interface RecordPruningLedgerInput {
+  subjectType: PruningSubjectType;
+  subjectId: string;
+  reason: PruningReason;
+  proposalId?: string;
+  score?: number;
+  scoreComponents?: Record<string, number>;
+}
+
 export interface CreateProjectArcInput {
   fromProjectId: string;
   toProjectId: string;
@@ -320,6 +382,19 @@ export interface MemoryRepository {
   reviewProjectArc(id: string, decision: 'accept' | 'reject'): Promise<ProjectArc>;
   listAllMemoryArcs(): Promise<MemoryArc[]>;
   listAllProjectArcs(): Promise<ProjectArc[]>;
+  deleteMemoryArc(id: string): Promise<void>;
+  deleteProjectArc(id: string): Promise<void>;
+  // Pruning proposals and their ledger are working state, not corpus content:
+  // they reference live rows, so they are deliberately absent from the export.
+  createPruningProposal(input: CreatePruningProposalInput): Promise<PruningProposal>;
+  listPruningProposals(status?: PruningProposalStatus): Promise<PruningProposal[]>;
+  updatePruningProposalStatus(
+    id: string,
+    status: PruningProposalStatus,
+    decisionReason: string,
+  ): Promise<PruningProposal>;
+  recordPruningLedgerEntry(input: RecordPruningLedgerInput): Promise<PruningLedgerEntry>;
+  listPruningLedger(): Promise<PruningLedgerEntry[]>;
   createSession(input: OpenSessionInput): Promise<SessionRecord>;
   findSession(id: string): Promise<SessionRecord | null>;
   closeSession(id: string): Promise<SessionRecord>;

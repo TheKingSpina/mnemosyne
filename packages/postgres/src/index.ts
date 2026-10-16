@@ -33,6 +33,11 @@ import type {
   CreateMemoryArcInput,
   CreateProjectArcInput,
   MemoryArc,
+  CreatePruningProposalInput,
+  PruningLedgerEntry,
+  PruningProposal,
+  PruningProposalStatus,
+  RecordPruningLedgerInput,
   ProjectArc,
   ProjectRecord,
   AreaRecord,
@@ -110,6 +115,70 @@ function memoryArcFromRow(row: MemoryArcRow): MemoryArc {
     weight: row.weight,
     lifecycle: row.lifecycle,
     createdAt: row.created_at.toISOString(),
+  };
+}
+
+interface PruningProposalRow extends QueryResultRow {
+  id: string;
+  batch_id: string;
+  proposer: PruningProposal['proposer'];
+  proposal_type: PruningProposal['proposalType'];
+  source_ids: string[];
+  source_versions: Record<string, number | string>;
+  target_id: string | null;
+  rationale: string;
+  confidence: number;
+  score_snapshot: Record<string, number>;
+  model_version: string | null;
+  prompt_hash: string | null;
+  status: PruningProposal['status'];
+  decided_at: Date | null;
+  decision_reason: string | null;
+  created_at: Date;
+}
+
+function pruningProposalFromRow(row: PruningProposalRow): PruningProposal {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    proposer: row.proposer,
+    proposalType: row.proposal_type,
+    sourceIds: row.source_ids,
+    sourceVersions: row.source_versions,
+    ...(row.target_id === null ? {} : { targetId: row.target_id }),
+    rationale: row.rationale,
+    confidence: row.confidence,
+    scoreSnapshot: row.score_snapshot,
+    ...(row.model_version === null ? {} : { modelVersion: row.model_version }),
+    ...(row.prompt_hash === null ? {} : { promptHash: row.prompt_hash }),
+    status: row.status,
+    ...(row.decided_at === null ? {} : { decidedAt: row.decided_at.toISOString() }),
+    ...(row.decision_reason === null ? {} : { decisionReason: row.decision_reason }),
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+interface PruningLedgerRow extends QueryResultRow {
+  id: string;
+  subject_type: PruningLedgerEntry['subjectType'];
+  subject_id: string;
+  reason: PruningLedgerEntry['reason'];
+  proposal_id: string | null;
+  score: number | null;
+  score_components: Record<string, number> | null;
+  decided_at: Date;
+}
+
+function pruningLedgerFromRow(row: PruningLedgerRow): PruningLedgerEntry {
+  return {
+    id: row.id,
+    subjectType: row.subject_type,
+    subjectId: row.subject_id,
+    reason: row.reason,
+    ...(row.proposal_id === null ? {} : { proposalId: row.proposal_id }),
+    ...(row.score === null ? {} : { score: row.score }),
+    ...(row.score_components === null ? {} : { scoreComponents: row.score_components }),
+    decidedAt: row.decided_at.toISOString(),
   };
 }
 
@@ -709,6 +778,117 @@ export class PostgresMemoryRepository implements MemoryRepository {
       'SELECT * FROM memory_arcs ORDER BY created_at',
     );
     return result.rows.map(memoryArcFromRow);
+  }
+
+  async deleteMemoryArc(id: string): Promise<void> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query('DELETE FROM memory_arcs WHERE id = $1', [id]);
+      if (result.rowCount === 0) throw new Error('arc_not_found');
+      // A deleted arc leaves the graph: the projection removes the LINK the
+      // same way acceptance added it, and the revision bumps because arcs are
+      // corpus content.
+      await this.bumpCorpus(client, 'arc.deleted', id, undefined, { arcId: id, kind: 'memory' });
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async deleteProjectArc(id: string): Promise<void> {
+    const client = await this.client();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query('DELETE FROM project_arcs WHERE id = $1', [id]);
+      if (result.rowCount === 0) throw new Error('arc_not_found');
+      await this.bumpCorpus(client, 'arc.deleted', id, undefined, { arcId: id, kind: 'project' });
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  // Proposals and ledger rows are working state, so they neither bump the
+  // corpus revision nor announce to the projection: nothing anyone can see
+  // changed until a decision executes.
+  async createPruningProposal(input: CreatePruningProposalInput): Promise<PruningProposal> {
+    const result = await this.database.query<PruningProposalRow>(
+      `INSERT INTO pruning_proposals
+         (batch_id, proposer, proposal_type, source_ids, source_versions, target_id,
+          rationale, confidence, score_snapshot, model_version, prompt_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING *`,
+      [
+        input.batchId,
+        input.proposer,
+        input.proposalType,
+        input.sourceIds,
+        JSON.stringify(input.sourceVersions),
+        input.targetId ?? null,
+        input.rationale,
+        input.confidence,
+        JSON.stringify(input.scoreSnapshot),
+        input.modelVersion ?? null,
+        input.promptHash ?? null,
+      ],
+    );
+    return pruningProposalFromRow(result.rows[0]);
+  }
+
+  async listPruningProposals(status?: PruningProposalStatus): Promise<PruningProposal[]> {
+    const result =
+      status === undefined
+        ? await this.database.query<PruningProposalRow>(
+            'SELECT * FROM pruning_proposals ORDER BY created_at',
+          )
+        : await this.database.query<PruningProposalRow>(
+            'SELECT * FROM pruning_proposals WHERE status = $1 ORDER BY created_at',
+            [status],
+          );
+    return result.rows.map(pruningProposalFromRow);
+  }
+
+  async updatePruningProposalStatus(
+    id: string,
+    status: PruningProposalStatus,
+    decisionReason: string,
+  ): Promise<PruningProposal> {
+    const result = await this.database.query<PruningProposalRow>(
+      `UPDATE pruning_proposals
+       SET status = $2, decided_at = now(), decision_reason = $3
+       WHERE id = $1 RETURNING *`,
+      [id, status, decisionReason],
+    );
+    if (!result.rows[0]) throw new Error('pruning_proposal_not_found');
+    return pruningProposalFromRow(result.rows[0]);
+  }
+
+  async recordPruningLedgerEntry(input: RecordPruningLedgerInput): Promise<PruningLedgerEntry> {
+    const result = await this.database.query<PruningLedgerRow>(
+      `INSERT INTO pruning_ledger
+         (subject_type, subject_id, reason, proposal_id, score, score_components)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [
+        input.subjectType,
+        input.subjectId,
+        input.reason,
+        input.proposalId ?? null,
+        input.score ?? null,
+        input.scoreComponents === undefined ? null : JSON.stringify(input.scoreComponents),
+      ],
+    );
+    return pruningLedgerFromRow(result.rows[0]);
+  }
+
+  async listPruningLedger(): Promise<PruningLedgerEntry[]> {
+    const result = await this.database.query<PruningLedgerRow>(
+      'SELECT * FROM pruning_ledger ORDER BY decided_at',
+    );
+    return result.rows.map(pruningLedgerFromRow);
   }
 
   async listAllProjectArcs(): Promise<ProjectArc[]> {
