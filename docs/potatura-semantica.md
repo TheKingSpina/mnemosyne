@@ -5,7 +5,11 @@
 > Principio fondante: **«il modello propone, il servizio decide»**.
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
-Stato: **fase (a) implementata e verificata** — score deterministico con segnali
+Stato: **fase (a) implementata e verificata**. Fase (b) ridefinita: **giudizio
+calibrato con Mercury Decide** (il tracking accessi esce dal piano, sostituito dal
+giudizio). Fase (c): **analizzatore Gemma 4 via BYOK Google AI Studio** (decisione
+provider presa). Resta aperta una sola delle due decisioni: come marcare i dati
+PUBLIC/ANONYMIZED (default LOCAL_ONLY, pipeline inerte finché non si marca). — score deterministico con segnali
 esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
 detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con
 scenario dedicato (memoria invecchiata via psql, arco debole, LINK rimosso
@@ -43,12 +47,13 @@ Deviazioni decise rispetto alla prima stesura (motivate sotto, non unilaterali):
                                             [Ledger (indelebile)]
 ```
 
-- **Stadio 1 (asincrono, worker, fase (c)):** invia al modello remoto FREE batch di memorie e riceve **proposte**: ridondanze, contraddizioni, fusioni. Il modello firma la proposta, non la esegue.
-- **Stadio 2 (job deterministico, fase (a)):** in (a) il proponente è lo scorer deterministico stesso: scrive proposte, le decide rileggendo stato fresco, esegue. Se lo score smentisce una futura proposta LLM, **vince lo score**. Sempre.
+- **Stadio 1 (asincrono, worker, fase (c)):** Gemma 4 (default 26B A4B MoE per velocità e 256K di contesto, 31B dense dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Prima di fidarsi: probing su batch reale (quota di proposte parsabili e sensate in italiano), perché la resa va misurata, non presunta.
+- **Fase (b), il giudice:** Mercury Decide (`mercury-decide:free`, endpoint System One, non chat) non genera proposte: risponde a domande tipizzate (choice/score/sì-no) con probabilità calibrata. Uso previsto: seconda opinione calibrata sulle coppie candidate generate dal lato deterministico (top-k vicini lessicali/semantici), non analisi libera. La `confidence` a ledger diventa una probabilità calibrata vera.
+- **Stadio 2 (job deterministico, fase (a)):** scrive proposte, le decide rileggendo stato fresco, esegue. Con due punteggi in campo (deterministico + calibrato) la fusione è policy esplicita da definire all'implementazione; in parità vince lo score deterministico. Sempre.
 
 ---
 
-### 2. Privacy (da decidere PRIMA di mandare anything in rete — fase (c), bloccato)
+### 2. Privacy (provider deciso, marcatura aperta — fase (c) parte qui)
 
 - Flag `privacy` a livello di **progetto** con override più fine a livello di **nodo**: `PUBLIC` / `ANONYMIZED` / `LOCAL_ONLY`.
 - Il worker compone i batch rispettando il flag: `LOCAL_ONLY` non esce mai dal perimetro; `ANONYMIZED` esce solo come riassunto senza identificatori; `PUBLIC` può uscire intero.
