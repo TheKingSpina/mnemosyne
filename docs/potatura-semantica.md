@@ -6,11 +6,12 @@
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
 Stato: **fase (a) implementata e verificata; privacy e analyzer implementati**.
-Decisione modelli (locale, niente download ancora — solo valutazione): proponente
-**Gemma 3** in locale (classe 4B, `gemma3:4B` su Ollama; il 12B non entra nel mini
-con lo stack acceso), giudice **encoder** (NLI multilingua + coseno sugli embedding
-esistenti). Gemma 4 via BYOK resta l'alternativa remota se la resa locale delude.
-Finestra notturna (dopo il backup delle 02:00) con rientranza per batch.
+Decisione runtime: **solo llama.cpp, niente Ollama, niente sidecar Python**.
+`llama-server` espone già tutto il necessario su endpoint OpenAI-compatibili, quindi
+il client esistente si riusa cambiando solo `baseUrl` (dal container via host
+gateway). Niente download ancora — solo valutazione. Gemma 4 via BYOK resta
+l'alternativa remota se la resa locale delude. Finestra notturna (dopo il backup
+delle 02:00) con rientranza per batch.
 Marking manuale su progetti e nodi (endpoint owner + CLI, default `local_only`, nessuna
 inferenza), export/restore lo conservano. Analyzer Gemma via BYOK con flag OFF default:
 compone batch same-flag, filtra id allucinati prima della tabella, scrive proposte
@@ -57,8 +58,8 @@ Deviazioni decise rispetto alla prima stesura (motivate sotto, non unilaterali):
                                             [Ledger (indelebile)]
 ```
 
-- **Stadio 1 (asincrono, worker, fase (c)):** Gemma 3 locale via Ollama (stesso endpoint OpenAI-compatibile del resto del plumbing: cambia `baseUrl`, dal container via host gateway) oppure, in alternativa remota, Gemma 4 (default 26B A4B MoE per velocità e 256K di contesto, 31B dense dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Vincoli invariati: niente tabelle di retention parallele (si estende `balancedRetentionPolicy`), il detector `direct_contradiction` deterministico vince sempre sull'LLM, supersede resta stato finché il merge cross-sessione non è progettato per bene.
-- **Fase (b), il giudice encoder (deciso, non scaricato):** niente modello generativo per giudicare — un encoder multilingua piccolo (classe 100-500M parametri, CPU-friendly, deterministico per costruzione: stesso input, stesso output, niente JSON, niente id inventati). Due teste, una per domanda: similarità coseno per la ridondanza (riusando gli embedding che l'indice semantico già calcola: costo quasi zero) e NLI multilingua (XNLI include l'italiano) per entailment/neutro/contraddizione con probabilità softmax come score calibrato. Runtime: micro-servizio Python (FastAPI + sentence-transformers/onnx) in compose chiamato dal worker via HTTP, oppure onnxruntime-node senza Python. La `confidence` a ledger diventa una probabilità calibrata vera. Mercury Decide resta l'alternativa remota con la stessa forma (scelta/punteggio/sì-no, endpoint System One).
+- **Stadio 1 (asincrono, worker, fase (c)):** proponente Gemma 3 4B in GGUF (`Q4_K_M`, ~2,5 GB: entra nel mini con lo stack acceso) servito da `llama-server` su `/v1/chat/completions` con JSON-schema forzato sullo schema delle proposte — il formato smette di essere la variabile fragile. Versionamento per file: repo HuggingFace + revisione pinnati in configurazione (meglio del solo `prompt_hash`: si sa esattamente cosa ha girato), più seed registrato a ledger per la quasi-determinazione. Alternativa remota: Gemma 4 (default 26B A4B MoE, 31B dove serve qualità) via BYOK Google AI Studio sull'endpoint OpenAI-compatibile (`.../v1beta/openai/` + `chat/completions`): lo stesso plumbing dell'estrattore esistente, con `baseUrl` e chiave propri, mai committati. Riceve batch di memorie e restituisce **proposte** (ridondanze, contraddizioni, fusioni) con rationale. Il modello firma la proposta, non la esegue. Vincoli invariati: niente tabelle di retention parallele (si estende `balancedRetentionPolicy`), il detector `direct_contradiction` deterministico vince sempre sull'LLM, supersede resta stato finché il merge cross-sessione non è progettato per bene.
+- **Fase (b), il giudice su llama.cpp (deciso, non scaricato):** niente Python, niente pesi da servire fuori da llama-server. Mappatura sui suoi endpoint reali: ridondanza via `/v1/rerank` con reranker piccolo (classe 0.6B, es. Qwen3-reranker: rilevanza come score, niente generazione); verdetti sì/no con JSON-schema forzato (`-j`) su instruct piccolo (la grammatica rende il formato deterministico anche se il giudizio resta del modello); similarità coseno riusando gli embedding che l'indice semantico già calcola. Limite onesto: nessun endpoint NLI a tre vie — entailment/contraddizione probabilistica non esiste in llama-server, quindi le contraddizioni restano al detector esatto deterministico più giudice vincolato. Niente id inventati in nessun percorso: i verdetti citano solo id passati in input, validati prima della tabella come le proposte.
 - **Stadio 2 (job deterministico, fase (a)):** scrive proposte, le decide rileggendo stato fresco, esegue. Con due punteggi in campo (deterministico + calibrato) la fusione è policy esplicita da definire all'implementazione; in parità vince lo score deterministico. Sempre.
 
 ---
