@@ -1579,6 +1579,7 @@
           const to = nodesById.get(edge.to);
           if (!from || !to) continue;
           const conflict = edge.kind === 'conflict';
+          const resolved = conflict && edge.status === 'resolved';
           const arc = edge.kind === 'arc';
           const arcAccepted = arc && edge.lifecycle === 'accepted';
           const projectArc = edge.kind === 'project-arc';
