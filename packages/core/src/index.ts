@@ -3,6 +3,8 @@ export * from './access.js';
 export * from './policy.js';
 export * from './token-estimator.js';
 export * from './privacy.js';
+export * from './privacy-batch.js';
+export * from './pruning-analyzer.js';
 export * from './pruning-score.js';
 export * from './errors.js';
 export * from './in-memory-repository.js';
