@@ -20,8 +20,8 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Loopback bindings only: API `127.0.0.1:3000`, web `127.0.0.1:18080`, MCP `127.0.0.1:3333`, PostgreSQL `127.0.0.1:5432`, Redis `127.0.0.1:6379`, Neo4j `127.0.0.1:7474`.
 - Port 18080 is intentional: port 8080 is used by an unrelated Open WebUI process that must not be stopped.
 - Private Tailscale Serve only, never Funnel:
-  - dashboard: `https://mac-mini-di-alessandro-2.tail82e37f.ts.net/`
-  - MCP: `https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp`
+  - dashboard: `https://<tailscale-host>/`
+  - MCP: `https://<tailscale-host>:8443/mcp`
 - `.env` remains local with mode `0600`; it was not modified, printed, or committed. OpenRouter remains disabled.
 - Rebuild with `env -u OPENROUTER_API_KEY -u OPENROUTER_MODEL docker compose up --build -d api worker mcp`; add `web` for the dashboard. Over SSH the build fails on the Docker credential helper because the login keychain cannot be unlocked in a non-interactive session: back up `~/.docker/config.json`, delete `credsStore` and `credHelpers`, build, then restore the file. A public base image needs no credentials.
 - The host is reached with `ssh mnemosyne-mini`; the alias uses a dedicated ed25519 key, not a password.

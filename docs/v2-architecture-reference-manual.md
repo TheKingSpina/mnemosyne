@@ -118,7 +118,7 @@ Il rilevatore analizza le memorie proposte verificando la polarità e la qualifi
 2. **Politica di Quarantena (`conflictPolicy`)**:
    - `include_disputed` (default): le memorie contestate vengono incluse ma marchiate esplicitamente.
    - `quarantine_conflicts`: entrambe le memorie in conflitto vengono **escluse fisicamente dal prompt**, impedendo all'LLM di ricevere istruzioni contraddittorie.
-3. **Formattatore di Prompt ([`formatContextForPrompt`](file:///Users/spina/Mnemosyne/packages/core/src/format-context.ts))**:
+3. **Formattatore di Prompt ([`formatContextForPrompt`](../packages/core/src/format-context.ts))**:
    - Pre-elabora i blocchi di testo per l'LLM anteponendo un avviso esplicito:
      ```text
      [DISPUTED / CONTRADICTS mem_abc123] Per i nuovi progetti usiamo pnpm
@@ -140,7 +140,7 @@ La manutenzione del database a lungo termine è affidata a due micro-modelli ges
 - **Giudice Semantico Vincolato**: invocato nei casi ambigui o di aggiornamento temporale.
 - Grazie al vincolo grammaticale **JSON-Schema token-level** di `llama-server`, produce output strutturati garantiti al 100% senza allucinazioni di sintassi (`verdict: 'redundant' | 'contradictory' | 'compatible'`).
 
-### 4.3 Host Lazy Manager ([`ops/host/llama-lazy-manager.mjs`](file:///Users/spina/Mnemosyne/ops/host/llama-lazy-manager.mjs))
+### 4.3 Host Lazy Manager ([`ops/host/llama-lazy-manager.mjs`](../ops/host/llama-lazy-manager.mjs))
 
 - Daemon host leggerissimo (~15 MB di RAM) registrato come LaunchAgent macOS (`com.mnemosyne.llama.plist`).
 - Risponde passivamente alle verifiche di salute `/health` senza risvegliare i modelli.
@@ -156,11 +156,11 @@ Mnemosyne è configurato per il deployment privato su Mac mini tramite Tailscale
 - **Nessun Funnel Pubblico**: I servizi non sono mai esposti su Internet aperta.
 - **Dashboard Web**: Pubblicata su loopback sicuro:
   ```text
-  https://mac-mini-di-alessandro-2.tail82e37f.ts.net/ (tailnet only) -> http://127.0.0.1:18080
+  https://<device>.<tailnet-domain>.ts.net/ (tailnet only) -> http://127.0.0.1:18080
   ```
 - **Endpoint MCP Remoto**:
   ```text
-  https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp (tailnet only) -> http://127.0.0.1:3333
+  https://<device>.<tailnet-domain>.ts.net:8443/mcp (tailnet only) -> http://127.0.0.1:3333
   ```
   - Autenticazione con profilo anonimo ristretto (`harness`), dove i comandi distruttivi (`forget`, `export`, `admin`) sono fisicamente rimossi dal catalogo dei tool.
   - DNS rebinding protection vincolata all'host Tailscale.

@@ -76,7 +76,7 @@ Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel contai
 
 ### Client MCP su un’altra macchina
 
-L’endpoint è quello mostrato da `tailscale serve status` e include porta e percorso, per esempio `https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp`. La protezione DNS rebinding accetta solo gli host in `MCP_ALLOWED_HOSTS`, quindi il client deve usare esattamente quel nome: l’IP del tailnet e il nome breve vengono rifiutati.
+L’endpoint è quello mostrato da `tailscale serve status` e include porta e percorso, per esempio `https://<device>.<tailnet-domain>.ts.net:8443/mcp`. La protezione DNS rebinding accetta solo gli host in `MCP_ALLOWED_HOSTS`, quindi il client deve usare esattamente quel nome: l’IP del tailnet e il nome breve vengono rifiutati.
 
 Sul mini l’autenticazione MCP è disattivata di proposito con `MNEMOSYNE_MCP_REQUIRE_TOKEN=false` e `MNEMOSYNE_MCP_ANONYMOUS_PROFILE=harness`: il perimetro è l’ACL del tailnet e il client non deve gestire segreti. Il client si configura con la sola URL:
 
@@ -85,7 +85,7 @@ Sul mini l’autenticazione MCP è disattivata di proposito con `MNEMOSYNE_MCP_R
   "mcp": {
     "mnemosyne": {
       "type": "remote",
-      "url": "https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp",
+      "url": "https://<device>.<tailnet-domain>.ts.net:8443/mcp",
       "enabled": true
     }
   }
@@ -110,7 +110,7 @@ chmod 600 ~/.mnemosyne/owner.token
 Poi, dal repository:
 
 ```bash
-API=https://mac-mini-di-alessandro-2.tail82e37f.ts.net/api/backend
+API=https://<device>.<tailnet-domain>.ts.net/api/backend
 npm run token:client -- --base-url "$API" --name opencode --out ~/.mnemosyne/opencode.token
 npm run token:client -- --base-url "$API" --list
 npm run token:client -- --base-url "$API" --revoke opencode
@@ -132,7 +132,7 @@ Con opencode la configurazione MCP sta in `~/.config/opencode/opencode.jsonc`, n
   "mcp": {
     "mnemosyne": {
       "type": "remote",
-      "url": "https://mac-mini-di-alessandro-2.tail82e37f.ts.net:8443/mcp",
+      "url": "https://<device>.<tailnet-domain>.ts.net:8443/mcp",
       "headers": { "Authorization": "Bearer {file:~/.mnemosyne/opencode.token}" },
       "enabled": true
     }

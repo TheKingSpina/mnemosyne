@@ -206,7 +206,7 @@ I progetti e i nodi possiedono un flag privacy esplicito (mai dedotto in automat
 
 ## 4. Validazione Empirica — Risultati del Golden Set
 
-Il sistema è stato collaudato dal vivo contro un dataset etichettato di **30 coppie di memorie in italiano** ([`scripts/pruning-golden-set.json`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/scripts/pruning-golden-set.json)) collegato a `llama-server` nativo con accelerazione Metal (Gemma 3 4B su porta 8081, BGE Reranker v2 M3 su porta 8082).
+Il sistema è stato collaudato dal vivo contro un dataset etichettato di **30 coppie di memorie in italiano** ([`scripts/pruning-golden-set.json`](../scripts/pruning-golden-set.json)) collegato a `llama-server` nativo con accelerazione Metal (Gemma 3 4B su porta 8081, BGE Reranker v2 M3 su porta 8082).
 
 | Categoria di Prova                         |  Coppie  | Modello Esecutore           |       Risultato Live        | Accuratezza |
 | :----------------------------------------- | :------: | :-------------------------- | :-------------------------: | :---------: |
@@ -254,7 +254,7 @@ curl -L -C - -o ~/.mnemosyne/models/gemma-3-4b-it-Q4_K_M.gguf \
 
 ### 5.3 Esecuzione On-Demand con Lazy Activation Manager (Consigliato per M1 8GB)
 
-Per evitare di occupare ~3 GB di RAM/VRAM continuativamente quando i modelli non sono utilizzati, Mnemosyne include il daemon gestore on-demand [`ops/host/llama-lazy-manager.mjs`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/llama-lazy-manager.mjs):
+Per evitare di occupare ~3 GB di RAM/VRAM continuativamente quando i modelli non sono utilizzati, Mnemosyne include il daemon gestore on-demand [`ops/host/llama-lazy-manager.mjs`](../ops/host/llama-lazy-manager.mjs):
 
 ```bash
 # Avvio del gestore lazy in background o foreground (~15 MB RAM):
@@ -303,8 +303,8 @@ node scripts/probe-judge.mjs
 
 ### 5.5 Gestione Tramite macOS `launchd`
 
-Il template per avviare il gestore on-demand all'accesso utente si trova in [`ops/host/launchd/com.mnemosyne.llama.plist`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/launchd/com.mnemosyne.llama.plist).
-Vedi [`ops/host/README.md`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/README.md) per i comandi `sed` e `launchctl bootstrap`.
+Il template per avviare il gestore on-demand all'accesso utente si trova in [`ops/host/launchd/com.mnemosyne.llama.plist`](../ops/host/launchd/com.mnemosyne.llama.plist).
+Vedi [`ops/host/README.md`](../ops/host/README.md) per i comandi `sed` e `launchctl bootstrap`.
 
 ---
 

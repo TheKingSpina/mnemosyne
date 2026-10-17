@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `usage: node scripts/client-token.mjs --base-url <url> [options]
 
-  --base-url <url>   API root, e.g. https://mac-mini-di-alessandro-2.tail82e37f.ts.net/api/backend
+  --base-url <url>   API root, e.g. https://<device>.<tailnet-domain>.ts.net/api/backend
   --name <slug>      mint a token for this client and print it once
   --list             list client tokens with prefix and last use
   --revoke <slug>    revoke a client token by name
