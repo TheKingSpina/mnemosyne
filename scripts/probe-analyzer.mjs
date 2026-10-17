@@ -21,67 +21,45 @@ if (process.env.PRUNING_ANALYZER_ENABLED !== 'true') {
   process.exit(2);
 }
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const goldenPairs = JSON.parse(readFileSync(join(__dirname, 'pruning-golden-set.json'), 'utf8'));
+
 const BATCH_SIZE = 10;
-const BATCHES = Math.max(1, Number(process.argv[2] ?? '3'));
+const BATCHES = Math.max(1, Number(process.argv[2] ?? '6'));
 
-const RIDONDANZE = [
-  'il progetto usa pnpm come gestore di pacchetti',
-  'pnpm è quello che il progetto usa per gestire i pacchetti',
-  'le riunioni di squadra si tengono il lunedì mattina',
-  'il lunedì mattina sono le riunioni di squadra',
-  'la password di test è memorizzata nel file di configurazione locale',
-  'il file di configurazione locale contiene la password di test',
-  'il deploy avviene tramite docker compose sul server interno',
-  'docker compose è la via con cui il deploy raggiunge il server interno',
-  'aggiornare sempre la documentazione prima del merge',
-  'prima del merge la documentazione va sempre aggiornata',
-];
-
-const CONTRADDIZIONI = [
-  'la scadenza del ticket è venerdì 17',
-  'la scadenza del ticket NON è venerdì 17',
-  'la riunione si dice alle 15',
-  'la riunione NON si dice alle 15',
-  'il modulo di fatturazione è ancora in beta',
-  'il modulo di fatturazione NON è più in beta',
-  'il backup parte alle 02:00',
-  'il backup NON parte alle 02:00',
-];
-
-const RUMORE = [
-  'il gazebino in giardino ha le tele al suolo',
-  'la nonna difendeva i basilichi come giardinieri puntuali',
-  'il caffè bestinutto si beve a 92 gradi',
-  'la finestra del bagno si apre guardando a ovest',
-  'il vecchio fienile ospita tre cassettoni di libri',
-  'la raccolta del vetro cade il giovedì',
-  'il pittore sannita lasciò quindici domande formulate male',
-  'le coperteeltasana procured a bordo Pia',
-  'la serra usa un timer meccanico con due prese',
-  'il generatore di corrente parte se le temperature vanno sotto 4 gradi',
-];
-
-const CONTENTS = [
-  ...Array.from(
-    { length: BATCH_SIZE },
-    (_, i) => RIDONDANZE[i % RIDONDANZE.length] ?? 'fatto generico',
-  ),
-  ...Array.from({ length: BATCH_SIZE }, (_, i) => CONTRADDIZIONI[i % CONTRADDIZIONI.length]),
-  ...RUMORE,
-];
-
-let idCounter = 0;
-const items = CONTENTS.map((content) => {
-  idCounter += 1;
-  return {
-    memoryId: `probe_${idCounter}`,
-    kind: 'fact',
+const items = [];
+for (const pair of goldenPairs) {
+  items.push({
+    memoryId: pair.left.id,
+    kind: pair.left.kind,
     scopeKind: 'project',
     ageBucket: '<30d',
     incidentArcTypes: [],
-    content,
-  };
-});
+    content: pair.left.content,
+  });
+  items.push({
+    memoryId: pair.right.id,
+    kind: pair.right.kind,
+    scopeKind: 'project',
+    ageBucket: '<30d',
+    incidentArcTypes: [],
+    content: pair.right.content,
+  });
+  if (pair.target) {
+    items.push({
+      memoryId: pair.target.id,
+      kind: pair.target.kind,
+      scopeKind: 'project',
+      ageBucket: '<30d',
+      incidentArcTypes: [],
+      content: pair.target.content,
+    });
+  }
+}
 
 const batches = [];
 for (let i = 0; i < Math.min(BATCHES * BATCH_SIZE, items.length); i += BATCH_SIZE) {

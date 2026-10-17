@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mnemosyne.llama</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__LLAMA_SERVER_BIN__</string>
+    <string>--model</string>
+    <string>__LLAMA_MODEL_PATH__</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8081</string>
+    <string>--ctx-size</string>
+    <string>4096</string>
+    <string>--n-gpu-layers</string>
+    <string>99</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/mnemosyne-llama.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/mnemosyne-llama.error.log</string>
+</dict>
+</plist>

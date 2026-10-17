@@ -75,3 +75,18 @@ done
 Inspect with `launchctl print gui/$(id -u)/com.mnemosyne.health` and read `~/Library/Logs/mnemosyne/`. Reload after an edit with `launchctl bootout` followed by `launchctl bootstrap`.
 
 A login item is not enough on its own: it only runs when a user session starts. Pair it with the backup schedule in [`../backup`](../backup/README.md) and confirm the whole chain with a reboot.
+
+## Optional native `llama-server` agent (`com.mnemosyne.llama`)
+
+On Apple Silicon, `llama.cpp` must run natively on the macOS host (not inside a Linux container) so Metal unified-memory acceleration is available and the OrbStack VM is not starved on an 8 GB system. `launchd/com.mnemosyne.llama.plist` is an optional template that binds `llama-server` to `127.0.0.1:8081` with `--n-gpu-layers 99`; containers reach it via `http://host.docker.internal:8081/v1`.
+
+Render and validate when a local GGUF model has been downloaded and verified via `scripts/probe-analyzer.mjs` and `scripts/probe-judge.mjs`:
+
+```bash
+sed -e "s|__REPO__|$REPO|g" \
+    -e "s|__LLAMA_SERVER_BIN__|/opt/homebrew/bin/llama-server|g" \
+    -e "s|__LLAMA_MODEL_PATH__|$HOME/.mnemosyne/models/model.gguf|g" \
+    -e "s|__LOG_DIR__|$LOG_DIR|g" \
+    "$REPO/ops/host/launchd/com.mnemosyne.llama.plist" > "$HOME/Library/LaunchAgents/com.mnemosyne.llama.plist"
+plutil -lint "$HOME/Library/LaunchAgents/com.mnemosyne.llama.plist"
+```

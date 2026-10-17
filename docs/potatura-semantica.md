@@ -5,7 +5,7 @@
 > Principio fondante: **«il modello propone, il servizio decide»**.
 > Nessun LLM tocca mai i dati. Il colpo di forbice finale è sempre del job deterministico.
 
-Stato: **fase (a) implementata e verificata; privacy e analyzer implementati**.
+Stato: **fase (a) implementata e verificata; privacy, analyzer e giudice calibrato implementati**.
 Decisione runtime: **solo llama.cpp, niente Ollama, niente sidecar Python**.
 `llama-server` espone già tutto il necessario su endpoint OpenAI-compatibili, quindi
 il client esistente si riusa cambiando solo `baseUrl` (dal container via host
@@ -15,11 +15,12 @@ l'alternativa remota se la resa locale delude. Finestra notturna e rientranza or
 Marking manuale su progetti e nodi (endpoint owner + CLI, default `local_only`, nessuna
 inferenza), export/restore lo conservano. Analyzer Gemma via BYOK con flag OFF default:
 compone batch same-flag, filtra id allucinati prima della tabella, scrive proposte
-`llm` pending; la retention le decide col veto (concordanti eseguite, il resto
-rifiutato con motivo in attesa del giudice). Probing differito su golden set di ~30
-coppie etichettate, per entrambi i modelli prima di accenderli: resa delle proposte
-(Gemma 3) e calibrazione dei verdetti (encoder). **Resta aperto: il giudice encoder**
-(servizio di scoring + fusione esplicita) e le marcature reali sui dati (atto del
+`llm` pending; la retention le decide col veto deterministico o, quando `PRUNING_JUDGE_ENABLED=true`,
+tramite `LlamaCppPruningJudge` (`/v1/rerank` + verdetti JSON-schema vincolati su `/v1/chat/completions`)
+e fusione esplicita `fusePruningScores` (dove in parità vince sempre il lato deterministico).
+Golden set di 30 coppie etichettate (`scripts/pruning-golden-set.json`) e harness di probing
+(`scripts/probe-analyzer.mjs` + `scripts/probe-judge.mjs`) pronti. **Resta aperto: il download dei pesi GGUF**
+sulla macchina target e le marcature reali sui dati (atto del
 proprietario, non codice). — score deterministico con segnali
 esistenti, decay a `expired` e potatura archi dentro la retention run, ledger e stale
 detection strutturale. Gate: unit + service test con clock condiviso, E2E sintetico con

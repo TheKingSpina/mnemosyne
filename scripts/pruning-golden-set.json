@@ -1,0 +1,512 @@
+[
+  {
+    "id": "pair_red_01",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_01_a",
+      "kind": "preference",
+      "content": "Il progetto usa pnpm come gestore di pacchetti principale."
+    },
+    "right": {
+      "id": "mem_red_01_b",
+      "kind": "preference",
+      "content": "pnpm è il gestore di pacchetti principale utilizzato nel progetto."
+    }
+  },
+  {
+    "id": "pair_red_02",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_02_a",
+      "kind": "episodic",
+      "content": "Le riunioni di allineamento del team si tengono ogni lunedì mattina alle nove."
+    },
+    "right": {
+      "id": "mem_red_02_b",
+      "kind": "episodic",
+      "content": "Ogni lunedì mattina alle 9:00 il team fa la riunione di allineamento."
+    }
+  },
+  {
+    "id": "pair_red_03",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_03_a",
+      "kind": "detail",
+      "content": "La password di test locale è salvata nel file di configurazione non tracciato."
+    },
+    "right": {
+      "id": "mem_red_03_b",
+      "kind": "detail",
+      "content": "Il file di configurazione non tracciato contiene la password locale di test."
+    }
+  },
+  {
+    "id": "pair_red_04",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_04_a",
+      "kind": "preference",
+      "content": "Il deploy sul server interno avviene sempre tramite docker compose."
+    },
+    "right": {
+      "id": "mem_red_04_b",
+      "kind": "preference",
+      "content": "Usiamo sempre docker compose per eseguire il deploy sul server interno."
+    }
+  },
+  {
+    "id": "pair_red_05",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_05_a",
+      "kind": "goal",
+      "content": "Aggiornare sempre la documentazione delle API prima di fare merge sul branch principale."
+    },
+    "right": {
+      "id": "mem_red_05_b",
+      "kind": "goal",
+      "content": "Prima del merge sul branch principale va sempre aggiornata la documentazione API."
+    }
+  },
+  {
+    "id": "pair_red_06",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_06_a",
+      "kind": "detail",
+      "content": "I backup crittografati di PostgreSQL girano ogni notte alle due in punto."
+    },
+    "right": {
+      "id": "mem_red_06_b",
+      "kind": "detail",
+      "content": "Ogni notte alle 02:00 viene eseguito il backup crittografato di PostgreSQL."
+    }
+  },
+  {
+    "id": "pair_red_07",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_07_a",
+      "kind": "preference",
+      "content": "Preferisco risposte sintetiche e dirette senza preamboli inutili."
+    },
+    "right": {
+      "id": "mem_red_07_b",
+      "kind": "preference",
+      "content": "Dammi sempre risposte concise e dritte al punto, evitando i preamboli."
+    }
+  },
+  {
+    "id": "pair_red_08",
+    "category": "redundancy_clear",
+    "expectedProposal": "redundancy",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_red_08_a",
+      "kind": "episodic",
+      "content": "Il server MCP in sviluppo ascolta solo su loopback alla porta 3333."
+    },
+    "right": {
+      "id": "mem_red_08_b",
+      "kind": "episodic",
+      "content": "In ambiente di sviluppo la porta 3333 su loopback è usata dal server MCP."
+    }
+  },
+  {
+    "id": "pair_nuance_01",
+    "category": "distinct_nuance",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_nuance_01_a",
+      "kind": "preference",
+      "content": "Il progetto usa pnpm per i pacchetti applicativi nel monorepo."
+    },
+    "right": {
+      "id": "mem_nuance_01_b",
+      "kind": "preference",
+      "content": "Il progetto usa Docker Compose per orchestrare PostgreSQL, Redis e Neo4j."
+    }
+  },
+  {
+    "id": "pair_nuance_02",
+    "category": "distinct_nuance",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_nuance_02_a",
+      "kind": "episodic",
+      "content": "Le riunioni di pianificazione sprint si tengono il lunedì mattina alle nove."
+    },
+    "right": {
+      "id": "mem_nuance_02_b",
+      "kind": "episodic",
+      "content": "Le retrospettive di fine sprint si tengono il venerdì pomeriggio alle sedici."
+    }
+  },
+  {
+    "id": "pair_nuance_03",
+    "category": "distinct_nuance",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_nuance_03_a",
+      "kind": "detail",
+      "content": "La porta 8080 sul Mac mini è occupata da un processo Open WebUI esterno."
+    },
+    "right": {
+      "id": "mem_nuance_03_b",
+      "kind": "detail",
+      "content": "La dashboard web di Mnemosyne sul Mac mini è esposta sulla porta locale 18080."
+    }
+  },
+  {
+    "id": "pair_nuance_04",
+    "category": "distinct_nuance",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_nuance_04_a",
+      "kind": "goal",
+      "content": "Ridurre la latenza p95 delle query lessicali su PostgreSQL sotto i 15 millisecondi."
+    },
+    "right": {
+      "id": "mem_nuance_04_b",
+      "kind": "goal",
+      "content": "Mantenere l'occupazione RAM complessiva del Mac mini sotto i 6 gigabyte."
+    }
+  },
+  {
+    "id": "pair_nuance_05",
+    "category": "distinct_nuance",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_nuance_05_a",
+      "kind": "detail",
+      "content": "Il backup notturno salva il dump cifrato nella cartella Backups locale."
+    },
+    "right": {
+      "id": "mem_nuance_05_b",
+      "kind": "detail",
+      "content": "La finestra dell'analizzatore semantico parte alle 03:30 per non sovrapporsi al backup."
+    }
+  },
+  {
+    "id": "pair_nuance_06",
+    "category": "distinct_nuance",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_nuance_06_a",
+      "kind": "preference",
+      "content": "I token client vengono emessi tramite CLI con ruolo owner e salvati solo come hash SHA-256."
+    },
+    "right": {
+      "id": "mem_nuance_06_b",
+      "kind": "preference",
+      "content": "Il profilo anonimo MCP espone solo gli otto strumenti del profilo harness."
+    }
+  },
+  {
+    "id": "pair_contra_01",
+    "category": "contradiction_direct",
+    "expectedProposal": "contradiction",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_contra_01_a",
+      "kind": "fact",
+      "content": "La scadenza del rilascio è venerdì 17"
+    },
+    "right": {
+      "id": "mem_contra_01_b",
+      "kind": "fact",
+      "content": "La scadenza del rilascio non è venerdì 17"
+    }
+  },
+  {
+    "id": "pair_contra_02",
+    "category": "contradiction_direct",
+    "expectedProposal": "contradiction",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_contra_02_a",
+      "kind": "fact",
+      "content": "La riunione si tiene alle 15"
+    },
+    "right": {
+      "id": "mem_contra_02_b",
+      "kind": "fact",
+      "content": "La riunione non si tiene alle 15"
+    }
+  },
+  {
+    "id": "pair_contra_03",
+    "category": "contradiction_direct",
+    "expectedProposal": "contradiction",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_contra_03_a",
+      "kind": "fact",
+      "content": "Il modulo di fatturazione è in beta"
+    },
+    "right": {
+      "id": "mem_contra_03_b",
+      "kind": "fact",
+      "content": "Il modulo di fatturazione non è in beta"
+    }
+  },
+  {
+    "id": "pair_contra_04",
+    "category": "contradiction_direct",
+    "expectedProposal": "contradiction",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_contra_04_a",
+      "kind": "fact",
+      "content": "Il backup parte alle 02:00"
+    },
+    "right": {
+      "id": "mem_contra_04_b",
+      "kind": "fact",
+      "content": "Il backup non parte alle 02:00"
+    }
+  },
+  {
+    "id": "pair_contra_05",
+    "category": "contradiction_direct",
+    "expectedProposal": "contradiction",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_contra_05_a",
+      "kind": "decision",
+      "content": "Usiamo Ollama sul Mac mini"
+    },
+    "right": {
+      "id": "mem_contra_05_b",
+      "kind": "decision",
+      "content": "Non usiamo Ollama sul Mac mini"
+    }
+  },
+  {
+    "id": "pair_contra_06",
+    "category": "contradiction_direct",
+    "expectedProposal": "contradiction",
+    "expectedAccept": true,
+    "left": {
+      "id": "mem_contra_06_a",
+      "kind": "fact",
+      "content": "Chiudiamo alle diciotto"
+    },
+    "right": {
+      "id": "mem_contra_06_b",
+      "kind": "fact",
+      "content": "Non chiudiamo alle diciotto"
+    }
+  },
+  {
+    "id": "pair_compat_01",
+    "category": "compatible_non_contradiction",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_compat_01_a",
+      "kind": "fact",
+      "content": "Il server API ascolta sulla porta 3000 in locale."
+    },
+    "right": {
+      "id": "mem_compat_01_b",
+      "kind": "fact",
+      "content": "Il server API non è esposto su Internet pubblico."
+    }
+  },
+  {
+    "id": "pair_compat_02",
+    "category": "compatible_non_contradiction",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_compat_02_a",
+      "kind": "decision",
+      "content": "Usiamo Tailscale Serve per l'accesso privato alla dashboard."
+    },
+    "right": {
+      "id": "mem_compat_02_b",
+      "kind": "decision",
+      "content": "Non abilitiamo mai Tailscale Funnel verso l'esterno."
+    }
+  },
+  {
+    "id": "pair_compat_03",
+    "category": "compatible_non_contradiction",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_compat_03_a",
+      "kind": "preference",
+      "content": "Il codice applicativo viene compilato con TypeScript in modalità strict."
+    },
+    "right": {
+      "id": "mem_compat_03_b",
+      "kind": "preference",
+      "content": "Gli script operativi in scripts/ sono scritti in JavaScript ESM puro."
+    }
+  },
+  {
+    "id": "pair_compat_04",
+    "category": "compatible_non_contradiction",
+    "expectedProposal": "none",
+    "expectedAccept": false,
+    "left": {
+      "id": "mem_compat_04_a",
+      "kind": "episodic",
+      "content": "Il test di carico con termine condiviso impiega circa 90 ms su diecimila memorie."
+    },
+    "right": {
+      "id": "mem_compat_04_b",
+      "kind": "episodic",
+      "content": "Il test di carico senza termine condiviso impiega meno di 2 ms sullo stesso corpus."
+    }
+  },
+  {
+    "id": "pair_merge_01",
+    "category": "merge_candidate",
+    "expectedProposal": "merge",
+    "expectedAccept": true,
+    "target": {
+      "id": "mem_merge_01_target",
+      "kind": "detail",
+      "content": "La finestra di manutenzione del database dura dalle 02:00 alle 03:30 e include backup cifrato e verifica di restore."
+    },
+    "left": {
+      "id": "mem_merge_01_a",
+      "kind": "detail",
+      "content": "La finestra di manutenzione del database inizia alle 02:00 con il backup cifrato."
+    },
+    "right": {
+      "id": "mem_merge_01_b",
+      "kind": "detail",
+      "content": "La manutenzione del database termina alle 03:30 dopo la verifica di restore."
+    }
+  },
+  {
+    "id": "pair_merge_02",
+    "category": "merge_candidate",
+    "expectedProposal": "merge",
+    "expectedAccept": true,
+    "target": {
+      "id": "mem_merge_02_target",
+      "kind": "preference",
+      "content": "Per i commit sul branch di lavoro usare messaggi concisi in inglese che spiegano il perché e far girare sempre i tre gate prima del commit."
+    },
+    "left": {
+      "id": "mem_merge_02_a",
+      "kind": "preference",
+      "content": "I messaggi di commit sul branch di lavoro devono essere concisi e spiegare il perché."
+    },
+    "right": {
+      "id": "mem_merge_02_b",
+      "kind": "preference",
+      "content": "Prima di ogni commit sul branch di lavoro bisogna eseguire i tre gate di verifica."
+    }
+  },
+  {
+    "id": "pair_merge_03",
+    "category": "merge_candidate",
+    "expectedProposal": "merge",
+    "expectedAccept": true,
+    "target": {
+      "id": "mem_merge_03_target",
+      "kind": "episodic",
+      "content": "Il servizio Redis funge da cache del corpus sia per l'API sia per il server MCP, invalidandosi al cambio di revisione."
+    },
+    "left": {
+      "id": "mem_merge_03_a",
+      "kind": "episodic",
+      "content": "Il servizio API usa Redis per fare caching delle ricerche sul corpus."
+    },
+    "right": {
+      "id": "mem_merge_03_b",
+      "kind": "episodic",
+      "content": "Anche il server MCP condivide la cache Redis del corpus con invalidazione su revisione."
+    }
+  },
+  {
+    "id": "pair_merge_04",
+    "category": "merge_candidate",
+    "expectedProposal": "merge",
+    "expectedAccept": true,
+    "target": {
+      "id": "mem_merge_04_target",
+      "kind": "goal",
+      "content": "Completare il giudice su llama.cpp con reranker e verdetti JSON-schema e validarlo sul golden set di 30 coppie."
+    },
+    "left": {
+      "id": "mem_merge_04_a",
+      "kind": "goal",
+      "content": "Implementare il giudice di potatura su llama.cpp usando reranker e JSON-schema."
+    },
+    "right": {
+      "id": "mem_merge_04_b",
+      "kind": "goal",
+      "content": "Validare il giudice di potatura contro un golden set etichettato di 30 coppie."
+    }
+  },
+  {
+    "id": "pair_merge_05",
+    "category": "merge_candidate",
+    "expectedProposal": "merge",
+    "expectedAccept": true,
+    "target": {
+      "id": "mem_merge_05_target",
+      "kind": "detail",
+      "content": "La retention giornaliera pulisce gli eventi outbox processati più vecchi di 3 giorni e i job terminali più vecchi di 30 giorni senza incrementare la revisione del corpus."
+    },
+    "left": {
+      "id": "mem_merge_05_a",
+      "kind": "detail",
+      "content": "La retention elimina gli eventi outbox processati dopo 3 giorni senza toccare la revisione del corpus."
+    },
+    "right": {
+      "id": "mem_merge_05_b",
+      "kind": "detail",
+      "content": "I job terminali e le chiavi di idempotenza scadute vengono potati dopo 30 giorni senza bump di revisione."
+    }
+  },
+  {
+    "id": "pair_merge_06",
+    "category": "merge_candidate",
+    "expectedProposal": "merge",
+    "expectedAccept": true,
+    "target": {
+      "id": "mem_merge_06_target",
+      "kind": "preference",
+      "content": "Il grafo della dashboard usa un renderer Canvas nativo con cluster per scope, zoom/pan e selezione persistente del nodo cliccato."
+    },
+    "left": {
+      "id": "mem_merge_06_a",
+      "kind": "preference",
+      "content": "Il grafo della dashboard è disegnato su Canvas nativo con cluster separati per scope."
+    },
+    "right": {
+      "id": "mem_merge_06_b",
+      "kind": "preference",
+      "content": "Nel grafo della dashboard sono supportati zoom, pan e l'evidenziazione persistente al clic."
+    }
+  }
+]

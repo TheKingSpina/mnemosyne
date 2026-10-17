@@ -82,20 +82,17 @@ import orfano che rompeva il lint; enum scope nei dataset di eval dopo il ritiro
 ## 6. Aperto (con proprietario)
 
 - **Tu**: marcature reali PUBLIC/ANONYMIZED (atto tuo, non codice); eventuale chiave BYOK
-  se mai servirà il remoto; merge verso `main` (tocca il mini, decisione tua).
-- **Codice**: giudice (reranker `/v1/rerank` + verdetti con JSON-schema forzato su
-  llama-server + fusione esplicita coi punteggi deterministici), download GGUF (Gemma 3 4B
-  - reranker) e `llama-server` operativo sul mini, probing reale (~30 coppie usate dal
-    golden set, ora che l'harness `scripts/probe-analyzer.mjs` esiste).
+  se mai servirà il remoto; download effettivo dei pesi GGUF e avvio `llama-server` sul Mac mini;
+  merge verso `main` (tocca il mini, decisione tua).
 - **Fatto dopo l'handoff iniziale** (`ad583f1`): finestra notturna
   `WORKER_ANALYZER_WINDOW` nel worker (default spento; apertura parcheggiata sull'apertura
   della finestra), rientranza per costruzione (batch id da membri, skip dei batch già
   analizzati anche dopo decisione, memorie pending escluse, contatori `skipped` nel
   report), probing harness del proponente. Verificato: unit 249, E2E OK, eval invariato.
-- **Fatto in data odierna**: potatura automatica dei job terminali (`succeeded`, `failed`,
-  `quarantined`, `cancelled` e cascata su `job_attempts`) e delle chiavi di idempotenza scadute
-  (finestra 30g, senza bump di revisione corpus); OpenAPI e test allineati. Verificato: unit 252,
-  E2E sintetico OK, eval invariato.
+- **Fatto in data odierna (17 ottobre 2026)**:
+  1. Potatura automatica dei job terminali (`succeeded`, `failed`, `quarantined`, `cancelled` e cascata su `job_attempts`) e delle chiavi di idempotenza scadute (finestra 30g, senza bump di revisione corpus); OpenAPI e test allineati (`dc7cce0`).
+  2. Giudice calibrato `LlamaCppPruningJudge` (`/v1/rerank` + verdetti JSON-schema vincolati su `/v1/chat/completions` con rifiuto di ID inventati) e fusione esplicita `fusePruningScores` (tie-break deterministico), integrati in `CoreMemoryService.judgeLlmProposal` e cablati nel worker dietro `PRUNING_JUDGE_ENABLED=true` (`bcda2bf`).
+  3. Golden set di 30 coppie etichettate (`scripts/pruning-golden-set.json`), aggiornamento di `scripts/probe-analyzer.mjs` e nuovo `scripts/probe-judge.mjs` (check deterministico offline + probing live sul giudice), più template launchd `ops/host/launchd/com.mnemosyne.llama.plist` per l'esecuzione nativa Metal su macOS.
 - **Debito noto minore**: layer progetti solo per progetti con archi; E2E con immagini
   orfane (~350 MB reali + 2,3 GB build cache recuperabili con prune).
 
