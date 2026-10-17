@@ -423,7 +423,7 @@ describe('CoreMemoryService', () => {
   it('detects contradiction between qualified assertion and universal negation in same project', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'conflict-repro-suite' });
-    const reproScope: Scope = { type: 'project', id: 'conflict-repro-suite' };
+    const reproScope = { type: 'project' as const, id: 'conflict-repro-suite' };
 
     // Control pair: 'Chiudiamo alle diciotto' vs 'Non chiudiamo alle diciotto' is intercepted
     const ctrlAccepted = await service.proposeMemory(
