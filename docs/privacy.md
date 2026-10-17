@@ -16,6 +16,15 @@ Il worker locale non chiama provider remoti. Se sono configurati `OPENROUTER_API
 - necessità di disattivare il provider remoto;
 - idoneità dei dati prima dell’invio.
 
+L’analizzatore di potatura aggiunge un secondo percorso di egress, spento per default e
+per natura diverso dall’estrazione: non invia eventi di sessione, ma batch con flag
+uniforme di memorie marcate a mano dal proprietario (`local_only` mai, `anonymized` come
+riassunto volutamente lossy senza identificatori né contenuto grezzo, `public` intero).
+Nessuna inferenza del flag, mai marcature mescolate nello stesso batch. Le sue proposte
+non scrivono sulle memorie: l’esecuzione la decide la retention col veto deterministico.
+La checklist qui sopra vale a maggior ragione, perché riguarda testo già concentrato,
+non chat.
+
 Il progetto non abilita telemetria remota.
 
 ## Esportazione

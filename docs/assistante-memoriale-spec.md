@@ -712,28 +712,30 @@ La specifica sarà descritta in OpenAPI e pubblicata sotto `/v1`.
 
 ### 12.1 Operazioni principali
 
-| Endpoint                             | Funzione                        | Attore               |
-| ------------------------------------ | ------------------------------- | -------------------- |
-| `POST /v1/sessions`                  | Apre una sessione               | Harness              |
-| `POST /v1/sessions/{id}/events`      | Invia eventi incrementali       | Harness              |
-| `POST /v1/sessions/{id}/close`       | Avvia il consolidamento         | Harness              |
-| `POST /v1/proposals`                 | Propone una memoria             | Harness/owner        |
-| `POST /v1/context/resolve`           | Compone il contesto             | Harness              |
-| `GET /v1/memories`                   | Cerca e filtra                  | Harness/owner        |
-| `GET /v1/memories/{id}`              | Legge una memoria               | Harness/owner        |
-| `POST /v1/memories/{id}/corrections` | Propone una correzione          | Harness/owner        |
-| `GET /v1/proposals`                  | Elenca candidate                | Owner                |
-| `POST /v1/proposals/{id}/decision`   | Decide una review               | Owner                |
-| `POST /v1/arcs`                      | Propone un arco fra memorie     | Harness/owner        |
-| `POST /v1/project-arcs`              | Propone un arco fra progetti    | Harness/owner        |
-| `GET /v1/arcs?memoryId=`             | Elenca gli archi di una memoria | Harness/owner        |
-| `GET /v1/project-arcs?projectId=`    | Elenca gli archi di un progetto | Harness/owner        |
-| `GET /v1/admin/arcs`                 | Elenca tutti gli archi          | Owner                |
-| `POST /v1/admin/arcs/{id}/review`    | Accetta o respinge un arco      | Owner                |
-| `POST /v1/memories/{id}/retractions` | Revoca                          | Owner                |
-| `POST /v1/memories/{id}/forget`      | Dimentica                       | Owner                |
-| `POST /v1/exports`                   | Avvia export cifrato            | Owner                |
-| `GET /v1/jobs/{id}`                  | Controlla un job                | Proprietario del job |
+| Endpoint                               | Funzione                                                               | Attore               |
+| -------------------------------------- | ---------------------------------------------------------------------- | -------------------- |
+| `POST /v1/sessions`                    | Apre una sessione                                                      | Harness              |
+| `POST /v1/sessions/{id}/events`        | Invia eventi incrementali                                              | Harness              |
+| `POST /v1/sessions/{id}/close`         | Avvia il consolidamento                                                | Harness              |
+| `POST /v1/proposals`                   | Propone una memoria                                                    | Harness/owner        |
+| `POST /v1/context/resolve`             | Compone il contesto                                                    | Harness              |
+| `GET /v1/memories`                     | Cerca e filtra                                                         | Harness/owner        |
+| `GET /v1/memories/{id}`                | Legge una memoria                                                      | Harness/owner        |
+| `POST /v1/memories/{id}/corrections`   | Propone una correzione                                                 | Harness/owner        |
+| `GET /v1/proposals`                    | Elenca candidate                                                       | Owner                |
+| `POST /v1/proposals/{id}/decision`     | Decide una review                                                      | Owner                |
+| `POST /v1/arcs`                        | Propone un arco fra memorie                                            | Harness/owner        |
+| `POST /v1/project-arcs`                | Propone un arco fra progetti                                           | Harness/owner        |
+| `GET /v1/arcs?memoryId=`               | Elenca gli archi di una memoria                                        | Harness/owner        |
+| `GET /v1/project-arcs?projectId=`      | Elenca gli archi di un progetto                                        | Harness/owner        |
+| `GET /v1/admin/arcs`                   | Elenca tutti gli archi                                                 | Owner                |
+| `POST /v1/admin/arcs/{id}/review`      | Accetta o respinge un arco                                             | Owner                |
+| `POST /v1/memories/{id}/retractions`   | Revoca                                                                 | Owner                |
+| `POST /v1/memories/{id}/forget`        | Dimentica                                                              | Owner                |
+| `POST /v1/admin/projects/{id}/privacy` | Marca la privacy di un progetto                                        | Owner                |
+| `POST /v1/admin/pruning/analyze`       | Passata di analisi della potatura (senza analyzer risponde `disabled`) | Owner                |
+| `POST /v1/exports`                     | Avvia export cifrato                                                   | Owner                |
+| `GET /v1/jobs/{id}`                    | Controlla un job                                                       | Proprietario del job |
 
 ### 12.2 Idempotenza
 
@@ -1097,6 +1099,21 @@ Sono previsti almeno due profili:
 
 - `balanced`: eventi brevi, fonti minimali, memoria consolidata persistente;
 - `full-history`: maggiore conservazione di eventi e riassunti, con privacy e volume superiori.
+
+Nella stessa run della retention, il sistema esegue la **potatura semantica** (fase a
+implementata; disegno completo in `docs/potatura-semantica.md`): uno scorer deterministico
+su recency, peso degli archi incidenti e tipo valuta memorie e archi accettati; ogni
+finding diventa una proposta governata (tabelle `pruning_proposals`/`pruning_ledger`,
+escluse dall'export), decisa solo su rilettura fresca e mai innestata durante la
+scrittura. Il decay porta allo stato esistente `expired` (fuori dal contesto, ispezionabile),
+mai a una cancellazione diretta; archi deboli non gerarchici sono potati, kind esenti e
+relazioni gerarchiche mai; ogni esecuzione è registrata nel ledger. L'analizzatore LLM
+(stadio 1, spento per default) aggiunge proposte firmate con `model_version` e
+`prompt_hash`, sempre subordinate al veto del punteggio deterministico; la privacy è
+marcata manualmente dall'owner a tre stati (`local_only` default, `anonymized`,
+`public`), i batch omettono ciò che non è esplicitamente dichiarato esportabile, e le
+marcature viaggiano nell'export. L'eventuale stadio giudice (reranker + verdetti
+vincolati su llama.cpp locale) resta fase successiva.
 
 ## 18. Docker, deployment e backup
 

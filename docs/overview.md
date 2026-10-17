@@ -203,7 +203,9 @@ la lista rompe il gate).
   `forget/prepare` + `forget`, `feedback`, `GET /v1/jobs/{id}`.
 - **Admin (owner)**: overview, client-tokens (+revoke), capabilities (process-scoped:
   leggere sempre `reporter`), telemetry retrieval, embeddings health/reindex, memories,
-  projects, conflicts (+resolution), arcs, sessions, jobs, retention (+run),
+  projects (+ `POST /v1/admin/projects/{id}/privacy`: marking manuale, mai inferito),
+  conflicts (+resolution), arcs, sessions, jobs, retention (+run), `pruning/analyze`
+  (risponde `disabled` senza analyzer: spento è lo stato sicuro, non un errore),
   exports/corpus, restore/corpus.
 
 ## 6. MCP
@@ -242,6 +244,13 @@ legenda. Carica fino a 2000 memorie (20 pagine) più conflitti, archi e progetti
   comunque da `proposeMemory`: l'estrazione non auto-accetta mai.
 - **Consolidation** a chiusura sessione: fonde pending duplicate senza accettarle.
 - **Retention** schedulata ogni 24 h (vedi §10), forzabile dall'owner.
+- **Analyzer di potatura** (stadio 1, spento senza flag esplicito): batch same-flag di
+  memorie marcate manualmente (`local_only` scartato prima di ogni chiamata,
+  `anonymized` senza contenuto), proposte `llm` firmate con `model_version` +
+  `prompt_hash`, decisione nella retention col veto. Finestra notturna opzionale
+  `WORKER_ANALYZER_WINDOW` (es. `03:30-06:00` dopo il backup 02:00) e rientranza per
+  costruzione: batch id dai membri, già-analizzato mai rispedito, pending esclusi,
+  contatori `skipped` nel report. Probing: `node scripts/probe-analyzer.mjs`.
 - **Proiezione Neo4j** incrementale da outbox (batch 100, lease 30 s) con `rebuild()`
   completo: `:Project` per ogni progetto governato, `:Area` per ogni area dichiarata,
   ogni memoria legata con `IN_PROJECT`, le area-scoped anche con `IN_AREA`, le aree con
@@ -280,9 +289,23 @@ Run giornaliero + trigger owner, report `deleted.*` per categoria con cutoffs. I
 in-memory applica le stesse regole del Postgres: è così che il leak outbox restava
 invisibile ai test che non usano PostgreSQL.
 
+### Potatura semantica (nella stessa run)
+
+Lo scorer deterministico punteggia con recency + peso archi incidenti + kind (accessi deliberatamente
+fuori), su memorie e archi **accettati**; ogni finding diventa riga governata in
+`pruning_proposals` (fuori export), e la run decide solo su rilettura fresca: ciò che si è
+mosso va `stale`, il resto esegue o viene rifiutato con motivo. Il decay porta a
+`expired` (stato preesistente, mai scritto prima) dove esce dal contesto restando
+ispezionabile; gli archi deboli non gerarchici vengono cancellati; kind esenti e relazioni
+gerarchiche non sono mai auto-potabili; ogni esecuzione finisce in `pruning_ledger`.
+Lo score che propone è anche la confidence registrata. L'analizzatore LLM (quando è
+abilitato) scrive proposte `proposer='llm'` e il veto deterministico decide: vedi
+[`potatura-semantica.md`](potatura-semantica.md) per il disegno completo (due stadi,
+privacy marking, giudice encoder su llama.cpp).
+
 ## 11. Verifica
 
-- `npm run verify`: build + 206 test (1 skipped) + lint + format. Regola: build dopo
+- `npm run verify`: build + 249 test (1 skipped) + lint + format. Regola: build dopo
   ogni modifica logica, `vitest` sul singolo file toccato.
 - `npm run eval:all`: governance 9/9 (inclusi i guard cross-scope), retrieval 11/11 a
   nDCG 1.0 con giudizi rivisti (hash dataset `fe1369c0cd5e`, riportato non pinnato).
@@ -290,7 +313,8 @@ invisibile ai test che non usano PostgreSQL.
   (PostgreSQL+pgvector, Redis, Neo4j): ciclo di vita a tre memorie (una area-scoped),
   asserzioni psql sui vincoli (immutabilità, unicità area, RESTRICT, cicli gerarchici
   rifiutati e influenze consentite), grafo live (`IN_PROJECT`/`IN_AREA`/`PART_OF`),
-  export/restore con nomi preservati, reindex embedding.
+  export/restore con nomi preservati, marking privacy via endpoint owner e flag in export,
+  risposta `disabled` dell'analisi senza analyzer, reindex embedding.
 - Load test su 10.000 memorie sintetiche: governato ~212/s, bulk ~545/s, reindex 17 s;
   query discriminative ~2 ms, caso patologico full-match ~91 ms (proprietà della query,
   non dell'indice).

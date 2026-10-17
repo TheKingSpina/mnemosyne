@@ -20,27 +20,28 @@ Mnemosyne conserva memoria governata per un singolo operatore e per harness LLM 
 - API, worker e MCP applicano la stessa policy di autorizzazione.
 - I token statici del deployment restano autorità anche quando esistono token per client: la policy prova prima quelli e usa i secondi solo se i primi non risolvono.
 - Redis e Neo4j sono derivati e ricostruibili.
-- OpenRouter o altri provider ricevono solo dati necessari all’estrazione e solo quando abilitati.
+- OpenRouter o altri provider ricevono solo dati necessari all’estrazione e solo quando abilitati. L’analizzatore di potatura aggiunge un egress separato, spento per default: riceve solo batch uniformi per flag privacy di nodi marcati a mano (`public` interi, `anonymized` senza identificatori né contenuto grezzo, `local_only` mai), e le sue proposte non scrivono mai sulle memorie.
 - Il contenuto delle conversazioni è dati non fidati, mai istruzioni di sistema.
 
 ## Minacce e mitigazioni
 
-| Minaccia                                       | Mitigazione                                                                                                        |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Token harness usato per operazioni owner       | Permessi server-side e binding del profilo alla sessione MCP HTTP                                                  |
-| Sessione MCP riutilizzata con identità diverse | Confronto del profilo prima di body parsing e dispatch per POST, GET e DELETE                                      |
-| Segreti nel contenuto                          | Pattern di rilevamento, rifiuto delle proposal e divieto di provider non autorizzato                               |
-| Dimenticanza incompleta                        | Rimozione atomica della memoria, delle revisioni, dei feedback e aggiornamento dei conflitti correlati             |
-| Cache o proiezione obsolete                    | Revisione del corpus, invalidazione e ricostruzione dei dati derivati                                              |
-| Ripristino su database non vuoto               | Restore operativo in un database target separato con conferma esplicita                                            |
-| Backup alterato o non recuperabile             | Manifest, SHA-256, cifratura autenticata opzionale e restore verificato                                            |
-| Accesso remoto diretto                         | Binding locale, rete privata, TLS e token separati                                                                 |
-| Token per client divulgato                     | Nel database finisce solo l’hash SHA-256 più un prefisso; il testo in chiaro esiste una volta e non è recuperabile |
-| Client concesso che dovrebbe essere revocato   | Revoca per nome che invalida l’hash immediatamente, indipendente dai token statici e dagli altri client            |
-| Riuso di un nome client attivo                 | `409` invece di rotazione silenziosa, per non invalidare una credenziale già in uso                                |
-| Credenziale emessa ripresa in un log di replay | Le route credenziali sono escluse dal percorso idempotente, quindi il token non finisce in `idempotency_keys`      |
-| Header malformato su un endpoint anonimo       | Una credenziale presente viene sempre verificata: `401` esplicito invece di un downgrade silenzioso                |
-| Dati reali nel repository                      | `.gitignore`, `.dockerignore`, secret scan e test sintetici                                                        |
+| Minaccia                                       | Mitigazione                                                                                                                                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Token harness usato per operazioni owner       | Permessi server-side e binding del profilo alla sessione MCP HTTP                                                                                                               |
+| Sessione MCP riutilizzata con identità diverse | Confronto del profilo prima di body parsing e dispatch per POST, GET e DELETE                                                                                                   |
+| Segreti nel contenuto                          | Pattern di rilevamento, rifiuto delle proposal e divieto di provider non autorizzato                                                                                            |
+| Egress non marcato verso l’analizzatore        | Marking manuale a tre stati con override del nodo, default `local_only`, pipeline inerte senza marking esplicito, batch mai misti, id allucinati filtrati prima della scrittura |
+| Dimenticanza incompleta                        | Rimozione atomica della memoria, delle revisioni, dei feedback e aggiornamento dei conflitti correlati                                                                          |
+| Cache o proiezione obsolete                    | Revisione del corpus, invalidazione e ricostruzione dei dati derivati                                                                                                           |
+| Ripristino su database non vuoto               | Restore operativo in un database target separato con conferma esplicita                                                                                                         |
+| Backup alterato o non recuperabile             | Manifest, SHA-256, cifratura autenticata opzionale e restore verificato                                                                                                         |
+| Accesso remoto diretto                         | Binding locale, rete privata, TLS e token separati                                                                                                                              |
+| Token per client divulgato                     | Nel database finisce solo l’hash SHA-256 più un prefisso; il testo in chiaro esiste una volta e non è recuperabile                                                              |
+| Client concesso che dovrebbe essere revocato   | Revoca per nome che invalida l’hash immediatamente, indipendente dai token statici e dagli altri client                                                                         |
+| Riuso di un nome client attivo                 | `409` invece di rotazione silenziosa, per non invalidare una credenziale già in uso                                                                                             |
+| Credenziale emessa ripresa in un log di replay | Le route credenziali sono escluse dal percorso idempotente, quindi il token non finisce in `idempotency_keys`                                                                   |
+| Header malformato su un endpoint anonimo       | Una credenziale presente viene sempre verificata: `401` esplicito invece di un downgrade silenzioso                                                                             |
+| Dati reali nel repository                      | `.gitignore`, `.dockerignore`, secret scan e test sintetici                                                                                                                     |
 
 ## Limiti noti
 

@@ -25,6 +25,9 @@ The first vertical slice provides:
 - a balanced retention policy with persistent last-run status, owner trigger, and worker schedule;
 - a guarded empty-database restore path that re-applies the forget ledger;
 - a conservative session-consolidation job that merges duplicate pending sources without auto-accepting them, plus scheduled balanced retention in the worker;
+- deterministic semantic pruning inside the retention run: recency/weight/kind scoring, governed proposals kept out of export, stale checks on fresh re-reads, decay to a documented lifecycle, and a pruning ledger of every execution;
+- manual privacy marking on projects and nodes (`local_only` default, `anonymized`, `public` — never inferred) so the optional pruning analyzer only ever sees explicitly marked data, in same-flag batches;
+- a disabled-by-default pruning analyzer entry point that proposes, never executes: proposals are decided inside the retention run where the deterministic score keeps its veto, and E2E asserts the disabled answer;
 - a derived Redis cache with revision validation and lexical/semantic fallback;
 - a rebuildable Neo4j projection driven by the PostgreSQL outbox, with project and area roots, `IN_PROJECT`/`IN_AREA` membership, and accepted arcs as `LINK` edges;
 - Docker Compose development deployment;
@@ -214,6 +217,7 @@ npm run cli:dev -- memories
 npm run cli:dev -- export ./mnemosyne-corpus-export.json
 npm run cli:dev -- retention
 npm run cli:dev -- retention-run --yes
+npm run cli:dev -- project-privacy <project-id> <local_only|anonymized|public> --yes
 ```
 
 Set `MNEMOSYNE_API_URL` when the API is not at `http://127.0.0.1:3000`. The CLI
@@ -229,6 +233,28 @@ be triggered by the owner or run on the worker's `WORKER_RETENTION_INTERVAL_MS`
 schedule; the worker default is once every 24 hours. Older revision history is
 therefore intentionally available only until its retention cutoff, while the
 current revision and its source identifiers remain in the canonical export.
+
+The retention run is also where semantic pruning lives: every accepted memory
+and accepted arc is scored from existing signals (recency, incident arc weight,
+kind), each finding becomes a governed proposal, and execution happens only
+after a fresh re-read confirms nothing moved. Memories decay to `expired`
+rather than being deleted, and every execution is written to the pruning
+ledger.
+
+The pruning analyzer (stage 1) is off by default. With
+`PRUNING_ANALYZER_ENABLED=true` plus `PRUNING_ANALYZER_API_KEY` and
+`PRUNING_ANALYZER_MODEL` (env only, never the repo), the worker composes
+same-flag batches of already-approved, explicitly marked memories —
+`local_only` never leaves the perimeter — and writes proposals that the
+retention run decides under the deterministic veto. `WORKER_ANALYZER_INTERVAL_MS`
+(default weekly, 0 disables) sets the cadence and the optional
+`WORKER_ANALYZER_WINDOW=HH:MM-HH:MM` gates it to a night window in container
+local time; put it after the 02:00 backup on the Mac mini. Interrupted runs
+resume by batch identity instead of repeating, and
+`node scripts/probe-analyzer.mjs` measures the model's output quality with
+zero writes before real enabling. See
+[`docs/potatura-semantica.md`](docs/potatura-semantica.md) for the full
+design.
 
 Restore is deliberately destructive and owner-only. It accepts a canonical
 export only when the target corpus is empty, validates referential relationships,
@@ -313,6 +339,7 @@ docs/        specification and design documents
 - Secrets are rejected before persistence and are not logged by the application.
 - External content is data, not an instruction.
 - Only approved memories enter context.
+- The pruning analyzer egress is inert until an owner explicitly marks a project or node with a privacy flag: `local_only` (the default) never leaves the perimeter, `anonymized` nodes reach the model as boilerplate-free summaries without identifiers, `public` nodes go whole, and batches never mix flags.
 - The PostgreSQL store is authoritative; derived projections and caches must be rebuildable.
 - Use a private network, authentication, TLS, encrypted backups, and a test restore for any non-development deployment.
 
