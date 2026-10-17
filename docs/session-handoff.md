@@ -83,9 +83,16 @@ import orfano che rompeva il lint; enum scope nei dataset di eval dopo il ritiro
 
 - **Tu**: marcature reali PUBLIC/ANONYMIZED (atto tuo, non codice); eventuale chiave BYOK
   se mai servirà il remoto; merge verso `main` (tocca il mini, decisione tua).
-- **Codice**: giudice (reranker + verdetti vincolati + fusione esplicita), schedule
-  notturno con finestra e rientranza, probing ~30 coppie, download GGUF + Ollama/llama-server
-  operativo sul mini, pruning di job/idempotency terminali (unica crescita illimitata rimasta).
+- **Codice**: giudice (reranker `/v1/rerank` + verdetti con JSON-schema forzato su
+  llama-server + fusione esplicita coi punteggi deterministici), download GGUF (Gemma 3 4B
+  - reranker) e `llama-server` operativo sul mini, probing reale (~30 coppie usate dal
+    golden set, ora che l'harness `scripts/probe-analyzer.mjs` esiste), pruning di
+    job/idempotency terminali (unica crescita illimitata rimasta).
+- **Fatto dopo l'handoff iniziale** (`ad583f1`): finestra notturna
+  `WORKER_ANALYZER_WINDOW` nel worker (default spento; apertura parcheggiata sull'apertura
+  della finestra), rientranza per costruzione (batch id da membri, skip dei batch già
+  analizzati anche dopo decisione, memorie pending escluse, contatori `skipped` nel
+  report), probing harness del proponente. Verificato: unit 249, E2E OK, eval invariato.
 - **Debito noto minore**: layer progetti solo per progetti con archi; E2E con immagini
   orfane (~350 MB reali + 2,3 GB build cache recuperabili con prune).
 
