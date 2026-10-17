@@ -721,6 +721,13 @@ export const balancedRetentionPolicy = {
   // Processed outbox rows are derived projection feed, not corpus content, so
   // they need a much shorter window than anything the owner can see.
   processedOutboxEventDays: 3,
+  // Jobs in a terminal state (completed, failed, cancelled) and their attempts
+  // grow without bound: the worker never cleans them up. 30 days gives enough
+  // history for manual inspection while preventing unbounded accumulation.
+  terminalJobDays: 30,
+  // Idempotency keys exist only for in-flight deduplication. A key older than
+  // this window cannot belong to an active request, so it is safe to remove.
+  expiredIdempotencyKeyDays: 30,
 } as const;
 
 // Deterministic pruning coefficients. Data, not code: tuning decay is an edit
@@ -765,6 +772,8 @@ export const retentionStatusOutputSchema = z.object({
     supersededRevisionDays: z.number().int().positive(),
     retractedMemoryDays: z.number().int().positive(),
     processedOutboxEventDays: z.number().int().positive(),
+    terminalJobDays: z.number().int().positive(),
+    expiredIdempotencyKeyDays: z.number().int().positive(),
   }),
   lastRunAt: z.string().datetime({ offset: true }).optional(),
 });
@@ -780,6 +789,8 @@ export const retentionRunOutputSchema = z.object({
     rejectedCandidates: z.string().datetime({ offset: true }),
     supersededRevisions: z.string().datetime({ offset: true }),
     retractedMemories: z.string().datetime({ offset: true }),
+    terminalJobs: z.string().datetime({ offset: true }),
+    expiredIdempotencyKeys: z.string().datetime({ offset: true }),
   }),
   deleted: z.object({
     closedSessionEvents: z.number().int().nonnegative(),
@@ -791,6 +802,10 @@ export const retentionRunOutputSchema = z.object({
     // The outbox is a derived projection feed, so pruning it does not change the
     // corpus and must not count towards the corpus revision bump.
     processedOutboxEvents: z.number().int().nonnegative(),
+    // Terminal jobs and expired idempotency keys are operational bookkeeping,
+    // not corpus content: pruning them must not bump the corpus revision.
+    terminalJobs: z.number().int().nonnegative(),
+    expiredIdempotencyKeys: z.number().int().nonnegative(),
   }),
   // Deterministic pruning rides the same run on the same schedule. Its counts
   // live beside deleted rather than inside it, because expiring a memory is a

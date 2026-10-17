@@ -2108,4 +2108,47 @@ describe('pruning analysis entry point', () => {
     expect(decided.filter((p) => p.status === 'rejected')).toHaveLength(2);
     expect(await repository.listPruningLedger()).toHaveLength(0);
   });
+
+  it('prunes terminal jobs older than the retention cutoff while preserving active jobs', async () => {
+    let now = new Date('2026-01-01T00:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      now: () => now,
+    });
+
+    const oldFinished = await repository.createJob({
+      operation: 'memory_extraction',
+      status: 'succeeded',
+      sessionId: 's-1',
+    });
+    const oldFailed = await repository.createJob({
+      operation: 'memory_extraction',
+      status: 'failed',
+      sessionId: 's-1',
+    });
+    const oldQueued = await repository.createJob({
+      operation: 'memory_extraction',
+      status: 'queued',
+      sessionId: 's-1',
+    });
+
+    // Advance 31 days past the 30-day cutoff
+    now = new Date('2026-02-02T00:00:00.000Z');
+    const recentFinished = await repository.createJob({
+      operation: 'memory_extraction',
+      status: 'succeeded',
+      sessionId: 's-2',
+    });
+
+    const result = await service.runRetention();
+
+    expect(result.deleted.terminalJobs).toBe(2);
+    const remainingJobs = await repository.listAllJobs();
+    const remainingIds = remainingJobs.map((j) => j.id);
+    expect(remainingIds).toContain(oldQueued.id);
+    expect(remainingIds).toContain(recentFinished.id);
+    expect(remainingIds).not.toContain(oldFinished.id);
+    expect(remainingIds).not.toContain(oldFailed.id);
+  });
 });

@@ -503,6 +503,8 @@ export interface BalancedRetentionCutoffs {
   supersededRevisions: string;
   retractedMemories: string;
   processedOutboxEvents: string;
+  terminalJobs: string;
+  expiredIdempotencyKeys: string;
 }
 
 export interface RetentionRunCounts {
@@ -513,6 +515,8 @@ export interface RetentionRunCounts {
   retractedMemories: number;
   conflicts: number;
   processedOutboxEvents: number;
+  terminalJobs: number;
+  expiredIdempotencyKeys: number;
 }
 
 export interface RetentionState {

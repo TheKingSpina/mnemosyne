@@ -1332,6 +1332,20 @@ export class PostgresMemoryRepository implements MemoryRepository {
          WHERE processed_at IS NOT NULL AND processed_at < $1::timestamptz`,
         [cutoffs.processedOutboxEvents],
       );
+      // Terminal jobs and their attempts grow without bound: cascading FK
+      // cleans up job_attempts automatically.
+      const terminalJobs = await client.query(
+        `DELETE FROM jobs
+         WHERE status IN ('succeeded', 'failed', 'quarantined', 'cancelled')
+           AND updated_at < $1::timestamptz`,
+        [cutoffs.terminalJobs],
+      );
+      // Expired idempotency keys can no longer belong to an in-flight request.
+      const idempotency = await client.query(
+        `DELETE FROM idempotency_keys
+         WHERE created_at < $1::timestamptz`,
+        [cutoffs.expiredIdempotencyKeys],
+      );
       const deleted = {
         closedSessionEvents: events.rowCount ?? 0,
         pendingCandidates: pending.rowCount ?? 0,
@@ -1340,9 +1354,12 @@ export class PostgresMemoryRepository implements MemoryRepository {
         retractedMemories: retracted.rowCount ?? 0,
         conflicts: conflicts.rowCount ?? 0,
         processedOutboxEvents: outbox.rowCount ?? 0,
+        terminalJobs: terminalJobs.rowCount ?? 0,
+        expiredIdempotencyKeys: idempotency.rowCount ?? 0,
       };
-      // Outbox pruning is deliberately excluded: it removes derived rows, not
-      // corpus content, so it must not invalidate every cached search.
+      // Outbox, terminal jobs and idempotency pruning are deliberately excluded:
+      // they remove operational and projection rows, not corpus content, so
+      // they must not invalidate every cached search.
       const corpusDeletions =
         deleted.closedSessionEvents +
         deleted.pendingCandidates +

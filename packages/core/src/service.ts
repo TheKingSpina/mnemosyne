@@ -1021,6 +1021,8 @@ export class CoreMemoryService implements MemoryService {
         supersededRevisionDays: balancedRetentionPolicy.supersededRevisionDays,
         retractedMemoryDays: balancedRetentionPolicy.retractedMemoryDays,
         processedOutboxEventDays: balancedRetentionPolicy.processedOutboxEventDays,
+        terminalJobDays: balancedRetentionPolicy.terminalJobDays,
+        expiredIdempotencyKeyDays: balancedRetentionPolicy.expiredIdempotencyKeyDays,
       },
       lastRunAt: state.lastRunAt,
     };
@@ -1037,6 +1039,8 @@ export class CoreMemoryService implements MemoryService {
       supersededRevisions: days(balancedRetentionPolicy.supersededRevisionDays),
       retractedMemories: days(balancedRetentionPolicy.retractedMemoryDays),
       processedOutboxEvents: days(balancedRetentionPolicy.processedOutboxEventDays),
+      terminalJobs: days(balancedRetentionPolicy.terminalJobDays),
+      expiredIdempotencyKeys: days(balancedRetentionPolicy.expiredIdempotencyKeyDays),
     };
     const deleted = await this.repository.runBalancedRetention(cutoffs);
     const pruning = await this.runDeterministicPruning(startedAt);

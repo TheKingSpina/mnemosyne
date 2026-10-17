@@ -728,6 +728,16 @@ export class InMemoryRepository implements MemoryRepository {
         supersededRevisions += 1;
       }
     }
+    const terminalJobs = [...this.jobs.values()].filter(
+      (job) =>
+        ['succeeded', 'failed', 'quarantined', 'cancelled'].includes(job.status) &&
+        job.updatedAt < cutoffs.terminalJobs,
+    );
+    for (const job of terminalJobs) {
+      this.jobs.delete(job.id);
+      this.jobAttempts.delete(job.id);
+    }
+
     if (closedEvents.length + expiredMemoryIds.length + supersededRevisions > 0) {
       this.corpusRevision += 1n;
     }
@@ -743,6 +753,10 @@ export class InMemoryRepository implements MemoryRepository {
       // prune. The PostgreSQL backend keeps them and prunes on this window,
       // which is why the leak was invisible to every in-memory test.
       processedOutboxEvents: 0,
+      terminalJobs: terminalJobs.length,
+      // The in-memory idempotency store is an ephemeral Map that does not
+      // persist across runs or record timestamps.
+      expiredIdempotencyKeys: 0,
     };
   }
 

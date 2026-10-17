@@ -86,13 +86,16 @@ import orfano che rompeva il lint; enum scope nei dataset di eval dopo il ritiro
 - **Codice**: giudice (reranker `/v1/rerank` + verdetti con JSON-schema forzato su
   llama-server + fusione esplicita coi punteggi deterministici), download GGUF (Gemma 3 4B
   - reranker) e `llama-server` operativo sul mini, probing reale (~30 coppie usate dal
-    golden set, ora che l'harness `scripts/probe-analyzer.mjs` esiste), pruning di
-    job/idempotency terminali (unica crescita illimitata rimasta).
+    golden set, ora che l'harness `scripts/probe-analyzer.mjs` esiste).
 - **Fatto dopo l'handoff iniziale** (`ad583f1`): finestra notturna
   `WORKER_ANALYZER_WINDOW` nel worker (default spento; apertura parcheggiata sull'apertura
   della finestra), rientranza per costruzione (batch id da membri, skip dei batch già
   analizzati anche dopo decisione, memorie pending escluse, contatori `skipped` nel
   report), probing harness del proponente. Verificato: unit 249, E2E OK, eval invariato.
+- **Fatto in data odierna**: potatura automatica dei job terminali (`succeeded`, `failed`,
+  `quarantined`, `cancelled` e cascata su `job_attempts`) e delle chiavi di idempotenza scadute
+  (finestra 30g, senza bump di revisione corpus); OpenAPI e test allineati. Verificato: unit 252,
+  E2E sintetico OK, eval invariato.
 - **Debito noto minore**: layer progetti solo per progetti con archi; E2E con immagini
   orfane (~350 MB reali + 2,3 GB build cache recuperabili con prune).
 
@@ -117,4 +120,3 @@ owner-only, che restano non registrati per design. Antigravity supporta nativame
 interpolazione d'ambiente** (solo valori letterali): ecco perché la scelta è HTTP anonimo
 solo-loopback e non un header col token. Il token owner da `~/.mnemosyne/local-owner.token`
 resta fuori dalla configurazione: l'agent via MCP non arriva mai ai tool owner.
-

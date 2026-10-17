@@ -273,17 +273,17 @@ Backup PostgreSQL cifrato con restore verificato e retention, sui dischi del min
 
 ## 10. Potatura (balanced retention)
 
-| Cosa                              | Finestra    | Note                                                                                                  |
-| --------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------- |
-| Eventi di sessioni chiuse         | 30 g        |                                                                                                       |
-| Candidate pending mai revisionate | 30 g        |                                                                                                       |
-| Candidate rejected                | 7 g         |                                                                                                       |
-| Revisioni superseded              | 90 g        |                                                                                                       |
-| Memorie retracted                 | 30 g        |                                                                                                       |
-| Outbox `processed`                | 3 g         | Senza bump di revisione: è feed derivato, invalidare la cache per righe invisibili sarebbe puro costo |
-| Tombstone forget ledger           | mai         | Per design                                                                                            |
-| Job terminali, chiavi idempotency | —           | **Non potati: unica crescita illimitata rimasta**                                                     |
-| Cache Redis                       | TTL proprio | Si auto-guarisce                                                                                      |
+| Cosa                              | Finestra    | Note                                                                                                    |
+| --------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
+| Eventi di sessioni chiuse         | 30 g        |                                                                                                         |
+| Candidate pending mai revisionate | 30 g        |                                                                                                         |
+| Candidate rejected                | 7 g         |                                                                                                         |
+| Revisioni superseded              | 90 g        |                                                                                                         |
+| Memorie retracted                 | 30 g        |                                                                                                         |
+| Outbox `processed`                | 3 g         | Senza bump di revisione: è feed derivato, invalidare la cache per righe invisibili sarebbe puro costo   |
+| Job terminali                     | 30 g        | Senza bump di revisione: pulizia operativa automatica di `succeeded`/`failed`/`quarantined`/`cancelled` |
+| Chiavi idempotency                | 30 g        | Senza bump di revisione: pulizia delle chiavi oltre la finestra di in-flight                            |
+| Cache Redis                       | TTL proprio | Si auto-guarisce                                                                                        |
 
 Run giornaliero + trigger owner, report `deleted.*` per categoria con cutoffs. Il backend
 in-memory applica le stesse regole del Postgres: è così che il leak outbox restava

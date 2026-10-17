@@ -564,6 +564,8 @@ describe('Mnemosyne API authorization', () => {
       supersededRevisionDays: 90,
       retractedMemoryDays: 30,
       processedOutboxEventDays: 3,
+      terminalJobDays: 30,
+      expiredIdempotencyKeyDays: 30,
     });
     expect(ownerRun.status).toBe(200);
     expect(run.profile).toBe('balanced');
@@ -575,6 +577,8 @@ describe('Mnemosyne API authorization', () => {
       retractedMemories: 0,
       conflicts: 0,
       processedOutboxEvents: 0,
+      terminalJobs: 0,
+      expiredIdempotencyKeys: 0,
     });
     expect(replay.status).toBe(200);
     expect(replayedRun).toEqual(run);

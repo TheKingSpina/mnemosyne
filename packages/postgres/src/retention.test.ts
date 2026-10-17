@@ -8,6 +8,8 @@ const cutoffs = {
   supersededRevisions: '2026-09-01T00:00:00.000Z',
   retractedMemories: '2026-09-01T00:00:00.000Z',
   processedOutboxEvents: '2026-09-20T00:00:00.000Z',
+  terminalJobs: '2026-09-01T00:00:00.000Z',
+  expiredIdempotencyKeys: '2026-09-01T00:00:00.000Z',
 };
 
 /**
@@ -15,7 +17,14 @@ const cutoffs = {
  * interleaves BEGIN/COMMIT, a forget-ledger lookup and bumpCorpus reads, so a
  * positional fake silently returns the wrong row for the wrong statement.
  */
-function fakeDatabase(overrides: { outboxRows?: unknown[]; eventRows?: unknown[] } = {}) {
+function fakeDatabase(
+  overrides: {
+    outboxRows?: unknown[];
+    eventRows?: unknown[];
+    jobRows?: unknown[];
+    idempotencyRows?: unknown[];
+  } = {},
+) {
   const calls: Array<{ text: string; values?: unknown[] }> = [];
   const query = async (text: string, values?: unknown[]) => {
     calls.push({ text, values });
@@ -23,9 +32,13 @@ function fakeDatabase(overrides: { outboxRows?: unknown[]; eventRows?: unknown[]
       ? (overrides.outboxRows ?? [])
       : text.includes('DELETE FROM events')
         ? (overrides.eventRows ?? [])
-        : text.includes('UPDATE corpus_state')
-          ? [{ id: 'corpus', epoch: 'epoch-1', revision: 7n }]
-          : [];
+        : text.includes('DELETE FROM jobs')
+          ? (overrides.jobRows ?? [])
+          : text.includes('DELETE FROM idempotency_keys')
+            ? (overrides.idempotencyRows ?? [])
+            : text.includes('UPDATE corpus_state')
+              ? [{ id: 'corpus', epoch: 'epoch-1', revision: 7n }]
+              : [];
     return { rows, rowCount: rows.length };
   };
   return {
@@ -80,5 +93,30 @@ describe('PostgresMemoryRepository retention prunes the outbox', () => {
     await repository.runBalancedRetention(cutoffs);
 
     expect(bumpedCorpus(calls)).toBe(true);
+  });
+
+  it('deletes terminal jobs older than the cutoff and counts them without bumping revision', async () => {
+    const { calls, database } = fakeDatabase({ jobRows: [{ id: 'job-1' }, { id: 'job-2' }] });
+    const repository = new PostgresMemoryRepository(database as never);
+
+    const counts = await repository.runBalancedRetention(cutoffs);
+
+    const prune = sqlFor(calls, 'DELETE FROM jobs');
+    expect(prune).toContain("status IN ('succeeded', 'failed', 'quarantined', 'cancelled')");
+    expect(prune).toContain('updated_at < $1::timestamptz');
+    expect(counts.terminalJobs).toBe(2);
+    expect(bumpedCorpus(calls)).toBe(false);
+  });
+
+  it('deletes expired idempotency keys older than the cutoff and counts them without bumping revision', async () => {
+    const { calls, database } = fakeDatabase({ idempotencyRows: [{ key: 'k1' }] });
+    const repository = new PostgresMemoryRepository(database as never);
+
+    const counts = await repository.runBalancedRetention(cutoffs);
+
+    const prune = sqlFor(calls, 'DELETE FROM idempotency_keys');
+    expect(prune).toContain('created_at < $1::timestamptz');
+    expect(counts.expiredIdempotencyKeys).toBe(1);
+    expect(bumpedCorpus(calls)).toBe(false);
   });
 });
