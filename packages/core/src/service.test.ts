@@ -2151,4 +2151,93 @@ describe('pruning analysis entry point', () => {
     expect(remainingIds).not.toContain(oldFinished.id);
     expect(remainingIds).not.toContain(oldFailed.id);
   });
+
+  it('uses the calibrated judge and score fusion to decide redundancy and merge proposals', async () => {
+    let now = new Date('2026-01-01T00:00:00.000Z');
+    const repository = new InMemoryRepository(() => now);
+    const service = new CoreMemoryService(repository, {
+      forgetSecret: secret,
+      now: () => now,
+      pruningJudge: {
+        rerankModel: 'qwen3-reranker-0.6b',
+        instructModel: 'gemma-3-4b',
+        rerank: async () => [0.94],
+        verdict: async (input) => ({
+          verdict: {
+            verdict: 'accept',
+            citedIds: input.items.map((item) => item.memoryId),
+            confidence: 0.92,
+            reason: 'contenuti ridondanti',
+          },
+          promptHash: 'f'.repeat(64),
+        }),
+      },
+    });
+    const session = await service.openSession({ projectId: 'judge-p1' });
+    const scope = { type: 'project', id: 'judge-p1' } as const;
+    const makeMemory = async (content: string, kind: 'preference' | 'episode') => {
+      const result = await service.proposeMemory(
+        {
+          sessionId: session.sessionId,
+          content,
+          kind,
+          scope,
+          epistemicBasis: 'verified',
+          assessment: 'uncontested',
+          confidence: 1,
+          sensitivity: 'normal',
+          activation: 'on_demand',
+          sourceEventIds: [],
+        },
+        { actor: 'owner', explicitDirective: true },
+      );
+      if (result.status !== 'accepted' || !result.memoryId) throw new Error('not_accepted');
+      return result.memoryId;
+    };
+
+    const olderEpisode = await makeMemory('Episodio vecchio duplicato', 'episode');
+    const newerPreference = await makeMemory('Preferenza stabile di riferimento', 'preference');
+    const secondEpisode = await makeMemory('Secondo episodio da fondere', 'episode');
+
+    // Age 240 days so episodes have low deterministic score (~0.425) while
+    // remaining above the 0.25 decay-only threshold, so only fusion with the
+    // calibrated judge can expire them.
+    now = new Date('2026-08-29T00:00:00.000Z');
+
+    await repository.createPruningProposal({
+      batchId: 'batch-judge-1',
+      proposer: 'llm',
+      proposalType: 'redundancy',
+      sourceIds: [newerPreference, olderEpisode],
+      sourceVersions: { [newerPreference]: 1, [olderEpisode]: 1 },
+      rationale: 'ridondanza rilevata dal modello',
+      confidence: 0.9,
+      scoreSnapshot: {},
+      modelVersion: 'gemma-3-4b',
+      promptHash: 'a'.repeat(64),
+    });
+
+    await repository.createPruningProposal({
+      batchId: 'batch-judge-2',
+      proposer: 'llm',
+      proposalType: 'merge',
+      sourceIds: [newerPreference, secondEpisode],
+      sourceVersions: { [newerPreference]: 1, [secondEpisode]: 1 },
+      rationale: 'fusione proposta dal modello',
+      confidence: 0.9,
+      scoreSnapshot: {},
+      modelVersion: 'gemma-3-4b',
+      promptHash: 'b'.repeat(64),
+    });
+
+    const run = await service.runRetention();
+
+    expect(run.pruning.memoriesExpired).toBe(2);
+    expect((await repository.getMemory(olderEpisode))?.record.lifecycle).toBe('expired');
+    expect((await repository.getMemory(secondEpisode))?.record.lifecycle).toBe('expired');
+    expect((await repository.getMemory(newerPreference))?.record.lifecycle).toBe('accepted');
+    const decided = await repository.listPruningProposals();
+    expect(decided.filter((p) => p.status === 'accepted')).toHaveLength(2);
+    expect(await repository.listPruningLedger()).toHaveLength(2);
+  });
 });

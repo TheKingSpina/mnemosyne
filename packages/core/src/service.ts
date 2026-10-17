@@ -82,6 +82,7 @@ import { containsSecret, decideProposal } from './policy.js';
 import { composeAnalyzerBatches } from './privacy-batch.js';
 import { findStaleSource, isPruningExempt, scoreMemoryForPruning } from './pruning-score.js';
 import type { PruningAnalyzer } from './pruning-analyzer.js';
+import { fusePruningScores, type PruningJudge } from './pruning-judge.js';
 import { estimateMemoryTokens } from './token-estimator.js';
 import {
   analyzeQuery,
@@ -117,6 +118,7 @@ export interface CoreMemoryServiceOptions {
   runtimeCapabilityTtlSeconds?: number;
   reporter?: string;
   telemetry?: RetrievalTelemetryCollector;
+  pruningJudge?: PruningJudge;
 }
 
 // Content-derived batch identity: the same members in the same order always
@@ -1480,15 +1482,18 @@ export class CoreMemoryService implements MemoryService {
     }
   }
 
-  // The deterministic veto, one proposal type at a time. Returns null where no
-  // deterministic rule can judge: rejection with reason, never a guess.
-  // Redundancy and merge wait for the calibrated judge; contradiction executes
-  // only when the exact detector confirms, anything softer is not ours to call.
+  // The deterministic veto plus optional calibrated judge on llama.cpp.
+  // Returns null where neither deterministic rules nor the calibrated judge
+  // confirm: rejection with reason, never a guess. Contradiction executes
+  // only when the exact detector confirms; redundancy uses /v1/rerank and
+  // merge uses the forced JSON-schema verdict, both fused explicitly with the
+  // deterministic score (in parity, deterministic always wins).
   private async judgeLlmProposal(
     proposal: {
       id: string;
       proposalType: PruningProposalType;
       sourceIds: string[];
+      rationale?: string;
     },
     views: Map<string, MemoryWithCurrent>,
     arcsById: Map<
@@ -1574,6 +1579,122 @@ export class CoreMemoryService implements MemoryService {
         subjectId: first.record.id,
         execute: async () => {
           await this.repository.createConflict(ids);
+        },
+      };
+    }
+    if (
+      proposal.proposalType === 'redundancy' &&
+      proposal.sourceIds.length === 2 &&
+      this.options.pruningJudge
+    ) {
+      const first = views.get(proposal.sourceIds[0]);
+      const second = views.get(proposal.sourceIds[1]);
+      if (
+        !first ||
+        !second ||
+        first.record.lifecycle !== 'accepted' ||
+        second.record.lifecycle !== 'accepted'
+      ) {
+        return null;
+      }
+      const firstScored = scoreMemoryForPruning({
+        updatedAt: first.record.updatedAt,
+        kind: first.current.kind,
+        arcWeights: incidentWeights.get(first.record.id) ?? [],
+        now,
+      });
+      const secondScored = scoreMemoryForPruning({
+        updatedAt: second.record.updatedAt,
+        kind: second.current.kind,
+        arcWeights: incidentWeights.get(second.record.id) ?? [],
+        now,
+      });
+      const [anchor, candidate, candidateScore] =
+        firstScored.score >= secondScored.score
+          ? [first, second, secondScored.score]
+          : [second, first, firstScored.score];
+      if (isPruningExempt(candidate.current.kind)) return null;
+      let rerankScore: number | undefined;
+      try {
+        [rerankScore] = await this.options.pruningJudge.rerank(anchor.current.content, [
+          candidate.current.content,
+        ]);
+      } catch {
+        return null;
+      }
+      if (rerankScore === undefined || rerankScore < pruningPolicy.redundancyRerankThreshold) {
+        return null;
+      }
+      const fused = fusePruningScores({
+        deterministicScore: candidateScore,
+        calibratedScore: rerankScore,
+        calibratedVerdict: 'accept',
+      });
+      if (fused.decision !== 'accept') return null;
+      const targetId = candidate.record.id;
+      return {
+        reason: `rerank ${rerankScore.toFixed(3)} + fusion ${fused.fusedScore.toFixed(3)} (${fused.winner}) agrees`,
+        subjectType: 'memory',
+        subjectId: targetId,
+        score: fused.fusedScore,
+        execute: async () => {
+          await this.repository.updateMemoryLifecycle(targetId, 'expired');
+        },
+      };
+    }
+    if (
+      proposal.proposalType === 'merge' &&
+      proposal.sourceIds.length >= 2 &&
+      this.options.pruningJudge
+    ) {
+      const sourceMemories: MemoryWithCurrent[] = [];
+      for (const id of proposal.sourceIds) {
+        const memory = views.get(id);
+        if (!memory || memory.record.lifecycle !== 'accepted') return null;
+        sourceMemories.push(memory);
+      }
+      const scoredCandidates = sourceMemories
+        .filter((memory) => !isPruningExempt(memory.current.kind))
+        .map((memory) => ({
+          memory,
+          scored: scoreMemoryForPruning({
+            updatedAt: memory.record.updatedAt,
+            kind: memory.current.kind,
+            arcWeights: incidentWeights.get(memory.record.id) ?? [],
+            now,
+          }),
+        }))
+        .sort((left, right) => left.scored.score - right.scored.score);
+      const weakest = scoredCandidates[0];
+      if (!weakest) return null;
+      let judged: Awaited<ReturnType<PruningJudge['verdict']>>;
+      try {
+        judged = await this.options.pruningJudge.verdict({
+          proposalType: 'merge',
+          items: sourceMemories.map((memory) => ({
+            memoryId: memory.record.id,
+            kind: memory.current.kind,
+            content: memory.current.content,
+          })),
+          rationale: proposal.rationale,
+        });
+      } catch {
+        return null;
+      }
+      const fused = fusePruningScores({
+        deterministicScore: weakest.scored.score,
+        calibratedScore: judged.verdict.confidence,
+        calibratedVerdict: judged.verdict.verdict,
+      });
+      if (fused.decision !== 'accept') return null;
+      const targetId = weakest.memory.record.id;
+      return {
+        reason: `judge verdict (${judged.verdict.confidence.toFixed(2)}, ${fused.winner}): ${judged.verdict.reason}`,
+        subjectType: 'memory',
+        subjectId: targetId,
+        score: fused.fusedScore,
+        execute: async () => {
+          await this.repository.updateMemoryLifecycle(targetId, 'expired');
         },
       };
     }

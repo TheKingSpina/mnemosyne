@@ -281,6 +281,7 @@ Backup PostgreSQL cifrato con restore verificato e retention, sui dischi del min
 | Revisioni superseded              | 90 g        |                                                                                                         |
 | Memorie retracted                 | 30 g        |                                                                                                         |
 | Outbox `processed`                | 3 g         | Senza bump di revisione: è feed derivato, invalidare la cache per righe invisibili sarebbe puro costo   |
+| Tombstone forget ledger           | mai         | Per design                                                                                              |
 | Job terminali                     | 30 g        | Senza bump di revisione: pulizia operativa automatica di `succeeded`/`failed`/`quarantined`/`cancelled` |
 | Chiavi idempotency                | 30 g        | Senza bump di revisione: pulizia delle chiavi oltre la finestra di in-flight                            |
 | Cache Redis                       | TTL proprio | Si auto-guarisce                                                                                        |

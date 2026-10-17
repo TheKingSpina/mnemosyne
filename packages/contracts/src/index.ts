@@ -404,6 +404,25 @@ export const analyzerResultSchema = z.object({
 });
 export type AnalyzerResult = z.infer<typeof analyzerResultSchema>;
 
+export const rerankResultItemSchema = z.object({
+  index: z.number().int().nonnegative(),
+  relevance_score: z.number().min(0).max(1),
+});
+export type RerankResultItem = z.infer<typeof rerankResultItemSchema>;
+
+export const rerankResponseSchema = z.object({
+  results: z.array(rerankResultItemSchema),
+});
+export type RerankResponse = z.infer<typeof rerankResponseSchema>;
+
+export const judgeVerdictSchema = z.object({
+  verdict: z.enum(['accept', 'reject']),
+  citedIds: z.array(z.string().min(1)).min(1),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().min(1).max(500),
+});
+export type JudgeVerdict = z.infer<typeof judgeVerdictSchema>;
+
 export const pruningAnalysisOutputSchema = z.object({
   status: z.enum(['ran', 'disabled']),
   batches: z.number().int().nonnegative(),
@@ -746,6 +765,15 @@ export const pruningPolicy = {
   edgeWeightThreshold: 0.2,
   // Analyzer batches never mix privacy flags; this caps each batch.
   analyzerMaxBatchSize: 20,
+  // Calibrated judge (phase b on llama.cpp): minimum /v1/rerank relevance score
+  // and embedding cosine similarity for redundancy, minimum confidence for
+  // constrained JSON-schema verdicts, and explicit fusion weights with
+  // deterministic tie-breaking.
+  redundancyRerankThreshold: 0.85,
+  redundancyCosineThreshold: 0.9,
+  verdictConfidenceThreshold: 0.75,
+  fusionWeights: { deterministic: 0.5, calibrated: 0.5 },
+  fusionAcceptThreshold: 0.6,
   // Never expire, whatever the score: identity-grade content.
   neverExpireKinds: ['fact', 'decision'],
   kindFactors: {

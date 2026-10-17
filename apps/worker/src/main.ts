@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { extractionProviderNameSchema, type ExtractionProviderName } from '@mnemosyne/contracts';
-import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
+import { CoreMemoryService, ExtractionWorker, LlamaCppPruningJudge } from '@mnemosyne/core';
 import { isInAnalyzerWindow, nextAnalyzerDueAt, parseAnalyzerWindow } from './schedule-window.js';
 import { PostgresMemoryRepository, WORKER_CAPABILITY_COMPONENT } from '@mnemosyne/postgres';
 import { RemotePruningAnalyzer } from '@mnemosyne/core';
@@ -23,8 +23,29 @@ const maxAttempts = integerOption(process.env.WORKER_MAX_ATTEMPTS ?? '3', 1);
 const backoffMs = integerOption(process.env.WORKER_BACKOFF_MS ?? '1000', 0);
 const shutdownTimeoutMs = integerOption(process.env.WORKER_SHUTDOWN_TIMEOUT_MS ?? '30000', 1000);
 const workerId = process.env.WORKER_ID || `${hostname()}:${process.pid}:${randomUUID()}`;
+const pruningJudgeEnabled = process.env.PRUNING_JUDGE_ENABLED === 'true';
+const pruningJudge =
+  pruningJudgeEnabled &&
+  process.env.PRUNING_JUDGE_RERANK_MODEL &&
+  process.env.PRUNING_JUDGE_INSTRUCT_MODEL
+    ? new LlamaCppPruningJudge({
+        rerankModel: process.env.PRUNING_JUDGE_RERANK_MODEL,
+        instructModel: process.env.PRUNING_JUDGE_INSTRUCT_MODEL,
+        baseUrl: process.env.PRUNING_JUDGE_BASE_URL,
+        apiKey: process.env.PRUNING_JUDGE_API_KEY,
+      })
+    : undefined;
+if (pruningJudgeEnabled && !pruningJudge) {
+  throw new Error(
+    'PRUNING_JUDGE_RERANK_MODEL and PRUNING_JUDGE_INSTRUCT_MODEL are required when PRUNING_JUDGE_ENABLED=true',
+  );
+}
 const repository = await PostgresMemoryRepository.fromConnectionString(connectionString);
-const service = new CoreMemoryService(repository, { forgetSecret, reporter: 'worker' });
+const service = new CoreMemoryService(repository, {
+  forgetSecret,
+  reporter: 'worker',
+  ...(pruningJudge === undefined ? {} : { pruningJudge }),
+});
 const extractor = createExtractor();
 const extractionProviderName = resolveExtractionProviderName();
 const retentionIntervalMs = integerOption(
