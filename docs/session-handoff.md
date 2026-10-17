@@ -102,3 +102,19 @@ Build dopo ogni modifica logica, `vitest` sul singolo file, mai funzioni senza c
 DDL su PostgreSQL scratch usa-e-getta, E2E per qualunque Cypher, script di patch in
 `/tmp` (l'`edit` su alcuni file è inaffidabile), mai stampare/committare segreti o `.env`,
 mai `down -v` sui volumi dati. Commit piccoli con messaggi che spiegano il perché.
+
+## 8. Integrazione Antigravity (17 ottobre 2026)
+
+`.agents/mcp_config.json` nel repo collega l'IDE all'MCP di sviluppo su
+`http://127.0.0.1:3333/mcp`, senza segreti nel file. Il `.env` del laptop ora gira
+`MCP_TRANSPORT=http` (era `stdio`) e `MCP_HOST=0.0.0.0` nel container (il mapping di
+Compose resta `127.0.0.1:3333`: è quello il perimetro), con
+`MNEMOSYNE_MCP_REQUIRE_TOKEN=false` e anonymous profile `harness` — due righe aggiunte in
+coda, preesistenti mai toccate, `chmod 600` preservato. Verificato live: initialize
+anonimo 200 con session id, `tools/list` in nucleo harness (8 tool) senza i tool
+owner-only, che restano non registrati per design. Antigravity supporta nativamente
+`AGENTS.md` a livello di workspace; nei suoi file di config **non esiste
+interpolazione d'ambiente** (solo valori letterali): ecco perché la scelta è HTTP anonimo
+solo-loopback e non un header col token. Il token owner da `~/.mnemosyne/local-owner.token`
+resta fuori dalla configurazione: l'agent via MCP non arriva mai ai tool owner.
+
