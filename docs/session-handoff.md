@@ -79,11 +79,12 @@ Cypher aree; conteggio archi incidenti mai incrementato; doppio orologio nei tes
 assert E2E su `GET` di memoria expired (404 per design: solo `accepted` si legge);
 import orfano che rompeva il lint; enum scope nei dataset di eval dopo il ritiro global.
 
-## 6. Aperto (con proprietario)
+## 6. Aperto e Decisioni Definitive
 
-- **Tu**: marcature reali PUBLIC/ANONYMIZED (atto tuo, non codice); eventuale chiave BYOK
-  se mai servirà il remoto; download effettivo dei pesi GGUF e avvio `llama-server` sul Mac mini;
-  merge verso `main` (tocca il mini, decisione tua).
+- **Decisione strategica sui branch:** `main` (produzione Mac mini v1) e `feat/v2-graph-model` (v2 con progetti, aree, archi e potatura avanzata) rimangono **permanentemente separati per decisione esplicita del proprietario**. Non si farà mai merge verso `main`, mantenendo le due versioni indipendenti.
+- **Infrastruttura locale verificata dal vivo:** `llama-server` nativo con Metal installato via Homebrew; Gemma 3 4B e BGE Reranker scaricati ed eseguiti live con il 95% di resa (19/20) e 0 errori sul golden set da 30 coppie.
+- **Privacy marking:** endpoint e CLI operativi, collaudati dal vivo con `lavoro` marcato `anonymized`, `mnemosyne` `public`, e `casa`/`personal` in `local_only`.
+- **Dashboard layer progetti:** confermato per design che i nodi progetto appaiano solo se incidenti a un arco, per garantire una vista pulita e priva di clutter.
 - **Fatto dopo l'handoff iniziale** (`ad583f1`): finestra notturna
   `WORKER_ANALYZER_WINDOW` nel worker (default spento; apertura parcheggiata sull'apertura
   della finestra), rientranza per costruzione (batch id da membri, skip dei batch già
@@ -92,9 +93,8 @@ import orfano che rompeva il lint; enum scope nei dataset di eval dopo il ritiro
 - **Fatto in data odierna (17 ottobre 2026)**:
   1. Potatura automatica dei job terminali (`succeeded`, `failed`, `quarantined`, `cancelled` e cascata su `job_attempts`) e delle chiavi di idempotenza scadute (finestra 30g, senza bump di revisione corpus); OpenAPI e test allineati (`dc7cce0`).
   2. Giudice calibrato `LlamaCppPruningJudge` (`/v1/rerank` + verdetti JSON-schema vincolati su `/v1/chat/completions` con rifiuto di ID inventati) e fusione esplicita `fusePruningScores` (tie-break deterministico), integrati in `CoreMemoryService.judgeLlmProposal` e cablati nel worker dietro `PRUNING_JUDGE_ENABLED=true` (`bcda2bf`).
-  3. Golden set di 30 coppie etichettate (`scripts/pruning-golden-set.json`), aggiornamento di `scripts/probe-analyzer.mjs` e nuovo `scripts/probe-judge.mjs` (check deterministico offline + probing live sul giudice), più template launchd `ops/host/launchd/com.mnemosyne.llama.plist` per l'esecuzione nativa Metal su macOS.
-- **Debito noto minore**: layer progetti solo per progetti con archi; E2E con immagini
-  orfane (~350 MB reali + 2,3 GB build cache recuperabili con prune).
+  3. Golden set di 30 coppie etichettate (`scripts/pruning-golden-set.json`), aggiornamento di `scripts/probe-analyzer.mjs` e nuovo `scripts/probe-judge.mjs` (check deterministico offline + probing live sul giudice), più template launchd `ops/host/launchd/com.mnemosyne.llama.plist` per l'esecuzione nativa Metal su macOS (`a8709a9`).
+  4. Supporto per endpoint rerank disaccoppiato (`rerankBaseUrl`), logit unbounded normalizzati via sigmoide, test live del golden set e rebuild dei container Docker sul laptop (`9634ecc`).
 
 ## 7. Come lavorare (disciplina di sessione)
 

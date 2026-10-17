@@ -7,9 +7,9 @@ propone, il servizio decide**. Niente entra nel corpus senza passare dalla polic
 entra nel contesto senza essere `accepted`, niente viene dimenticato senza lasciare traccia
 nel ledger.
 
-Stato: ramo `feat/v2-graph-model` (locale, mai pushato) con il modello a grafo completo;
-`main` (`a5d357c`) resta il deployment. Dettagli di stato in `docs/v2-handoff.md`, disegno
-in `docs/v2-graph-model-plan.md`, specifica in `docs/assistante-memoriale-spec.md`.
+Stato: ramo `feat/v2-graph-model` (versione v2 a grafo completo, permanentemente separata da `main`);
+`main` (`a5d357c`) resta il deployment v1 stabile sul Mac mini (nessun merge previsto tra le due versioni).
+Dettagli di stato in `docs/v2-handoff.md`, disegno in `docs/v2-graph-model-plan.md`, specifica in `docs/assistante-memoriale-spec.md`.
 
 ## 1. Infrastruttura
 

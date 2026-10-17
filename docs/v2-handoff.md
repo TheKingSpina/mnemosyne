@@ -129,12 +129,12 @@ carries a pointer-only section with the rule that mini operations stay on
 
 What remains is future work, not debt:
 
-1. **Merge strategy toward `main`, if ever.** The branch is local-only by
-   decision. Merging touches the mini deployment and needs an explicit call,
-   a migration story for the existing corpus, and a cutover plan.
-2. **Dashboard project layer depth.** Project nodes exist only for projects
-   that touch an arc; a corpus with hundreds of arc-less projects shows none.
-   Widening that is a product choice about clutter, not a missing piece.
+1. **Permanent branch separation.** `main` and `feat/v2-graph-model` will never be merged:
+   by explicit decision, the two versions remain permanently separated. `main` stays dedicated
+   to the Mac mini v1 deployment, while `feat/v2-graph-model` is the independent v2 graph model
+   codebase.
+2. **Dashboard project layer depth.** Project nodes exist only for projects that touch an arc;
+   this is confirmed by design to keep the dashboard uncluttered on large corpora.
 
 ## How to work on this
 
