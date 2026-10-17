@@ -1871,6 +1871,7 @@ describe('pruning analysis entry point', () => {
       status: 'disabled',
       batches: 0,
       proposalsWritten: 0,
+      skipped: { batches: 0, proposals: 0 },
       reason: 'analyzer_not_configured',
     });
   });
@@ -1927,6 +1928,124 @@ describe('pruning analysis entry point', () => {
       promptHash: 'abc123',
     });
     expect(local).toBeDefined();
+  });
+
+  it('recognizes its own past: same members, batch skipped, no re-proposals', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, { forgetSecret: secret });
+    const session = await service.openSession({ projectId: 'analysis-p1' });
+    await service.setProjectPrivacy('analysis-p1', 'public');
+    const pub = await acceptedEpisode(service, session.sessionId, 'memoria pubblica');
+    const analyzer = {
+      modelVersion: 'test-model',
+      analyze: async () => ({
+        candidates: [
+          {
+            proposalType: 'redundancy' as const,
+            sourceIds: [pub],
+            rationale: 'duplicato',
+            confidence: 0.7,
+          },
+        ],
+        promptHash: 'abc123',
+      }),
+    };
+
+    const first = await service.runPruningAnalysis(analyzer);
+    expect(first).toMatchObject({ status: 'ran', batches: 1, proposalsWritten: 1 });
+
+    // The only memory is now pending, so it is excluded from composition:
+    // with nothing to compose the run is empty, never a re-ask.
+    const second = await service.runPruningAnalysis(analyzer);
+    expect(second).toMatchObject({
+      status: 'ran',
+      batches: 0,
+      proposalsWritten: 0,
+      skipped: { batches: 0, proposals: 0 },
+    });
+    expect((await repository.listPruningProposals()).map((p) => p.status)).toEqual(['pending']);
+  });
+
+  it('skips an already analyzed batch even after its proposal was decided', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, { forgetSecret: secret });
+    const session = await service.openSession({ projectId: 'analysis-p1' });
+    await service.setProjectPrivacy('analysis-p1', 'public');
+    const pub = await acceptedEpisode(service, session.sessionId, 'memoria pubblica');
+    const analyzer = {
+      modelVersion: 'test-model',
+      analyze: async () => ({
+        candidates: [
+          {
+            proposalType: 'redundancy' as const,
+            sourceIds: [pub],
+            rationale: 'duplicato',
+            confidence: 0.7,
+          },
+        ],
+        promptHash: 'abc123',
+      }),
+    };
+
+    const first = await service.runPruningAnalysis(analyzer);
+    expect(first.proposalsWritten).toBe(1);
+    // The decide step rejects the redundancy proposal (no deterministic
+    // basis): the ask was registered, the model must not re-ask tonight.
+    await service.runRetention();
+
+    const second = await service.runPruningAnalysis(analyzer);
+
+    expect(second).toMatchObject({
+      status: 'ran',
+      batches: 0,
+      proposalsWritten: 0,
+      skipped: { batches: 1, proposals: 0 },
+    });
+    const decided = await repository.listPruningProposals();
+    expect(decided).toHaveLength(1);
+    expect(decided[0].status).toBe('rejected');
+  });
+
+  it('keeps memories with a pending proposal of any proposer out of the batches', async () => {
+    const repository = new InMemoryRepository();
+    const service = new CoreMemoryService(repository, { forgetSecret: secret });
+    const session = await service.openSession({ projectId: 'analysis-p1' });
+    await service.setProjectPrivacy('analysis-p1', 'public');
+    const busy = await acceptedEpisode(service, session.sessionId, 'gia in decisione');
+    const free = await acceptedEpisode(service, session.sessionId, 'libera');
+    await repository.createPruningProposal({
+      batchId: 'deterministic-batch',
+      proposer: 'deterministic',
+      proposalType: 'decay',
+      sourceIds: [busy],
+      sourceVersions: { [busy]: 1 },
+      rationale: 'sotto soglia',
+      confidence: 0.8,
+      scoreSnapshot: {},
+    });
+    const seen: Array<{ privacy: string; ids: string[] }> = [];
+    const analyzer = {
+      modelVersion: 'test-model',
+      analyze: async (batch: { privacy: string; items: Array<{ memoryId: string }> }) => {
+        seen.push({
+          privacy: batch.privacy,
+          ids: batch.items.map((item) => item.memoryId),
+        });
+        return { candidates: [], promptHash: 'abc123' };
+      },
+    };
+
+    const run = await service.runPruningAnalysis(analyzer);
+
+    // The busy memory never reaches the model even as a member: the decide
+    // step owns it until it rules.
+    expect(run).toMatchObject({
+      status: 'ran',
+      batches: 1,
+      proposalsWritten: 0,
+      skipped: { batches: 0, proposals: 0 },
+    });
+    expect(seen).toEqual([{ privacy: 'public', ids: [free] }]);
   });
 
   it('decides llm proposals: agrees with the score, rejects the rest', async () => {

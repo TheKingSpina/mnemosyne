@@ -10,8 +10,8 @@ Decisione runtime: **solo llama.cpp, niente Ollama, niente sidecar Python**.
 `llama-server` espone già tutto il necessario su endpoint OpenAI-compatibili, quindi
 il client esistente si riusa cambiando solo `baseUrl` (dal container via host
 gateway). Niente download ancora — solo valutazione. Gemma 4 via BYOK resta
-l'alternativa remota se la resa locale delude. Finestra notturna (dopo il backup
-delle 02:00) con rientranza per batch.
+l'alternativa remota se la resa locale delude. Finestra notturna e rientranza ora
+**implementate** (v. la sezione «Schedulazione notturna» più sotto).
 Marking manuale su progetti e nodi (endpoint owner + CLI, default `local_only`, nessuna
 inferenza), export/restore lo conservano. Analyzer Gemma via BYOK con flag OFF default:
 compone batch same-flag, filtra id allucinati prima della tabella, scrive proposte
@@ -214,3 +214,24 @@ con errore finto-23503 resta il livello di enforcement, come nel resto del siste
 4. Esecuzione: archi sotto soglia cancellati, memorie sotto soglia a `expired` con archi incidenti potati.
 5. Fase (c), quando sbloccata: worker offline → batch secondo privacy flag → LLM free → stesse righe, `proposer='llm'` → stesso job decide, e in parità vince lo score.
 6. Neo4j: solo il worker scrive la proiezione ricostruita, nessuno legge il grafo come verità.
+
+### 9. Schedulazione notturna e rientranza (implementata)
+
+- **Finestra**: `WORKER_ANALYZER_WINDOW=HH:MM-HH:MM` in ora locale del container
+  (opzionale; senza, il comportamento resta solo-intervallo come prima). Fuori finestra
+  l'analyzer non gira; all'avvio la prossima scadenza si parcheggia direttamente
+  sull'apertura della finestra, senza aspettare un intervallo intero. La finestra del
+  mini è **dopo il backup delle 02:00** (es. `WORKER_ANALYZER_WINDOW=03:30-06:00`), per
+  non contendere CPU e disco al backup.
+- **Rientranza per costruzione**: l'id del batch deriva dai membri (sha256 degli id
+  ordinati nel batch), non dal tempo. La stessa composizione del corpus riconosce il suo
+  passato: i batch già analizzati **non vengono più inviati**, nemmeno dopo che le
+  proposte sono state decise — l'ask era già registrato nel ledger di proposte, ri-farlo
+  è rumore del modello, non nuovo segnale. Se una notte non finisce, la prossima riprende.
+- **Niente spam**: memorie con proposal pending (qualsiasi proposer) sono escluse dalla
+  composizione dei batch finché la decisione non arriva; l'analisi risponde con i
+  contatori `skipped.batches`/`skipped.proposals`, così il rientro è osservabile e non
+  silenzioso.
+- **Probing**: `node scripts/probe-analyzer.mjs [n-batch]` misura la resa del proponente
+  (batch ok, falliti, parse valid, tipi, id alucinati filtrati) contro l'endpoint env
+  configurato; scrive zero righe ed esce 1 se i fallimenti non permettono di fidarsi.

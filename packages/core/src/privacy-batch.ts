@@ -23,9 +23,12 @@ export function composeAnalyzerBatches(
 ): AnalyzerBatch[] {
   const batches: AnalyzerBatch[] = [];
   const open = new Map<'public' | 'anonymized', AnalyzerNode[]>();
+  // Fixed flag order and memoryId-sorted members: the same corpus state always
+  // produces the same batches, so a re-run can recognise its own past by id.
   const flush = (privacy: 'public' | 'anonymized', items: AnalyzerNode[]) => {
-    for (let index = 0; index < items.length; index += maxBatchSize) {
-      batches.push({ privacy, items: items.slice(index, index + maxBatchSize) });
+    const ordered = items.sort((left, right) => left.memoryId.localeCompare(right.memoryId));
+    for (let index = 0; index < ordered.length; index += maxBatchSize) {
+      batches.push({ privacy, items: ordered.slice(index, index + maxBatchSize) });
     }
   };
   for (const memory of memories) {
@@ -52,7 +55,10 @@ export function composeAnalyzerBatches(
     if (group) group.push(node);
     else open.set(effective, [node]);
   }
-  for (const [privacy, items] of open) flush(privacy, items);
+  for (const privacy of ['public', 'anonymized'] as const) {
+    const items = open.get(privacy);
+    if (items) flush(privacy, items);
+  }
   return batches;
 }
 

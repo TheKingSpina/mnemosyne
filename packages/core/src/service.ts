@@ -43,6 +43,7 @@ import {
   type PrepareForgetOutput,
   type ProposalResult,
   type ProposeMemoryInput,
+  type AnalyzerBatch,
   type PruningAnalysisOutput,
   type RecordEventsInput,
   type RecordEventsOutput,
@@ -116,6 +117,27 @@ export interface CoreMemoryServiceOptions {
   runtimeCapabilityTtlSeconds?: number;
   reporter?: string;
   telemetry?: RetrievalTelemetryCollector;
+}
+
+// Content-derived batch identity: the same members in the same order always
+// produce the same id, so an interrupted analysis run is resumed rather than
+// repeated, and a completed batch is never paid for twice.
+function batchIdOf(batch: AnalyzerBatch): string {
+  return `analysis_${createHash('sha256')
+    .update(batch.items.map((item) => item.memoryId).join('\n'), 'utf8')
+    .digest('hex')}`;
+}
+
+// Key for dedup across analysis runs: model output varies, our registration
+// must not depend on its wording, only on what it proposed and about what.
+function llmProposalSignature(input: {
+  proposalType: string;
+  sourceIds: string[];
+  targetId?: string;
+}): string {
+  return [input.proposalType, [...input.sourceIds].sort().join(','), input.targetId ?? ''].join(
+    '|',
+  );
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -1224,13 +1246,28 @@ export class CoreMemoryService implements MemoryService {
         status: 'disabled',
         batches: 0,
         proposalsWritten: 0,
+        skipped: { batches: 0, proposals: 0 },
         reason: 'analyzer_not_configured',
       };
     }
-    const batchId = `analysis_${this.now().getTime()}`;
-    const views = (await this.repository.listMemoryViews()).filter(
-      (memory) => memory.record.lifecycle === 'accepted',
+    // Anything already awaiting a decision is not re-proposed this run, no
+    // matter who proposed it: the decide step is the consumer, spam is not.
+    const pendingIds = new Set(
+      (await this.repository.listPruningProposals('pending')).flatMap(
+        (proposal) => proposal.sourceIds,
+      ),
     );
+    const seenProposals = (await this.repository.listPruningProposals()).filter(
+      (proposal) => proposal.proposer === 'llm',
+    );
+    const seenBatchIds = new Set(seenProposals.map((proposal) => proposal.batchId));
+    const seenSignatures = new Set(seenProposals.map(llmProposalSignature));
+    const views = (await this.repository.listMemoryViews()).filter(
+      (memory) => memory.record.lifecycle === 'accepted' && !pendingIds.has(memory.record.id),
+    );
+    let batchesSent = 0;
+    let batchesSkipped = 0;
+    let proposalsSkipped = 0;
     const projectPrivacy = new Map(
       (await this.repository.listProjects()).map((project) => [project.id, project.privacy]),
     );
@@ -1261,6 +1298,15 @@ export class CoreMemoryService implements MemoryService {
     );
     let proposalsWritten = 0;
     for (const batch of batches) {
+      // Resumable by construction: the id derives from the exact members, so
+      // an interrupted night is continued, not repeated. Same members, same
+      // batch, already signed once -> never sent again.
+      const batchId = batchIdOf(batch);
+      if (seenBatchIds.has(batchId)) {
+        batchesSkipped += 1;
+        continue;
+      }
+      batchesSent += 1;
       const { candidates, promptHash } = await analyzer.analyze(batch);
       const batchIds = new Set(batch.items.map((item) => item.memoryId));
       const versions = new Map(
@@ -1272,6 +1318,21 @@ export class CoreMemoryService implements MemoryService {
         // Hallucinated ids die here, before the table: every source must be a
         // batch member, and versions come from our reads, never the model.
         if (!candidate.sourceIds.every((id) => versions.has(id))) continue;
+        if (
+          seenSignatures.has(
+            llmProposalSignature({
+              proposalType: candidate.proposalType,
+              sourceIds: candidate.sourceIds,
+              targetId: candidate.targetId,
+            }),
+          )
+        ) {
+          // Signed proposals are registered before they are decided: whatever
+          // the model says again tonight, this exact triple is in the ledger
+          // of what was asked once. Re-asking is model noise, not new signal.
+          proposalsSkipped += 1;
+          continue;
+        }
         await this.repository.createPruningProposal({
           batchId,
           proposer: 'llm',
@@ -1290,7 +1351,12 @@ export class CoreMemoryService implements MemoryService {
         proposalsWritten += 1;
       }
     }
-    return { status: 'ran', batches: batches.length, proposalsWritten };
+    return {
+      status: 'ran',
+      batches: batchesSent,
+      proposalsWritten,
+      skipped: { batches: batchesSkipped, proposals: proposalsSkipped },
+    };
   }
 
   // Decides pending llm proposals with the same rules as deterministic ones,

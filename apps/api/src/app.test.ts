@@ -424,6 +424,7 @@ describe('Mnemosyne API authorization', () => {
       status: 'disabled',
       batches: 0,
       proposalsWritten: 0,
+      skipped: { batches: 0, proposals: 0 },
       reason: 'analyzer_not_configured',
     });
 

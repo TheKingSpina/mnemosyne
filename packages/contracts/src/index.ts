@@ -408,6 +408,12 @@ export const pruningAnalysisOutputSchema = z.object({
   status: z.enum(['ran', 'disabled']),
   batches: z.number().int().nonnegative(),
   proposalsWritten: z.number().int().nonnegative(),
+  // Re-entry is visible, not silent: batches already analyzed (same members)
+  // and candidate signatures already proposed are skipped, never re-sent.
+  skipped: z.object({
+    batches: z.number().int().nonnegative(),
+    proposals: z.number().int().nonnegative(),
+  }),
   reason: z.string().min(1).optional(),
 });
 export type PruningAnalysisOutput = z.infer<typeof pruningAnalysisOutputSchema>;

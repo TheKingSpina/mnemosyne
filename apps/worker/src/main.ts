@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { extractionProviderNameSchema, type ExtractionProviderName } from '@mnemosyne/contracts';
 import { CoreMemoryService, ExtractionWorker } from '@mnemosyne/core';
+import { isInAnalyzerWindow, nextAnalyzerDueAt, parseAnalyzerWindow } from './schedule-window.js';
 import { PostgresMemoryRepository, WORKER_CAPABILITY_COMPONENT } from '@mnemosyne/postgres';
 import { RemotePruningAnalyzer } from '@mnemosyne/core';
 import { ExplicitRememberExtractor } from './explicit-remember-extractor.js';
@@ -48,6 +49,13 @@ const pruningAnalyzer =
 if (pruningAnalyzerEnabled && !pruningAnalyzer) {
   throw new Error('PRUNING_ANALYZER_API_KEY and PRUNING_ANALYZER_MODEL are required together');
 }
+// Optional night window "HH:MM-HH:MM" in container local time: the analyzer
+// never runs outside it. The mini's window is documented as after the 02:00
+// backup, so defaults stay off and a deployment opts in explicitly.
+const analyzerWindow =
+  pruningAnalyzer && process.env.WORKER_ANALYZER_WINDOW
+    ? parseAnalyzerWindow(process.env.WORKER_ANALYZER_WINDOW)
+    : null;
 const capabilityHeartbeatMs = integerOption(
   process.env.WORKER_CAPABILITY_HEARTBEAT_MS ?? '60000',
   5_000,
@@ -96,7 +104,9 @@ process.on('SIGTERM', () => stop('SIGTERM'));
 
 process.stdout.write(`Mnemosyne extraction worker ${workerId} started\n`);
 let nextRetentionRun = Date.now() + retentionIntervalMs;
-let nextAnalyzerRun = Date.now() + analyzerIntervalMs;
+let nextAnalyzerRun = analyzerWindow
+  ? nextAnalyzerDueAt(new Date(), analyzerWindow, analyzerIntervalMs)
+  : Date.now() + analyzerIntervalMs;
 let nextCapabilityHeartbeat = 0;
 while (!stopping) {
   try {
@@ -111,8 +121,10 @@ while (!stopping) {
       nextRetentionRun = Date.now() + retentionIntervalMs;
     }
     if (pruningAnalyzer && analyzerIntervalMs > 0 && Date.now() >= nextAnalyzerRun) {
-      await service.runPruningAnalysis(pruningAnalyzer);
-      nextAnalyzerRun = Date.now() + analyzerIntervalMs;
+      if (!analyzerWindow || isInAnalyzerWindow(new Date(), analyzerWindow)) {
+        await service.runPruningAnalysis(pruningAnalyzer);
+      }
+      nextAnalyzerRun = nextAnalyzerDueAt(new Date(), analyzerWindow, analyzerIntervalMs);
     }
     if (!result) await delay(pollIntervalMs);
   } catch (error) {
