@@ -420,6 +420,82 @@ describe('CoreMemoryService', () => {
     expect(pending?.memory.lifecycle).toBe('pending_approval');
   });
 
+  it('detects contradiction between qualified assertion and universal negation in same project', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'conflict-repro-suite' });
+    const reproScope: Scope = { type: 'project', id: 'conflict-repro-suite' };
+
+    // Control pair: 'Chiudiamo alle diciotto' vs 'Non chiudiamo alle diciotto' is intercepted
+    const ctrlAccepted = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Chiudiamo alle diciotto',
+        kind: 'convention',
+        scope: reproScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['ctrl-evt-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    expect(ctrlAccepted.status).toBe('accepted');
+
+    const ctrlContradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Non chiudiamo alle diciotto',
+      kind: 'convention',
+      scope: reproScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['ctrl-evt-2'],
+    });
+    expect(ctrlContradiction).toMatchObject({
+      status: 'pending_approval',
+      reason: 'direct_contradiction',
+    });
+
+    // Failing case: 'Per i nuovi progetti usiamo pnpm' vs 'Non usiamo pnpm'
+    const pnpmAccepted = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Per i nuovi progetti usiamo pnpm',
+        kind: 'convention',
+        scope: reproScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['pnpm-evt-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    expect(pnpmAccepted.status).toBe('accepted');
+
+    const pnpmContradiction = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Non usiamo pnpm',
+      kind: 'convention',
+      scope: reproScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['pnpm-evt-2'],
+    });
+    expect(pnpmContradiction).toMatchObject({
+      status: 'pending_approval',
+      reason: 'direct_contradiction',
+    });
+  });
+
   it('removes conflicts when a memory is forgotten and keeps the export restorable', async () => {
     const service = createService();
     const session = await service.openSession({ projectId: 'memory-service' });

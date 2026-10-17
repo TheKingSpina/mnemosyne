@@ -78,4 +78,22 @@ describe('areDirectlyContradictory', () => {
       }),
     ).toBe(false);
   });
+
+  it('detects contradiction between qualified assertion and universal negation', () => {
+    // Control pair: 'Chiudiamo alle diciotto' vs 'Non chiudiamo alle diciotto' is intercepted
+    expect(
+      areDirectlyContradictory(
+        { ...base, content: 'Chiudiamo alle diciotto' },
+        { ...base, content: 'Non chiudiamo alle diciotto' },
+      ),
+    ).toBe(true);
+
+    // Target pair: 'Per i nuovi progetti usiamo pnpm' vs 'Non usiamo pnpm'
+    expect(
+      areDirectlyContradictory(
+        { ...base, content: 'Per i nuovi progetti usiamo pnpm' },
+        { ...base, content: 'Non usiamo pnpm' },
+      ),
+    ).toBe(true);
+  });
 });
