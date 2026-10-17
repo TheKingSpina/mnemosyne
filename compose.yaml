@@ -29,11 +29,10 @@ services:
 
   memgraph:
     image: memgraph/memgraph:latest
-    container_name: mnemosyne-memgraph-1
     restart: unless-stopped
     command: ['--telemetry-enabled=false']
     ports:
-      - '127.0.0.1:${MEMGRAPH_PORT:-7687}:7687'
+      - '127.0.0.1:${MEMGRAPH_PORT:-${NEO4J_PORT:-7687}}:7687'
     volumes:
       - memgraph_data:/var/lib/memgraph
     healthcheck:

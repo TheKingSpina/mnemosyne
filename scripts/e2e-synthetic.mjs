@@ -49,6 +49,7 @@ const environment = {
   POSTGRES_PORT: String(ports.postgres),
   REDIS_PORT: String(ports.redis),
   NEO4J_PORT: String(ports.neo4j),
+  MEMGRAPH_PORT: String(ports.neo4j),
   NEO4J_USERNAME: 'neo4j',
   NEO4J_PASSWORD: neo4jPassword,
   API_PORT: String(ports.api),
@@ -67,7 +68,7 @@ let backupTempDirectory;
 
 try {
   stackStarted = true;
-  compose('up', '-d', '--build', 'postgres', 'redis', 'neo4j', 'api', 'worker');
+  compose('up', '-d', '--build', 'postgres', 'redis', 'memgraph', 'api', 'worker');
   await waitForApi();
   await waitForGraph();
   const lifecycle = await runLifecycle();
@@ -892,17 +893,12 @@ function tryGraphCount(query = 'MATCH (m:Memory) RETURN count(m);') {
     const output = compose(
       'exec',
       '-T',
-      'neo4j',
-      'cypher-shell',
-      '-u',
-      environment.NEO4J_USERNAME,
-      '-p',
-      environment.NEO4J_PASSWORD,
-      '--format',
-      'plain',
-      query,
+      'memgraph',
+      'sh',
+      '-c',
+      `echo ${quote(query)} | mgconsole`,
     );
-    const match = output.match(/(\d+)\s*$/u);
+    const match = output.match(/\|\s*(\d+)\s*\|/u);
     return match ? Number(match[1]) : null;
   } catch {
     return null;
