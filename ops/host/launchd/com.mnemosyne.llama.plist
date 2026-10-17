@@ -6,18 +6,20 @@
   <string>com.mnemosyne.llama</string>
   <key>ProgramArguments</key>
   <array>
-    <string>__LLAMA_SERVER_BIN__</string>
-    <string>--model</string>
-    <string>__LLAMA_MODEL_PATH__</string>
-    <string>--host</string>
-    <string>127.0.0.1</string>
-    <string>--port</string>
-    <string>8081</string>
-    <string>--ctx-size</string>
-    <string>4096</string>
-    <string>--n-gpu-layers</string>
-    <string>99</string>
+    <string>__NODE_BIN__</string>
+    <string>__REPO__/ops/host/llama-lazy-manager.mjs</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>LLAMA_SERVER_BIN</key>
+    <string>__LLAMA_SERVER_BIN__</string>
+    <key>GEMMA_MODEL_PATH</key>
+    <string>__GEMMA_MODEL_PATH__</string>
+    <key>RERANK_MODEL_PATH</key>
+    <string>__RERANK_MODEL_PATH__</string>
+    <key>LLAMA_IDLE_TIMEOUT_SECONDS</key>
+    <string>300</string>
+  </dict>
   <key>WorkingDirectory</key>
   <string>__REPO__</string>
   <key>RunAtLoad</key>

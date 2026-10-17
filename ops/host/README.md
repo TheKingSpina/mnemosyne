@@ -76,17 +76,41 @@ Inspect with `launchctl print gui/$(id -u)/com.mnemosyne.health` and read `~/Lib
 
 A login item is not enough on its own: it only runs when a user session starts. Pair it with the backup schedule in [`../backup`](../backup/README.md) and confirm the whole chain with a reboot.
 
-## Optional native `llama-server` agent (`com.mnemosyne.llama`)
+## Optional native `llama-server` lazy agent (`com.mnemosyne.llama`)
 
-On Apple Silicon, `llama.cpp` must run natively on the macOS host (not inside a Linux container) so Metal unified-memory acceleration is available and the OrbStack VM is not starved on an 8 GB system. `launchd/com.mnemosyne.llama.plist` is an optional template that binds `llama-server` to `127.0.0.1:8081` with `--n-gpu-layers 99`; containers reach it via `http://host.docker.internal:8081/v1`.
+On Apple Silicon (e.g. M1 Mac mini with 8 GB RAM), `llama.cpp` runs natively on the macOS host so Metal unified-memory acceleration is available. To prevent models from hogging 3 GB+ of RAM/VRAM when idle, Mnemosyne includes an on-demand lazy activation proxy daemon: [`llama-lazy-manager.mjs`](./llama-lazy-manager.mjs).
 
-Render and validate when a local GGUF model has been downloaded and verified via `scripts/probe-analyzer.mjs` and `scripts/probe-judge.mjs`:
+### How it works
+
+1. The manager runs as a tiny host process (~15 MB Node.js) listening on:
+   - Port `8081` (Instruct: Gemma 3 4B) -> proxied to internal port `8181`
+   - Port `8082` (Cross-encoder Reranker: BGE Reranker v2 M3) -> proxied to internal port `8182`
+2. **0 MB idle footprint**: When no queries are active, no `llama-server` instances run.
+3. **On-demand wake up**: When a request arrives (e.g. `POST /v1/chat/completions` or `POST /v1/rerank`), the manager spawns `llama-server` with `--n-gpu-layers 99`, awaits readiness (~1–2 seconds), and pipes the request through.
+4. **Auto-shutdown**: After `LLAMA_IDLE_TIMEOUT_SECONDS` (default: 300s / 5 minutes) of inactivity, the manager terminates the child process with SIGTERM and reclaims 100% of RAM/VRAM.
+5. **Passive health checks**: Calling `GET /health` returns `{"status":"idle","manager":"mnemosyne-lazy-manager"}` without waking the model, preventing health probes from keeping the GPU awake.
+
+### macOS launchd install
+
+Render and validate the launchd plist:
 
 ```bash
-sed -e "s|__REPO__|$REPO|g" \
-    -e "s|__LLAMA_SERVER_BIN__|/opt/homebrew/bin/llama-server|g" \
-    -e "s|__LLAMA_MODEL_PATH__|$HOME/.mnemosyne/models/model.gguf|g" \
+REPO="$HOME/Mnemosyne"
+LOG_DIR="$HOME/Library/Logs/mnemosyne"
+NODE_BIN="$(which node)"
+LLAMA_BIN="/opt/homebrew/bin/llama-server"
+MODELS_DIR="$HOME/.mnemosyne/models"
+
+sed -e "s|__NODE_BIN__|$NODE_BIN|g" \
+    -e "s|__REPO__|$REPO|g" \
+    -e "s|__LLAMA_SERVER_BIN__|$LLAMA_BIN|g" \
+    -e "s|__GEMMA_MODEL_PATH__|$MODELS_DIR/gemma-3-4b-it-Q4_K_M.gguf|g" \
+    -e "s|__RERANK_MODEL_PATH__|$MODELS_DIR/bge-reranker-v2-m3-Q4_K_M.gguf|g" \
     -e "s|__LOG_DIR__|$LOG_DIR|g" \
     "$REPO/ops/host/launchd/com.mnemosyne.llama.plist" > "$HOME/Library/LaunchAgents/com.mnemosyne.llama.plist"
+
 plutil -lint "$HOME/Library/LaunchAgents/com.mnemosyne.llama.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.mnemosyne.llama.plist"
 ```
+
+Inspect with `launchctl print gui/$(id -u)/com.mnemosyne.llama` and logs in `~/Library/Logs/mnemosyne/mnemosyne-llama.log`.

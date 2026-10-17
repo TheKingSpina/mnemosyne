@@ -252,9 +252,23 @@ curl -L -C - -o ~/.mnemosyne/models/gemma-3-4b-it-Q4_K_M.gguf \
   "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf"
 ```
 
-### 5.3 Avvio dei Demoni Locali `llama-server`
+### 5.3 Esecuzione On-Demand con Lazy Activation Manager (Consigliato per M1 8GB)
 
-Per eseguire i test o avviare il backend del giudice in locale:
+Per evitare di occupare ~3 GB di RAM/VRAM continuativamente quando i modelli non sono utilizzati, Mnemosyne include il daemon gestore on-demand [`ops/host/llama-lazy-manager.mjs`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/llama-lazy-manager.mjs):
+
+```bash
+# Avvio del gestore lazy in background o foreground (~15 MB RAM):
+node ops/host/llama-lazy-manager.mjs
+```
+
+Caratteristiche:
+
+- **0 MB RAM/VRAM a riposo**: I processi `llama-server` non sono avviati finché non arriva una chiamata.
+- **Attivazione istantanea**: Alla prima richiesta su `8081` (Instruct) o `8082` (Rerank), il modello viene avviato con Metal e risponde in ~1-2 secondi.
+- **Spegnimento automatico (Auto-Idle)**: Dopo `LLAMA_IDLE_TIMEOUT_SECONDS` (default: 300 secondi) di inattività, il processo del modello riceve SIGTERM e la memoria Metal/RAM viene completamente liberata.
+- **Probe di salute passivi**: `GET /health` risponde con `{"status":"idle"}` senza svegliare inutilmente il modello.
+
+_(Alternativa manuale persistente)_:
 
 ```bash
 # Terminale 1: Gemma 3 4B IT su porta 8081 (verdetti vincolati)
@@ -289,7 +303,8 @@ node scripts/probe-judge.mjs
 
 ### 5.5 Gestione Tramite macOS `launchd`
 
-Il template per avviare il servizio all'accesso utente si trova in [`ops/host/launchd/com.mnemosyne.llama.plist`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/launchd/com.mnemosyne.llama.plist).
+Il template per avviare il gestore on-demand all'accesso utente si trova in [`ops/host/launchd/com.mnemosyne.llama.plist`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/launchd/com.mnemosyne.llama.plist).
+Vedi [`ops/host/README.md`](file:///Users/spina/.gemini/antigravity/worktrees/Mnemosyne/implement_v2_graph_model/ops/host/README.md) per i comandi `sed` e `launchctl bootstrap`.
 
 ---
 

@@ -95,6 +95,8 @@ import orfano che rompeva il lint; enum scope nei dataset di eval dopo il ritiro
   2. Giudice calibrato `LlamaCppPruningJudge` (`/v1/rerank` + verdetti JSON-schema vincolati su `/v1/chat/completions` con rifiuto di ID inventati) e fusione esplicita `fusePruningScores` (tie-break deterministico), integrati in `CoreMemoryService.judgeLlmProposal` e cablati nel worker dietro `PRUNING_JUDGE_ENABLED=true` (`bcda2bf`).
   3. Golden set di 30 coppie etichettate (`scripts/pruning-golden-set.json`), aggiornamento di `scripts/probe-analyzer.mjs` e nuovo `scripts/probe-judge.mjs` (check deterministico offline + probing live sul giudice), più template launchd `ops/host/launchd/com.mnemosyne.llama.plist` per l'esecuzione nativa Metal su macOS (`a8709a9`).
   4. Supporto per endpoint rerank disaccoppiato (`rerankBaseUrl`), logit unbounded normalizzati via sigmoide, test live del golden set e rebuild dei container Docker sul laptop (`9634ecc`).
+  5. Pubblicazione del branch `feat/v2-graph-model` su GitHub (`origin/feat/v2-graph-model`) e redazione della documentazione completa (`docs/v2-graph-model-complete-guide.md`).
+  6. Manager On-Demand Lazy Activation per `llama.cpp` (`ops/host/llama-lazy-manager.mjs` e template `launchd/com.mnemosyne.llama.plist`). Invece di occupare stabilmente ~3 GB di RAM/VRAM sull'Apple Silicon M1 8GB, il gestore host (~15 MB) espone le porte 8081 e 8082, risponde passivamente alle probe di salute (`/health`) senza svegliare i modelli, avvia on-demand il processo richiesto con accelerazione Metal in ~1s, e dopo un periodo di inattività (`LLAMA_IDLE_TIMEOUT_SECONDS`, default 300s) invia SIGTERM liberando il 100% della memoria. Collaudato con successo sul campo.
 
 ## 7. Come lavorare (disciplina di sessione)
 
