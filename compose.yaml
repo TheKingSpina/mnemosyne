@@ -27,19 +27,17 @@ services:
       timeout: 5s
       retries: 10
 
-  neo4j:
-    image: neo4j:5.26-community
+  memgraph:
+    image: memgraph/memgraph:latest
+    container_name: mnemosyne-memgraph-1
     restart: unless-stopped
-    environment:
-      NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
-      NEO4J_server_memory_heap_max__size: 512m
-      NEO4J_server_memory_pagecache_size: 256m
+    command: ['--telemetry-enabled=false']
     ports:
-      - '127.0.0.1:${NEO4J_PORT:-7474}:7474'
+      - '127.0.0.1:${MEMGRAPH_PORT:-7687}:7687'
     volumes:
-      - neo4j_data:/data
+      - memgraph_data:/var/lib/memgraph
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:7474 >/dev/null || exit 1']
+      test: ['CMD-SHELL', 'echo "RETURN 1;" | mgconsole >/dev/null || exit 1']
       interval: 10s
       timeout: 5s
       retries: 10
@@ -153,10 +151,10 @@ services:
       WORKER_CAPABILITY_HEARTBEAT_MS: ${WORKER_CAPABILITY_HEARTBEAT_MS:-60000}
       MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS: ${MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS:-300}
       EXTRACTION_PROVIDER: ${EXTRACTION_PROVIDER:-local}
-      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_URI: ${NEO4J_URI:-bolt://memgraph:7687}
       NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
-      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-}
       NEO4J_BATCH_SIZE: ${NEO4J_BATCH_SIZE:-100}
       NEO4J_OUTBOX_LEASE_MS: ${NEO4J_OUTBOX_LEASE_MS:-30000}
       NEO4J_REBUILD_ON_START: ${NEO4J_REBUILD_ON_START:-false}
@@ -166,9 +164,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      neo4j:
+      memgraph:
         condition: service_healthy
 
 volumes:
   postgres_data:
   neo4j_data:
+  memgraph_data:
