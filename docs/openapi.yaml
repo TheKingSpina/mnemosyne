@@ -4149,6 +4149,12 @@ components:
           type: integer
           minimum: 100
           maximum: 100000
+        conflictPolicy:
+          default: include_disputed
+          type: string
+          enum:
+            - include_disputed
+            - quarantine_conflicts
       required:
         - sessionId
         - query

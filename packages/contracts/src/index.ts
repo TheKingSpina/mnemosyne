@@ -581,14 +581,18 @@ export const searchMemoriesInputSchema = z.object({
   limit: z.number().int().min(1).max(50).default(20),
   offset: z.number().int().min(0).default(0),
 });
-export type SearchMemoriesInput = z.infer<typeof searchMemoriesInputSchema>;
+export type SearchMemoriesInput = z.input<typeof searchMemoriesInputSchema>;
+
+export const conflictPolicySchema = z.enum(['include_disputed', 'quarantine_conflicts']);
+export type ConflictPolicy = z.infer<typeof conflictPolicySchema>;
 
 export const contextInputSchema = z.object({
   sessionId: z.string().min(1),
   query: z.string().min(1).max(2_000),
   budgetTokens: z.number().int().min(100).max(100_000).default(1_200),
+  conflictPolicy: conflictPolicySchema.default('include_disputed'),
 });
-export type ContextInput = z.infer<typeof contextInputSchema>;
+export type ContextInput = z.input<typeof contextInputSchema>;
 
 export const contextOutputSchema = z.object({
   context: z.array(memoryRevisionSchema),

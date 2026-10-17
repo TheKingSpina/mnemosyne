@@ -690,7 +690,19 @@ export class CoreMemoryService implements MemoryService {
       semantic: window.some((candidate) => candidate.semanticScore > 0),
       cached: false,
     });
-    const result = window.map((candidate) => candidate.memory);
+    const conflicts = await this.repository.listAllConflicts();
+    const openDisputedIds = new Set(
+      conflicts.filter((c) => c.status === 'open').flatMap((c) => c.memoryIds),
+    );
+    const result = window.map((candidate) => {
+      if (
+        openDisputedIds.has(candidate.memory.memoryId) &&
+        candidate.memory.assessment !== 'disputed'
+      ) {
+        return { ...candidate.memory, assessment: 'disputed' as const };
+      }
+      return candidate.memory;
+    });
     await this.cacheCorpusResult(cacheKey, result, revision);
     return result;
   }
@@ -706,17 +718,46 @@ export class CoreMemoryService implements MemoryService {
         ? []
         : await this.rankedCandidates({ query: validated.query, analysis, scopes, limit: 50 });
     const relevantCandidates = ranked.filter((candidate) => candidate.score >= minimumSearchScore);
+
+    const conflicts = await this.repository.listAllConflicts();
+    const openConflicts = conflicts.filter((conflict) => conflict.status === 'open');
+    const openDisputedIds = new Set(openConflicts.flatMap((conflict) => conflict.memoryIds));
+
+    const directContradictions = new Map<string, Set<string>>();
+    for (const c of openConflicts) {
+      if (c.type === 'direct_contradiction') {
+        for (const id of c.memoryIds) {
+          if (!directContradictions.has(id)) directContradictions.set(id, new Set());
+          const set = directContradictions.get(id)!;
+          for (const otherId of c.memoryIds) {
+            if (otherId !== id) set.add(otherId);
+          }
+        }
+      }
+    }
+
     const selected: MemoryRevision[] = [];
+    const selectedIds = new Set<string>();
     let usedTokens = 0;
     for (const { memory } of relevantCandidates) {
+      if (validated.conflictPolicy === 'quarantine_conflicts') {
+        const opposing = directContradictions.get(memory.memoryId);
+        if (opposing && [...opposing].some((oppId) => selectedIds.has(oppId))) {
+          continue;
+        }
+      }
       const tokens = estimateMemoryTokens(memory);
       if (usedTokens + tokens <= validated.budgetTokens) {
-        selected.push(memory);
+        const enriched =
+          openDisputedIds.has(memory.memoryId) && memory.assessment !== 'disputed'
+            ? { ...memory, assessment: 'disputed' as const }
+            : memory;
+        selected.push(enriched);
+        selectedIds.add(memory.memoryId);
         usedTokens += tokens;
       }
     }
     const revision = await this.repository.getCorpusRevision();
-    const conflicts = await this.repository.listAllConflicts();
     const relevantMemoryIds = new Set(relevantCandidates.map(({ memory }) => memory.memoryId));
     this.telemetry.recordContextResolution(selected.length);
     const semanticAvailable =
@@ -724,11 +765,9 @@ export class CoreMemoryService implements MemoryService {
       this.options.semanticSearchIndex !== undefined;
     return {
       context: selected,
-      conflicts: conflicts
-        .filter(
-          (conflict) =>
-            conflict.status === 'open' &&
-            conflict.memoryIds.some((memoryId) => relevantMemoryIds.has(memoryId)),
+      conflicts: openConflicts
+        .filter((conflict) =>
+          conflict.memoryIds.some((memoryId) => relevantMemoryIds.has(memoryId)),
         )
         .map((conflict) => ({
           id: conflict.id,

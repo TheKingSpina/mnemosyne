@@ -24,3 +24,4 @@ export * from './semantic-search.js';
 export * from './retrieval-ranking.js';
 export * from './retrieval-telemetry.js';
 export * from './corpus-cache.js';
+export * from './format-context.js';

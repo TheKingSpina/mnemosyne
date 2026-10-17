@@ -613,6 +613,81 @@ describe('CoreMemoryService', () => {
     expect(context.conflicts[0]?.id).toBe(contradiction.conflictId);
     expect(context.conflicts[0]?.type).toBe('direct_contradiction');
     expect(context.conflicts[0]?.memoryIds).toContain(contradiction.memoryId);
+    expect(context.context[0]?.assessment).toBe('disputed');
+  });
+
+  it('marks disputed in search and context, and quarantines contradictory pairs under quarantine_conflicts', async () => {
+    const service = createService();
+    const session = await service.openSession({ projectId: 'memory-service' });
+
+    const m1 = await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Per i nuovi progetti usiamo pnpm',
+        kind: 'convention',
+        scope: projectScope,
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: ['evt-1'],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+    expect(m1.status).toBe('accepted');
+
+    const m2Proposal = await service.proposeMemory({
+      sessionId: session.sessionId,
+      content: 'Non usiamo pnpm',
+      kind: 'convention',
+      scope: projectScope,
+      epistemicBasis: 'user_asserted',
+      assessment: 'disputed',
+      confidence: 1,
+      sensitivity: 'normal',
+      activation: 'on_demand',
+      sourceEventIds: ['evt-2'],
+    });
+    expect(m2Proposal.reason).toBe('direct_contradiction');
+
+    // Simulate both memories accepted in the corpus
+    const repo = (service as unknown as { repository: InMemoryRepository }).repository;
+    await repo.updateMemoryLifecycle(m2Proposal.memoryId!, 'accepted');
+
+    // 1. searchMemories marks assessment as 'disputed'
+    const searchResults = await service.searchMemories({
+      sessionId: session.sessionId,
+      query: 'pnpm',
+      limit: 10,
+    });
+    const foundM1 = searchResults.find((m) => m.memoryId === m1.memoryId);
+    const foundM2 = searchResults.find((m) => m.memoryId === m2Proposal.memoryId);
+    expect(foundM1?.assessment).toBe('disputed');
+    expect(foundM2?.assessment).toBe('disputed');
+
+    // 2. resolveContext with default policy 'include_disputed' returns both with 'disputed' assessment
+    const defaultContext = await service.resolveContext({
+      sessionId: session.sessionId,
+      query: 'pnpm',
+      budgetTokens: 1_200,
+      conflictPolicy: 'include_disputed',
+    });
+    const defaultIds = defaultContext.context.map((m) => m.memoryId);
+    expect(defaultIds).toContain(m1.memoryId);
+    expect(defaultIds).toContain(m2Proposal.memoryId);
+    expect(defaultContext.context.every((m) => m.assessment === 'disputed')).toBe(true);
+
+    // 3. resolveContext with 'quarantine_conflicts' suppresses the contradictory pair counterpart
+    const quarantinedContext = await service.resolveContext({
+      sessionId: session.sessionId,
+      query: 'pnpm',
+      budgetTokens: 1_200,
+      conflictPolicy: 'quarantine_conflicts',
+    });
+    const quarantinedIds = quarantinedContext.context.map((m) => m.memoryId);
+    expect(quarantinedIds.length).toBe(1);
+    expect(quarantinedContext.conflicts.length).toBe(1);
   });
 
   it('includes memory conflicts in the owner memory detail', async () => {
