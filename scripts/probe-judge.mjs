@@ -113,6 +113,7 @@ if (process.env.PRUNING_JUDGE_ENABLED !== 'true') {
 }
 
 const baseUrl = process.env.PRUNING_JUDGE_BASE_URL ?? 'http://127.0.0.1:8081/v1';
+const rerankBaseUrl = process.env.PRUNING_JUDGE_RERANK_BASE_URL ?? baseUrl;
 const apiKey = process.env.PRUNING_JUDGE_API_KEY;
 const rerankModel = process.env.PRUNING_JUDGE_RERANK_MODEL;
 const instructModel = process.env.PRUNING_JUDGE_INSTRUCT_MODEL;
@@ -124,6 +125,7 @@ if (!rerankModel || !instructModel) {
 
 const judge = new LlamaCppPruningJudge({
   baseUrl,
+  rerankBaseUrl,
   ...(apiKey ? { apiKey } : {}),
   rerankModel,
   instructModel,

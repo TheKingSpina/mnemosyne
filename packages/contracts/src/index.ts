@@ -406,7 +406,7 @@ export type AnalyzerResult = z.infer<typeof analyzerResultSchema>;
 
 export const rerankResultItemSchema = z.object({
   index: z.number().int().nonnegative(),
-  relevance_score: z.number().min(0).max(1),
+  relevance_score: z.number(),
 });
 export type RerankResultItem = z.infer<typeof rerankResultItemSchema>;
 

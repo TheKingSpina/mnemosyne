@@ -11,6 +11,7 @@ export interface PruningJudgeOptions {
   rerankModel: string;
   instructModel: string;
   baseUrl?: string;
+  rerankBaseUrl?: string;
   apiKey?: string;
   requestTimeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -60,6 +61,7 @@ export class LlamaCppPruningJudge implements PruningJudge {
   readonly rerankModel: string;
   readonly instructModel: string;
   private readonly baseUrl: string;
+  private readonly rerankBaseUrl: string;
   private readonly apiKey?: string;
   private readonly requestTimeoutMs: number;
   private readonly fetchImpl: typeof fetch;
@@ -70,6 +72,7 @@ export class LlamaCppPruningJudge implements PruningJudge {
     this.rerankModel = options.rerankModel.trim();
     this.instructModel = options.instructModel.trim();
     this.baseUrl = (options.baseUrl ?? 'http://127.0.0.1:8081/v1').replace(/\/+$/u, '');
+    this.rerankBaseUrl = (options.rerankBaseUrl ?? this.baseUrl).replace(/\/+$/u, '');
     this.apiKey = options.apiKey;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
     if (!Number.isSafeInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 1_000) {
@@ -92,7 +95,7 @@ export class LlamaCppPruningJudge implements PruningJudge {
     }
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl}/rerank`, {
+      response = await this.fetchImpl(`${this.rerankBaseUrl}/rerank`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({
@@ -124,7 +127,11 @@ export class LlamaCppPruningJudge implements PruningJudge {
       if (item.index < 0 || item.index >= documents.length || ordered[item.index] !== undefined) {
         throw new Error('judge_provider_invalid_response');
       }
-      ordered[item.index] = item.relevance_score;
+      // Cross-encoder models (e.g. BGE reranker) output unbounded logits;
+      // normalize with standard sigmoid when raw score is outside [0, 1].
+      const raw = item.relevance_score;
+      const normalized = raw >= 0 && raw <= 1 ? raw : 1 / (1 + Math.exp(-raw));
+      ordered[item.index] = normalized;
     }
     return ordered.map((score) => score ?? 0);
   }
