@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Scope } from '@mnemosyne/contracts';
 import { CoreMemoryService, InMemoryRepository } from './index.js';
-import { RESERVED_PERSONAL_PROJECT_ID } from './types.js';
+import { RESERVED_PERSONAL_PROJECT_ID, type CreateMemoryInput } from './types.js';
 
 // The in-memory repository has to enforce what PostgreSQL enforces, or the
 // deterministic test suite would pass on rules the real database rejects.
@@ -80,6 +80,29 @@ describe('projects and areas', () => {
 
   it('names the reserved personal project with a stable id', () => {
     expect(RESERVED_PERSONAL_PROJECT_ID).toBe('personal');
+  });
+
+  it('refuses a memory without a project, because PostgreSQL refuses it too', async () => {
+    // memories.project_id is NOT NULL in the real database. The in-memory
+    // backend has to refuse the same write, or the deterministic suite would
+    // pass on a shape the database rejects and a bulk script would fail only
+    // once it reached PostgreSQL.
+    const repository = new InMemoryRepository();
+
+    await expect(
+      repository.createMemory({
+        sessionId: 'ses_senza_progetto',
+        content: 'memoria senza progetto',
+        kind: 'fact',
+        scope: { type: 'project', id: 'p1' },
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      } as unknown as CreateMemoryInput),
+    ).rejects.toThrow('memory_requires_project');
   });
 });
 

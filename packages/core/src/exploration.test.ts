@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { MemoryKind } from '@mnemosyne/contracts';
-import { CoreMemoryService, InMemoryRepository } from './index.js';
+import { CoreMemoryService, InMemoryCorpusCache, InMemoryRepository } from './index.js';
 
 // Exploration is the read path an agent uses when it does not know what it is
 // looking for. The rule it follows is the one search already follows: a
@@ -326,5 +326,59 @@ describe('the project outline', () => {
     await expect(
       service.getProjectOutline({ projectId: 'inesistente', context: { actor: 'owner' } }),
     ).rejects.toThrow('project_not_found');
+  });
+});
+
+describe('the project directory is cached without going stale', () => {
+  const createCachedService = (repository: InMemoryRepository) =>
+    new CoreMemoryService(repository, {
+      forgetSecret: 'a-secure-test-secret-that-is-long-enough',
+      corpusCache: new InMemoryCorpusCache(),
+    });
+
+  it('serves the corpus counts from the cache until the corpus changes', async () => {
+    const repository = new InMemoryRepository();
+    const service = createCachedService(repository);
+    const aggregates = vi.spyOn(repository, 'listProjectCorpusAggregates');
+
+    await service.listProjectSummaries();
+    expect(aggregates).toHaveBeenCalledTimes(1);
+
+    await service.listProjectSummaries();
+    expect(aggregates).toHaveBeenCalledTimes(1);
+
+    const session = await service.openSession({ projectId: 'alpha' });
+    await propose(service, session.sessionId, {
+      content: 'memoria accettata',
+      scope: { type: 'project', id: 'alpha' },
+    });
+    await service.listProjectSummaries();
+    expect(aggregates).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows a project created after the cache was warmed', async () => {
+    // The trap: creating a project does not bump the corpus revision, so a
+    // directory cached under the revision alone would hide the project that
+    // was just created, and the agent that opened a session on it would not
+    // find it in the list.
+    const repository = new InMemoryRepository();
+    const service = createCachedService(repository);
+    await service.listProjectSummaries();
+
+    await service.openSession({ projectId: 'appena-creato' });
+
+    const summaries = await service.listProjectSummaries();
+    expect(summaries.map((summary) => summary.id)).toContain('appena-creato');
+  });
+
+  it('counts the sessions of a project that the revision does not cover', async () => {
+    const repository = new InMemoryRepository();
+    const service = createCachedService(repository);
+    await service.listProjectSummaries();
+
+    await service.openSession({ projectId: 'alpha' });
+
+    const summaries = await service.listProjectSummaries();
+    expect(summaries.find((summary) => summary.id === 'alpha')?.sessionCount).toBe(1);
   });
 });

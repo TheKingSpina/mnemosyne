@@ -191,6 +191,10 @@ async function main() {
             activation: 'on_demand',
             sourceEventIds: [],
             sessionId: session.sessionId,
+            // A memory belongs to a project permanently: the column is NOT
+            // NULL, so a bulk write that goes straight to the repository has
+            // to name the project the session already belongs to.
+            projectId: 'profile',
           }),
         );
       }

@@ -122,6 +122,23 @@ END $$;
 
 ALTER TABLE memories ALTER COLUMN project_id SET NOT NULL;
 
+-- The project directory reads the corpus part of every project with one
+-- aggregate, so the aggregate has an index to read: (project_id, lifecycle)
+-- answers the grouped count without touching the table, and covers the
+-- per-project memory view as well.
+CREATE INDEX IF NOT EXISTS idx_memories_project_lifecycle
+  ON memories (project_id, lifecycle);
+
+-- Paging through the memories of a project orders by the last update, so the
+-- index carries it: without the ordering column the database sorts the whole
+-- project before it can return the first page.
+CREATE INDEX IF NOT EXISTS idx_memories_project_updated
+  ON memories (project_id, updated_at DESC);
+
+-- The structural part of the directory counts the sessions of every project.
+-- Without this index the count is a sequential scan per project.
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions (project_id);
+
 -- Enforced by a trigger rather than by the absence of an update path, so a future
 -- code path cannot quietly break the invariant. 23514 so the API reports it as a
 -- conflict.

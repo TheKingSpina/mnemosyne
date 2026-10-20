@@ -208,7 +208,14 @@ la lista rompe il gate).
   `GET /v1/projects/{id}/memories` (memorie del progetto con filtri e paginazione).
   Il profilo harness passa `sessionId`: è la sessione che determina gli scope visibili,
   e vede solo le memorie accepted che raggiunge. I conteggi sono aggregati di corpus e
-  non contengono contenuto, quindi entrambi i profili leggono gli stessi numeri.
+  non contengono contenuto, quindi entrambi i profili leggono gli stessi numeri. La
+  parte coperta dalla revisione del corpus è in cache Redis; progetti, aree e sessioni
+  sono riletti freschi a ogni chiamata, perché creare un progetto o una sessione non
+  sposta la revisione e una directory cacheata sotto la sola revisione nasconderebbe
+  il progetto appena creato. Gli aggregati sono calcolati in SQL (`GROUP BY`), non
+  idratando il corpus in memoria: a 10.000 memorie in un unico progetto la directory
+  passa da 39,7 ms a 1,8 ms senza cache e a 0,3 ms con cache, il profilo del progetto
+  da 49,3 ms a 4,9 ms e la prima pagina dell'elenco memorie da 45,5 ms a 3,0 ms.
 - **Admin (owner)**: overview, client-tokens (+revoke), capabilities (process-scoped:
   leggere sempre `reporter`), telemetry retrieval, embeddings health/reindex, memories,
   projects (+ `POST /v1/admin/projects/{id}/privacy`: marking manuale, mai inferito),

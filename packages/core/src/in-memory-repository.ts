@@ -1,10 +1,16 @@
+import { memoryKinds, memoryLifecycles } from '@mnemosyne/contracts';
 import type {
   CorrectMemoryInput,
+  MemoryKind,
   MemoryLifecycle,
   MemoryRevision,
   OpenSessionInput,
+  ProjectCorpusAggregate,
+  ProjectStructure,
   ProposeMemoryInput,
   RecordEventsInput,
+  Scope,
+  ScopeType,
   WorkerRuntimeCapabilities,
 } from '@mnemosyne/contracts';
 import { randomUUID, randomUUID as createRandomId } from 'node:crypto';
@@ -31,6 +37,7 @@ import type {
   MemoryRecord,
   MemoryRepository,
   MemoryWithCurrent,
+  ProjectBreakdown,
   JobAttemptRecord,
   BalancedRetentionCutoffs,
   RetentionRunCounts,
@@ -251,6 +258,178 @@ export class InMemoryRepository implements MemoryRepository {
     return [...this.areas.values()]
       .filter((area) => area.projectId === projectId)
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // The corpus part of every project. The counts are what the PostgreSQL
+  // backend computes with GROUP BY, and the in-memory backend has to answer
+  // the same question the same way: the deterministic suite has to pass on
+  // rules the real database would agree with.
+  async listProjectCorpusAggregates(): Promise<ProjectCorpusAggregate[]> {
+    const aggregates = new Map<string, ProjectCorpusAggregate>();
+    const aggregate = (projectId: string): ProjectCorpusAggregate => {
+      const existing = aggregates.get(projectId);
+      if (existing) return existing;
+      const created: ProjectCorpusAggregate = {
+        projectId,
+        memoryCount: 0,
+        acceptedCount: 0,
+        pendingApprovalCount: 0,
+        rejectedCount: 0,
+        retractedCount: 0,
+        openConflictCount: 0,
+        arcCount: 0,
+      };
+      aggregates.set(projectId, created);
+      return created;
+    };
+    const projectOfMemory = new Map<string, string>();
+    for (const record of this.memories.values()) {
+      projectOfMemory.set(record.id, record.projectId);
+      const entry = aggregate(record.projectId);
+      entry.memoryCount += 1;
+      if (record.lifecycle === 'accepted') entry.acceptedCount += 1;
+      if (record.lifecycle === 'pending_approval') entry.pendingApprovalCount += 1;
+      if (record.lifecycle === 'rejected') entry.rejectedCount += 1;
+      if (record.lifecycle === 'retracted') entry.retractedCount += 1;
+      if (entry.latestMemoryAt === undefined || record.updatedAt > entry.latestMemoryAt) {
+        entry.latestMemoryAt = record.updatedAt;
+      }
+    }
+    for (const conflict of this.conflicts.values()) {
+      if (conflict.status !== 'open') continue;
+      const projects = new Set(
+        conflict.memoryIds
+          .map((memoryId) => projectOfMemory.get(memoryId))
+          .filter((projectId): projectId is string => projectId !== undefined),
+      );
+      for (const projectId of projects) aggregate(projectId).openConflictCount += 1;
+    }
+    for (const arc of this.memoryArcs.values()) {
+      const projects = new Set(
+        [arc.fromMemoryId, arc.toMemoryId]
+          .map((memoryId) => projectOfMemory.get(memoryId))
+          .filter((projectId): projectId is string => projectId !== undefined),
+      );
+      for (const projectId of projects) aggregate(projectId).arcCount += 1;
+    }
+    for (const arc of this.projectArcs.values()) {
+      aggregate(arc.fromProjectId).arcCount += 1;
+      if (arc.toProjectId !== arc.fromProjectId) aggregate(arc.toProjectId).arcCount += 1;
+    }
+    return [...aggregates.values()];
+  }
+
+  async listProjectStructure(): Promise<ProjectStructure[]> {
+    return [...this.projects.values()].map((project) => ({
+      projectId: project.id,
+      areaCount: [...this.areas.values()].filter((area) => area.projectId === project.id).length,
+      sessionCount: [...this.sessions.values()].filter(
+        (session) => session.projectId === project.id,
+      ).length,
+    }));
+  }
+
+  async listProjectMemoryViews(projectId: string): Promise<MemoryWithCurrent[]> {
+    return [...this.memories.values()]
+      .filter((record) => record.projectId === projectId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .flatMap((record) => {
+        const current = this.revisions.get(record.id)?.get(record.currentVersion);
+        return current ? [{ record, current }] : [];
+      });
+  }
+
+  async listRecentProjectMemories(input: {
+    projectId: string;
+    limit: number;
+    scopes: Scope[] | null;
+  }): Promise<MemoryWithCurrent[]> {
+    const views = [...this.memories.values()]
+      .filter((record) => record.projectId === input.projectId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .flatMap((record) => {
+        const current = this.revisions.get(record.id)?.get(record.currentVersion);
+        return current ? [{ record, current }] : [];
+      });
+    if (input.scopes === null) return views.slice(0, input.limit);
+    return views
+      .filter(
+        (view) =>
+          view.record.lifecycle === 'accepted' &&
+          input.scopes!.some(
+            (scope) => scope.type === view.current.scope.type && scope.id === view.current.scope.id,
+          ),
+      )
+      .slice(0, input.limit);
+  }
+
+  async listProjectConflicts(projectId: string): Promise<ConflictRecord[]> {
+    const projectOfMemory = new Map<string, string>();
+    for (const record of this.memories.values()) projectOfMemory.set(record.id, record.projectId);
+    return [...this.conflicts.values()].filter(
+      (conflict) =>
+        conflict.status === 'open' &&
+        conflict.memoryIds.some((memoryId) => projectOfMemory.get(memoryId) === projectId),
+    );
+  }
+
+  async listProjectBreakdown(projectId: string): Promise<ProjectBreakdown> {
+    const byKind = Object.fromEntries(memoryKinds.map((kind) => [kind, 0])) as Record<
+      MemoryKind,
+      number
+    >;
+    const byLifecycle = Object.fromEntries(
+      memoryLifecycles.map((lifecycle) => [lifecycle, 0]),
+    ) as Record<MemoryLifecycle, number>;
+    const byScope = { session: 0, project: 0, area: 0 };
+    for (const view of await this.listProjectMemoryViews(projectId)) {
+      byKind[view.current.kind] += 1;
+      byLifecycle[view.record.lifecycle] += 1;
+      byScope[view.current.scope.type] += 1;
+    }
+    return { byKind, byLifecycle, byScope };
+  }
+
+  async listProjectMemories(input: {
+    projectId: string;
+    kind?: MemoryKind;
+    lifecycle?: MemoryLifecycle;
+    scopeType?: ScopeType;
+    scopeId?: string;
+    q?: string;
+    limit: number;
+    offset: number;
+    scopes: Scope[] | null;
+  }): Promise<{ items: MemoryWithCurrent[]; total: number }> {
+    const query = (input.q ?? '').trim().toLocaleLowerCase();
+    const views = [...this.memories.values()]
+      .filter((record) => record.projectId === input.projectId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .flatMap((record) => {
+        const current = this.revisions.get(record.id)?.get(record.currentVersion);
+        return current ? [{ record, current }] : [];
+      })
+      .filter((view) => {
+        if (input.scopes !== null) {
+          if (view.record.lifecycle !== 'accepted') return false;
+          const visible = input.scopes.some(
+            (scope) => scope.type === view.current.scope.type && scope.id === view.current.scope.id,
+          );
+          if (!visible) return false;
+        }
+        if (input.kind && view.current.kind !== input.kind) return false;
+        if (input.lifecycle && view.record.lifecycle !== input.lifecycle) return false;
+        if (input.scopeType && view.current.scope.type !== input.scopeType) return false;
+        if (input.scopeId && view.current.scope.id !== input.scopeId) return false;
+        if (query.length > 0 && !view.current.content.toLocaleLowerCase().includes(query)) {
+          return false;
+        }
+        return true;
+      });
+    return {
+      items: views.slice(input.offset, input.offset + input.limit),
+      total: views.length,
+    };
   }
 
   async createMemoryArc(input: CreateMemoryArcInput): Promise<MemoryArc> {
@@ -490,6 +669,10 @@ export class InMemoryRepository implements MemoryRepository {
   }
 
   async createMemory(input: CreateMemoryInput): Promise<MemoryRecord> {
+    // Project membership is identity, and PostgreSQL refuses a memory without
+    // one. The in-memory backend has to refuse it too, or the deterministic
+    // suite passes on a shape the real database rejects.
+    if (!input.projectId) throw new Error('memory_requires_project');
     const id = `mem_${randomUUID()}`;
     const now = this.now().toISOString();
     const record: MemoryRecord = {

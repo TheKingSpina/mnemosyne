@@ -86,7 +86,14 @@ async function runCase(testCase) {
   const extracted = extraction?.candidates ?? [];
   const extractedContents = unique(extracted.map((candidate) => candidate.content));
   for (const input of testCase.directPending ?? []) {
-    await repository.createMemory({ ...input, sessionId: session.sessionId });
+    // A memory belongs to a project permanently: the column is NOT NULL in
+    // PostgreSQL, and the in-memory backend enforces the same rule, so the
+    // candidate has to name the project of the session it belongs to.
+    await repository.createMemory({
+      ...input,
+      sessionId: session.sessionId,
+      projectId: testCase.projectId,
+    });
   }
   const beforeReview = await service.listPendingProposals({
     sessionId: session.sessionId,

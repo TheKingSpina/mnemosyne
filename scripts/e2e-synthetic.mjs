@@ -848,12 +848,49 @@ async function verifyExploration(session) {
   );
   assert(memories.total === 3, `unexpected_project_memories:${memories.total}`);
 
+  // The filters run in SQL, against the real database, so they are proved
+  // here rather than only on the in-memory backend.
+  const byScope = await api(
+    `/v1/projects/e2e-synthetic/memories?${new URLSearchParams({
+      sessionId: session.sessionId,
+      scopeType: 'area',
+    })}`,
+    { token: harnessToken },
+  );
+  assert(byScope.total === 1, `unexpected_area_filtered_memories:${byScope.total}`);
+  const byText = await api(
+    `/v1/projects/e2e-synthetic/memories?${new URLSearchParams({
+      sessionId: session.sessionId,
+      q: 'docker',
+    })}`,
+    { token: harnessToken },
+  );
+  assert(byText.total === 1, `unexpected_text_filtered_memories:${byText.total}`);
+  const paged = await api(
+    `/v1/projects/e2e-synthetic/memories?${new URLSearchParams({
+      sessionId: session.sessionId,
+      limit: '1',
+      offset: '1',
+    })}`,
+    { token: harnessToken },
+  );
+  assert(paged.total === 3, `unexpected_paged_total:${paged.total}`);
+  assert(paged.items.length === 1, `unexpected_paged_items:${paged.items.length}`);
+
   // A harness reads the project its session belongs to, and no other.
   const other = await api(
     `/v1/projects/e2e-alt/memories?${new URLSearchParams({ sessionId: session.sessionId })}`,
     { token: harnessToken },
   );
   assert(other.total === 0, 'project_memories_leaked_across_projects');
+
+  // The corpus part of the directory is cached under the corpus revision, so
+  // the second call is served without touching the corpus again.
+  const cached = redisKeys().filter((key) => key.startsWith('mnemosyne:project-aggregates:'));
+  assert(cached.length === 1, `project_aggregates_not_cached:${cached.length}`);
+  const again = await api('/v1/projects', { token: harnessToken });
+  const againSynthetic = again.projects.find((project) => project.id === 'e2e-synthetic');
+  assert(againSynthetic.memoryCount === 3, 'project_directory_changed_between_calls');
 }
 
 async function searchToCreateCache(sessionId, memoryId) {

@@ -311,6 +311,11 @@ async function main() {
           activation: 'on_demand',
           sourceEventIds: [],
           sessionId: session.sessionId,
+          // Project membership is identity since a memory belongs to a project
+          // permanently: the column is NOT NULL and the write fails without
+          // it. The service derives it from the session; a bulk write goes
+          // straight to the repository, so it has to name it.
+          projectId: PROJECT,
         });
       }
       const created = [];
@@ -428,6 +433,45 @@ async function main() {
           `${((Date.now() - started) / 1000).toFixed(1)}s, ${errors} errori\n  ${JSON.stringify(summarise(latencies))}\n`,
       );
     }
+
+    // The project directory is the first call an agent makes, so its cost is
+    // the one that decides whether exploring feels slow. Three shapes, because
+    // "the cache makes it fast" is only meaningful against a number.
+    process.stdout.write('F. directory dei progetti\n');
+    const measure = async (operation, runs = 20) => {
+      const latencies = [];
+      for (let n = 0; n < runs; n += 1) {
+        const started = process.hrtime.bigint();
+        await operation();
+        latencies.push(Number(process.hrtime.bigint() - started) / 1e6);
+      }
+      return summarise(latencies);
+    };
+    // The old shape of the question: hydrate every memory with its current
+    // revision, only to count rows.
+    const oldShape = await measure(() => repository.listMemoryViews());
+    process.stdout.write(
+      `  vecchio percorso (idratazione del corpus): ${JSON.stringify(oldShape)}\n`,
+    );
+    const newShape = await measure(() => uncached.listProjectSummaries());
+    process.stdout.write(`  nuovo percorso, senza cache: ${JSON.stringify(newShape)}\n`);
+    const cachedShape = await measure(() => cached.listProjectSummaries());
+    process.stdout.write(`  nuovo percorso, con cache: ${JSON.stringify(cachedShape)}\n`);
+    const outline = await measure(() =>
+      cached.getProjectOutline({
+        projectId: PROJECT,
+        context: { actor: 'owner' },
+      }),
+    );
+    process.stdout.write(`  profilo del progetto: ${JSON.stringify(outline)}\n`);
+    const projectMemories = await measure(() =>
+      cached.listProjectMemories({
+        projectId: PROJECT,
+        context: { actor: 'owner' },
+        limit: 50,
+      }),
+    );
+    process.stdout.write(`  elenco memorie del progetto: ${JSON.stringify(projectMemories)}\n`);
   } finally {
     if (pool) await pool.end();
     await docker('rm', '-f', postgresName).catch(() => undefined);

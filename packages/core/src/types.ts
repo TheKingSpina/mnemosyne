@@ -22,6 +22,7 @@ import type {
   MemoryFeedbackInput,
   MemoryFeedbackOutput,
   MemoryActor,
+  MemoryKind,
   MemoryLifecycle,
   MemoryRevision,
   MemoryView,
@@ -35,6 +36,8 @@ import type {
   ProjectMemoriesOutput,
   ProjectOutline,
   ProjectSummary,
+  ProjectCorpusAggregate,
+  ProjectStructure,
   ProposalResult,
   PruningAnalysisOutput,
   ProposeMemoryInput,
@@ -47,7 +50,6 @@ import type {
   PrivacyFlag,
   Scope,
   ScopeType,
-  MemoryKind,
   SearchMemoriesInput,
   SessionConsolidationOutput,
   WorkerRuntimeCapabilities,
@@ -337,6 +339,15 @@ export interface GetMemoryDetailInput {
   context: ExplorationContext;
 }
 
+// How the memories of a project break down, counted in the database. Three
+// views over the same rows: a breakdown that has to read them one by one is
+// a breakdown that scales with the size of the project.
+export interface ProjectBreakdown {
+  byKind: Record<MemoryKind, number>;
+  byLifecycle: Record<MemoryLifecycle, number>;
+  byScope: { session: number; project: number; area: number };
+}
+
 export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
   getRetrievalTelemetry(): RetrievalTelemetry;
@@ -428,6 +439,30 @@ export interface MemoryRepository {
   createArea(input: CreateAreaInput): Promise<AreaRecord>;
   findAreaById(id: string): Promise<AreaRecord | null>;
   listAreas(projectId: string): Promise<AreaRecord[]>;
+  // The aggregates that describe the corpus part of a project, and the
+  // structural part that the corpus revision does not cover. They are separate
+  // because only the first may be cached: the second changes without the
+  // revision moving.
+  listProjectCorpusAggregates(): Promise<ProjectCorpusAggregate[]>;
+  listProjectStructure(): Promise<ProjectStructure[]>;
+  listProjectBreakdown(projectId: string): Promise<ProjectBreakdown>;
+  listProjectConflicts(projectId: string): Promise<ConflictRecord[]>;
+  listRecentProjectMemories(input: {
+    projectId: string;
+    limit: number;
+    scopes: Scope[] | null;
+  }): Promise<MemoryWithCurrent[]>;
+  listProjectMemories(input: {
+    projectId: string;
+    kind?: MemoryKind;
+    lifecycle?: MemoryLifecycle;
+    scopeType?: ScopeType;
+    scopeId?: string;
+    q?: string;
+    limit: number;
+    offset: number;
+    scopes: Scope[] | null;
+  }): Promise<{ items: MemoryWithCurrent[]; total: number }>;
   // Arcs are governed rows, not graph internals. A client proposes them and the
   // owner accepts, exactly like a memory; only accepted arcs reach Neo4j.
   createMemoryArc(input: CreateMemoryArcInput): Promise<MemoryArc>;

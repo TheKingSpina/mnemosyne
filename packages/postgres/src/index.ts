@@ -2,17 +2,23 @@ import { readFile } from 'node:fs/promises';
 import { workerRuntimeCapabilitiesSchema } from '@mnemosyne/contracts';
 import type {
   CorrectMemoryInput,
+  MemoryKind,
   MemoryLifecycle,
   MemoryRevision,
   OpenSessionInput,
+  ProjectCorpusAggregate,
+  ProjectStructure,
   ProposeMemoryInput,
   RecordEventsInput,
   Scope,
+  ScopeType,
   WorkerRuntimeCapabilities,
 } from '@mnemosyne/contracts';
+import { memoryKinds, memoryLifecycles } from '@mnemosyne/contracts';
 import type {
   ConflictRecord,
   CorpusRevision,
+  ProjectBreakdown,
   EventRecord,
   JobAttemptRecord,
   JobRecord,
@@ -665,6 +671,292 @@ export class PostgresMemoryRepository implements MemoryRepository {
       [projectId],
     );
     return result.rows.map(areaFromRow);
+  }
+
+  // The corpus part of every project, computed in the database. The previous
+  // shape of this question was answered by hydrating every memory with its
+  // current revision, which is a full table scan with the content of the
+  // whole corpus on the wire, only to count rows. These are four aggregate
+  // queries that touch no content column at all.
+  async listProjectCorpusAggregates(): Promise<ProjectCorpusAggregate[]> {
+    const [memories, conflicts, memoryArcs, projectArcs] = await Promise.all([
+      this.database.query<{
+        project_id: string;
+        lifecycle: string;
+        total: string;
+        latest: Date;
+      }>(
+        `SELECT project_id, lifecycle, count(*) AS total, max(updated_at) AS latest
+         FROM memories
+         GROUP BY project_id, lifecycle`,
+      ),
+      this.database.query<{ project_id: string; total: string }>(
+        `SELECT m.project_id, count(DISTINCT c.id) AS total
+         FROM conflicts c
+         JOIN LATERAL unnest(c.memory_ids) AS member(memory_id) ON true
+         JOIN memories m ON m.id = member.memory_id
+         WHERE c.status = 'open'
+         GROUP BY m.project_id`,
+      ),
+      this.database.query<{ project_id: string; total: string }>(
+        `SELECT m.project_id, count(DISTINCT a.id) AS total
+         FROM memory_arcs a
+         JOIN LATERAL unnest(ARRAY[a.from_memory_id, a.to_memory_id]) AS member(memory_id) ON true
+         JOIN memories m ON m.id = member.memory_id
+         GROUP BY m.project_id`,
+      ),
+      this.database.query<{ project_id: string; total: string }>(
+        `SELECT p.id AS project_id, count(DISTINCT a.id) AS total
+         FROM project_arcs a
+         JOIN projects p ON p.id = a.from_project_id OR p.id = a.to_project_id
+         GROUP BY p.id`,
+      ),
+    ]);
+    const aggregates = new Map<string, ProjectCorpusAggregate>();
+    const aggregate = (projectId: string): ProjectCorpusAggregate => {
+      const existing = aggregates.get(projectId);
+      if (existing) return existing;
+      const created: ProjectCorpusAggregate = {
+        projectId,
+        memoryCount: 0,
+        acceptedCount: 0,
+        pendingApprovalCount: 0,
+        rejectedCount: 0,
+        retractedCount: 0,
+        openConflictCount: 0,
+        arcCount: 0,
+      };
+      aggregates.set(projectId, created);
+      return created;
+    };
+    for (const row of memories.rows) {
+      const entry = aggregate(row.project_id);
+      const total = Number(row.total);
+      entry.memoryCount += total;
+      if (row.lifecycle === 'accepted') entry.acceptedCount += total;
+      if (row.lifecycle === 'pending_approval') entry.pendingApprovalCount += total;
+      if (row.lifecycle === 'rejected') entry.rejectedCount += total;
+      if (row.lifecycle === 'retracted') entry.retractedCount += total;
+      const latest = row.latest.toISOString();
+      if (entry.latestMemoryAt === undefined || latest > entry.latestMemoryAt) {
+        entry.latestMemoryAt = latest;
+      }
+    }
+    for (const row of conflicts.rows) {
+      aggregate(row.project_id).openConflictCount += Number(row.total);
+    }
+    for (const row of memoryArcs.rows) {
+      aggregate(row.project_id).arcCount += Number(row.total);
+    }
+    for (const row of projectArcs.rows) {
+      aggregate(row.project_id).arcCount += Number(row.total);
+    }
+    return [...aggregates.values()];
+  }
+
+  // The structural part of every project: the declared areas and the sessions
+  // that ran inside it. Neither bumps the corpus revision, so this is read
+  // fresh every time and never cached.
+  async listProjectStructure(): Promise<ProjectStructure[]> {
+    const result = await this.database.query<{
+      project_id: string;
+      area_count: string;
+      session_count: string;
+    }>(
+      `SELECT p.id AS project_id,
+              (SELECT count(*) FROM areas a WHERE a.project_id = p.id) AS area_count,
+              (SELECT count(*) FROM sessions s WHERE s.project_id = p.id) AS session_count
+       FROM projects p`,
+    );
+    return result.rows.map((row) => ({
+      projectId: row.project_id,
+      areaCount: Number(row.area_count),
+      sessionCount: Number(row.session_count),
+    }));
+  }
+
+  // The open conflicts of a project, found through the memories they touch.
+  // A conflict names the memories it involves, so the join is over the
+  // endpoint array rather than over a column that would have to be maintained.
+  async listProjectConflicts(projectId: string): Promise<ConflictRecord[]> {
+    const result = await this.database.query<ConflictRow>(
+      `SELECT c.id, c.type, c.memory_ids, c.status
+       FROM conflicts c
+       JOIN LATERAL unnest(c.memory_ids) AS member(memory_id) ON true
+       JOIN memories m ON m.id = member.memory_id
+       WHERE m.project_id = $1 AND c.status = 'open'
+       GROUP BY c.id, c.type, c.memory_ids, c.status`,
+      [projectId],
+    );
+    return result.rows.map((row) => this.conflictFromRow(row));
+  }
+
+  // The breakdown of a project, counted in the database. Grouping by the
+  // columns that carry the classification answers the question without
+  // moving a row per memory to the client.
+  async listProjectBreakdown(projectId: string): Promise<ProjectBreakdown> {
+    const result = await this.database.query<{
+      kind: MemoryKind;
+      lifecycle: MemoryLifecycle;
+      scope_type: 'session' | 'area' | 'project';
+      total: string;
+    }>(
+      `SELECT r.kind, m.lifecycle,
+              CASE WHEN r.session_id IS NOT NULL THEN 'session'
+                   WHEN r.area_id IS NOT NULL THEN 'area'
+                   ELSE 'project' END AS scope_type,
+              count(*) AS total
+       FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+       WHERE m.project_id = $1
+       GROUP BY r.kind, m.lifecycle, scope_type`,
+      [projectId],
+    );
+    const byKind = Object.fromEntries(memoryKinds.map((kind) => [kind, 0])) as Record<
+      MemoryKind,
+      number
+    >;
+    const byLifecycle = Object.fromEntries(
+      memoryLifecycles.map((lifecycle) => [lifecycle, 0]),
+    ) as Record<MemoryLifecycle, number>;
+    const byScope = { session: 0, project: 0, area: 0 };
+    for (const row of result.rows) {
+      const total = Number(row.total);
+      byKind[row.kind] += total;
+      byLifecycle[row.lifecycle] += total;
+      byScope[row.scope_type] += total;
+    }
+    return { byKind, byLifecycle, byScope };
+  }
+
+  // The memories of a project, filtered and paginated in the database. The
+  // text filter is a substring match on the content, the same rule the
+  // in-memory backend applies, and it is written with `position` so a
+  // percent sign in the query stays a percent sign.
+  async listProjectMemories(input: {
+    projectId: string;
+    kind?: MemoryKind;
+    lifecycle?: MemoryLifecycle;
+    scopeType?: ScopeType;
+    scopeId?: string;
+    q?: string;
+    limit: number;
+    offset: number;
+    scopes: Scope[] | null;
+  }): Promise<{ items: MemoryWithCurrent[]; total: number }> {
+    const scopeTypeExpression = `CASE WHEN r.session_id IS NOT NULL THEN 'session'
+       WHEN r.area_id IS NOT NULL THEN 'area'
+       ELSE 'project' END`;
+    const conditions: string[] = ['m.project_id = $1'];
+    const params: unknown[] = [input.projectId];
+    const add = (condition: string, value: unknown) => {
+      params.push(value);
+      conditions.push(condition.replace('$?', `$${params.length}`));
+    };
+    if (input.scopes !== null) {
+      conditions.push("m.lifecycle = 'accepted'");
+      const sessionIds = input.scopes.filter((scope) => scope.type === 'session').map((s) => s.id);
+      const areaIds = input.scopes.filter((scope) => scope.type === 'area').map((s) => s.id);
+      const projectIds = input.scopes.filter((scope) => scope.type === 'project').map((s) => s.id);
+      params.push(sessionIds, areaIds, projectIds);
+      const sessionIndex = params.length - 2;
+      const areaIndex = params.length - 1;
+      const projectIndex = params.length;
+      conditions.push(
+        `((r.session_id IS NOT NULL AND r.session_id = ANY($${sessionIndex}::text[]))
+          OR (r.session_id IS NULL AND r.area_id IS NOT NULL AND r.area_id = ANY($${areaIndex}::text[]))
+          OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = ANY($${projectIndex}::text[])))`,
+      );
+    }
+    if (input.kind) add('r.kind = $?', input.kind);
+    if (input.lifecycle) add('m.lifecycle = $?', input.lifecycle);
+    if (input.scopeType) add(`(${scopeTypeExpression}) = $?`, input.scopeType);
+    if (input.scopeId) {
+      params.push(input.scopeId);
+      const index = params.length;
+      conditions.push(
+        `((r.session_id IS NOT NULL AND r.session_id = $${index})
+          OR (r.session_id IS NULL AND r.area_id IS NOT NULL AND r.area_id = $${index})
+          OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = $${index}))`,
+      );
+    }
+    if (input.q && input.q.trim().length > 0) {
+      add('position(lower($?) in lower(r.content)) > 0', input.q.trim());
+    }
+    const where = conditions.join(' AND ');
+    const columns = `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
+              r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation, r.source_event_ids
+       FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version`;
+    const count = await this.database.query<{ total: string }>(
+      `SELECT count(*) AS total
+       FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+       WHERE ${where}`,
+      params,
+    );
+    params.push(input.limit, input.offset);
+    const limitIndex = params.length - 1;
+    const offsetIndex = params.length;
+    const page = await this.database.query<MemoryRow & MemoryRevisionRow>(
+      `${columns}
+       WHERE ${where}
+       ORDER BY m.updated_at DESC
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      params,
+    );
+    return {
+      items: page.rows.map((row) => ({
+        record: this.memoryFromRow(row),
+        current: this.revisionFromRow(row),
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+    };
+  }
+
+  // The most recent memories of a project, with their content. The scope
+  // filter is the same one search applies: a harness reads the accepted
+  // memories its session can reach, and the filter belongs in the database
+  // because the recent ones are not necessarily the visible ones.
+  async listRecentProjectMemories(input: {
+    projectId: string;
+    limit: number;
+    scopes: Scope[] | null;
+  }): Promise<MemoryWithCurrent[]> {
+    const columns = `SELECT m.*, r.memory_id, r.version, r.content, r.kind, r.project_id, r.area_id, r.session_id,
+              r.epistemic_basis, r.assessment, r.confidence, r.sensitivity, r.activation, r.source_event_ids
+       FROM memories m
+       JOIN memory_revisions r ON r.memory_id = m.id AND r.version = m.current_version
+       WHERE m.project_id = $1`;
+    if (input.scopes === null) {
+      const result = await this.database.query<MemoryRow & MemoryRevisionRow>(
+        `${columns} ORDER BY m.updated_at DESC LIMIT $2`,
+        [input.projectId, input.limit],
+      );
+      return result.rows.map((row) => ({
+        record: this.memoryFromRow(row),
+        current: this.revisionFromRow(row),
+      }));
+    }
+    const sessionIds = input.scopes.filter((scope) => scope.type === 'session').map((s) => s.id);
+    const areaIds = input.scopes.filter((scope) => scope.type === 'area').map((s) => s.id);
+    const projectIds = input.scopes.filter((scope) => scope.type === 'project').map((s) => s.id);
+    const result = await this.database.query<MemoryRow & MemoryRevisionRow>(
+      `${columns}
+         AND m.lifecycle = 'accepted'
+         AND (
+           (r.session_id IS NOT NULL AND r.session_id = ANY($3::text[]))
+           OR (r.session_id IS NULL AND r.area_id IS NOT NULL AND r.area_id = ANY($4::text[]))
+           OR (r.session_id IS NULL AND r.area_id IS NULL AND r.project_id = ANY($5::text[]))
+         )
+       ORDER BY m.updated_at DESC
+       LIMIT $2`,
+      [input.projectId, input.limit, sessionIds, areaIds, projectIds],
+    );
+    return result.rows.map((row) => ({
+      record: this.memoryFromRow(row),
+      current: this.revisionFromRow(row),
+    }));
   }
 
   async createMemoryArc(input: CreateMemoryArcInput): Promise<MemoryArc> {

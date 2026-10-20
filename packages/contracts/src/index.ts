@@ -24,6 +24,9 @@ export const memoryKindSchema = z.enum([
   'episode',
 ]);
 export type MemoryKind = z.infer<typeof memoryKindSchema>;
+// The stable sets, read from the schemas so a breakdown cannot drift from
+// the contract that validates it.
+export const memoryKinds = memoryKindSchema.options;
 
 export const epistemicBasisSchema = z.enum([
   'user_asserted',
@@ -57,6 +60,7 @@ export const memoryLifecycleSchema = z.enum([
   'forgotten',
 ]);
 export type MemoryLifecycle = z.infer<typeof memoryLifecycleSchema>;
+export const memoryLifecycles = memoryLifecycleSchema.options;
 
 export const memoryRevisionSchema = z.object({
   memoryId: z.string().min(1),
@@ -211,6 +215,32 @@ export const listProjectsOutputSchema = z.object({
   projects: z.array(projectSummarySchema),
 });
 export type ListProjectsOutput = z.infer<typeof listProjectsOutputSchema>;
+
+// The corpus part of a project: the numbers that move when the corpus moves,
+// and therefore the numbers a cache may hold. The structural part (areas,
+// sessions) is deliberately not here: the corpus revision does not cover it,
+// because creating a project or a session does not bump the revision. A
+// cached directory that missed a new project would hide the very thing it
+// exists to show.
+export const projectCorpusAggregateSchema = z.object({
+  projectId: z.string().min(1),
+  memoryCount: z.number().int().nonnegative(),
+  acceptedCount: z.number().int().nonnegative(),
+  pendingApprovalCount: z.number().int().nonnegative(),
+  rejectedCount: z.number().int().nonnegative(),
+  retractedCount: z.number().int().nonnegative(),
+  openConflictCount: z.number().int().nonnegative(),
+  arcCount: z.number().int().nonnegative(),
+  latestMemoryAt: z.string().datetime({ offset: true }).optional(),
+});
+export type ProjectCorpusAggregate = z.infer<typeof projectCorpusAggregateSchema>;
+
+export const projectStructureSchema = z.object({
+  projectId: z.string().min(1),
+  areaCount: z.number().int().nonnegative(),
+  sessionCount: z.number().int().nonnegative(),
+});
+export type ProjectStructure = z.infer<typeof projectStructureSchema>;
 
 export const setProjectPrivacyInputSchema = z.object({
   privacy: privacyFlagSchema,
