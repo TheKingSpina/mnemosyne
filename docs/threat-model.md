@@ -12,14 +12,14 @@ Mnemosyne conserva memoria governata per un singolo operatore e per harness LLM 
 - forget secret e chiavi provider;
 - export canonici e dump PostgreSQL;
 - configurazione di rete e credenziali del deployment;
-- integrità delle proiezioni Redis e Neo4j.
+- integrità delle proiezioni Redis e del grafo.
 
 ## Sorgenti di fiducia
 
 - PostgreSQL è l’archivio autorevole.
 - API, worker e MCP applicano la stessa policy di autorizzazione.
 - I token statici del deployment restano autorità anche quando esistono token per client: la policy prova prima quelli e usa i secondi solo se i primi non risolvono.
-- Redis e Neo4j sono derivati e ricostruibili.
+- Redis e il grafo sono derivati e ricostruibili.
 - OpenRouter o altri provider ricevono solo dati necessari all’estrazione e solo quando abilitati. L’analizzatore di potatura aggiunge un egress separato, spento per default: riceve solo batch uniformi per flag privacy di nodi marcati a mano (`public` interi, `anonymized` senza identificatori né contenuto grezzo, `local_only` mai), e le sue proposte non scrivono mai sulle memorie.
 - Il contenuto delle conversazioni è dati non fidati, mai istruzioni di sistema.
 

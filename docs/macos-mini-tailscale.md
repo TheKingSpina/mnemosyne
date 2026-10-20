@@ -28,19 +28,21 @@ Per il solo dashboard/API sono sufficienti:
 docker compose up --build -d postgres redis api web
 ```
 
-Per estrazione, code e proiezione Neo4j usa lo stack completo:
+Per estrazione, code e proiezione a grafo usa lo stack completo:
 
 ```bash
-docker compose up --build -d postgres redis neo4j api worker web
+docker compose up --build -d postgres redis memgraph api worker web
 ```
+
+Il servizio del grafo si chiama `memgraph`: un comando che nomina `neo4j` fallisce con `no such service`. Le variabili d'ambiente (`NEO4J_URI`, `NEO4J_USERNAME`) e il driver conservano il nome storico perché sono i nomi del protocollo Bolt.
 
 Per un worker locale senza provider remoto, svuota le variabili OpenRouter che potrebbero provenire dalla shell:
 
 ```bash
-env -u OPENROUTER_API_KEY -u OPENROUTER_MODEL docker compose up -d --build postgres redis neo4j api worker web
+env -u OPENROUTER_API_KEY -u OPENROUTER_MODEL docker compose up -d --build postgres redis memgraph api worker web
 ```
 
-Non usare `docker compose down -v` su un’istanza con dati: rimuove i volumi PostgreSQL e Neo4j.
+Non usare `docker compose down -v` su un’istanza con dati: rimuove i volumi PostgreSQL e del grafo.
 
 ## 3. Accesso dal tailnet
 
@@ -72,7 +74,7 @@ curl -fsS -H "authorization: Bearer $MNEMOSYNE_OWNER_TOKEN" \
   http://127.0.0.1:18080/api/backend/v1/admin/overview
 ```
 
-Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel container, pubblica `127.0.0.1:3333` con Tailscale Serve e configura `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Per i client MCP eseguiti nel browser, aggiungi a `MCP_ALLOWED_ORIGINS` l’origine esatta della pagina client (schema, host e porta); il server risponde ai preflight CORS soltanto per le origini elencate. Non usare wildcard. Non esporre direttamente API, PostgreSQL, Redis o Neo4j.
+Per l’MCP remoto, imposta `MCP_TRANSPORT=http` e `MCP_HOST=0.0.0.0` nel container, pubblica `127.0.0.1:3333` con Tailscale Serve e configura `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Per i client MCP eseguiti nel browser, aggiungi a `MCP_ALLOWED_ORIGINS` l’origine esatta della pagina client (schema, host e porta); il server risponde ai preflight CORS soltanto per le origini elencate. Non usare wildcard. Non esporre direttamente API, PostgreSQL, Redis o il grafo.
 
 ### Client MCP su un’altra macchina
 
@@ -152,7 +154,9 @@ MCP ora possiede anche la cache dei risultati di ricerca, come l'API, e per ques
 
 ## 5. Risorse M1 8 GB
 
-Neo4j è il servizio più pesante. Il Compose imposta già heap e page cache contenuti. Assegna a Docker/OrbStack circa 4–6 GB, lascia memoria al sistema e non eseguire build TypeScript pesanti sul mini mentre il servizio è attivo. Se Neo4j non serve, avvia solo `postgres redis api web`; l’assenza di Neo4j non influisce sul dashboard.
+Il motore a grafo è **Memgraph**, non Neo4j: è un processo C++ di poche decine di megabyte, non una JVM. Il Compose non ha bisogno di heap né page cache da tarare, e il peso del grafo non è più il vincolo della macchina. Assegna a Docker/OrbStack circa 3–4 GB, lascia memoria al sistema e non eseguire build TypeScript pesanti sul mini mentre il servizio è attivo. Se il grafo non serve, avvia solo `postgres redis api web`; l'assenza della proiezione non influisce sul dashboard né sul corpus.
+
+Il grafo è raggiungibile solo su loopback, per Bolt: il container non pubblica una porta HTTP.
 
 ## 6. Backup
 
@@ -168,7 +172,7 @@ npm run backup:postgres -- \
 
 Usa una passphrase file con permessi `0600`, conservata fuori dal repository. Verifica periodicamente il restore con `npm run restore:postgres` in un database target vuoto.
 
-Il comando di backup richiede `MNEMOSYNE_DEPLOY_ENV_FILE` nell'ambiente: `docker compose` interpola tutti i servizi di `compose.yaml` anche per un `exec postgres`, quindi senza i valori di deployment il dump fallisce su `neo4j` o `worker`. I template in `ops/backup/` lo caricano da `run-backup.sh`; vedi [`ops/backup/README.md`](../ops/backup/README.md).
+Il comando di backup richiede `MNEMOSYNE_DEPLOY_ENV_FILE` nell'ambiente: `docker compose` interpola tutti i servizi di `compose.yaml` anche per un `exec postgres`, quindi senza i valori di deployment il dump fallisce su `memgraph` o `worker`. I template in `ops/backup/` lo caricano da `run-backup.sh`; vedi [`ops/backup/README.md`](../ops/backup/README.md).
 
 Un backup sul disco del mini non è un backup: copia il `.dump` e il suo `.manifest.json` fuori dal mini, su storage cifrato.
 
@@ -202,7 +206,7 @@ Abilita anche l'opzione "start at login" di OrbStack: il LaunchAgent è la rete 
 Prima di un aggiornamento esegui un backup verificato e annota il commit corrente. Dopo `git pull`:
 
 ```bash
-docker compose up --build -d postgres redis neo4j api worker web
+docker compose up --build -d postgres redis memgraph api worker web
 docker compose ps --all
 ```
 

@@ -4,7 +4,7 @@
 
 PostgreSQL conserva sessioni, eventi, memorie, revisioni, conflitti, job e forget ledger. I dati vengono esclusi dalla persistenza quando il forget viene confermato, fatta eccezione per il forget ledger minimo necessario a proteggere i restore futuri.
 
-Redis contiene una cache derivata e Neo4j contiene una proiezione ricostruibile. Devono essere svuotati o ricostruiti durante il recovery e non sono fonti autorevoli.
+Redis contiene una cache derivata e il grafo (Memgraph, su Bolt) contiene una proiezione ricostruibile. Devono essere svuotati o ricostruiti durante il recovery e non sono fonti autorevoli.
 
 ## Provider esterni
 

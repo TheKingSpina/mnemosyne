@@ -18,35 +18,38 @@ con `restart: unless-stopped`.
 
 ### 1.1 Dati
 
-| Servizio   | Immagine                 | Porta host  | Volume          | Ruolo                                                                                                                                                      |
-| ---------- | ------------------------ | ----------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `postgres` | `pgvector/pgvector:pg17` | 5432        | `postgres_data` | **Autoritativo.** Memorie, revisioni, progetti, aree, archi, sessioni, eventi, conflitti, job, outbox, ledger, embedding pgvector                          |
-| `redis`    | `redis:7.4-alpine`       | 6379        | nessuno         | **Solo cache** del corpus (API e MCP), con validazione su revisione e revalidazione riga per riga. Perderlo non perde dati: si ricostituisce da PostgreSQL |
-| `neo4j`    | `neo4j:5.26-community`   | 7474 (HTTP) | `neo4j_data`    | **Proiezione derivata** del grafo. Ricostruibile in qualsiasi momento da PostgreSQL con un rebuild                                                         |
+| Servizio   | Immagine                   | Porta host  | Volume          | Ruolo                                                                                                                                                      |
+| ---------- | -------------------------- | ----------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `postgres` | `pgvector/pgvector:pg17`   | 5432        | `postgres_data` | **Autoritativo.** Memorie, revisioni, progetti, aree, archi, sessioni, eventi, conflitti, job, outbox, ledger, embedding pgvector                          |
+| `redis`    | `redis:7.4-alpine`         | 6379        | nessuno         | **Solo cache** del corpus (API e MCP), con validazione su revisione e revalidazione riga per riga. Perderlo non perde dati: si ricostituisce da PostgreSQL |
+| `memgraph` | `memgraph/memgraph:latest` | 7687 (Bolt) | `memgraph_data` | **Proiezione derivata** del grafo. Ricostruibile in qualsiasi momento da PostgreSQL con un rebuild                                                         |
 
 Dettagli che contano:
 
-- Bolt 7687 **non è pubblicato**: lo raggiunge solo il worker dentro la rete compose
-  (`bolt://neo4j:7687`). Dall'host si vede solo l'HTTP 7474. Heap 512 MB, pagecache 256 MB.
+- Il grafo è raggiungibile solo su loopback, per Bolt: il container pubblica la porta 7687
+  (`bolt://memgraph:7687`) e non ha un HTTP. Il motore è Memgraph dal commit `45072e0`;
+  le variabili d'ambiente (`NEO4J_URI`, `NEO4J_USERNAME`), il driver (`neo4j-driver`) e la
+  chiave di capacità `projections.neo4j` hanno conservato il nome storico perché sono i nomi
+  del protocollo Bolt, non del motore.
 - Se PostgreSQL non è raggiungibile, il servizio **non** restituisce un contesto vuoto come
   se fosse privo di memorie: degrada esplicitamente (stato `degraded`, mai silenzio).
 - Se Redis è irraggiungibile o `REDIS_URL` non è impostato, l'avvio **non fallisce**:
   si lavora senza cache e il degrado è visibile solo in `projections.redis` nel report
   capacità. Per questo quel campo va letto insieme a `reporter`.
-- Se Neo4j è giù, il worker non proietta e la capacità risulta gap: il corpus non ne
+- Se il grafo è giù, il worker non proietta e la capacità risulta gap: il corpus non ne
   risente, il grafo sì.
 
 ### 1.2 Processi (buildati dal `Dockerfile` multi-target su `node:22-alpine`)
 
-| Servizio | Porta host | Dipende da (sani) | Fa                                                                                                                                       |
-| -------- | ---------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `api`    | 3000       | postgres, redis   | REST. Unico punto d'ingresso esterno. Health su `/health/ready`                                                                          |
-| `worker` | nessuna    | postgres, neo4j   | Estrazione, consolidation, retention schedulata, heartbeat capacità ogni 60 s, proiezione Neo4j via outbox. **Unico con `neo4j-driver`** |
-| `mcp`    | 3333       | postgres, redis   | Server MCP (stdio o Streamable HTTP), stessa policy dell'API, cache propria. Fino a 1000 sessioni, idle 30 min, body max 1 MB            |
-| `web`    | 8080       | api               | Dashboard statica con proxy verso `http://api:3000`                                                                                      |
+| Servizio | Porta host | Dipende da (sani)  | Fa                                                                                                                                         |
+| -------- | ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `api`    | 3000       | postgres, redis    | REST. Unico punto d'ingresso esterno. Health su `/health/ready`                                                                            |
+| `worker` | nessuna    | postgres, memgraph | Estrazione, consolidation, retention schedulata, heartbeat capacità ogni 60 s, proiezione a grafo via outbox. **Unico con `neo4j-driver`** |
+| `mcp`    | 3333       | postgres, redis    | Server MCP (stdio o Streamable HTTP), stessa policy dell'API, cache propria. Fino a 1000 sessioni, idle 30 min, body max 1 MB              |
+| `web`    | 8080       | api                | Dashboard statica con proxy verso `http://api:3000`                                                                                        |
 
 Le configurazioni chiave passano da env con default sensati: poll outbox 1 s, lease 30 s,
-3 tentativi con backoff 1 s, retention giornaliera, batch Neo4j 100, estrazione `local`
+3 tentativi con backoff 1 s, retention giornaliera, batch a grafo 100, estrazione `local`
 (OpenRouter spento salvo richiesta esplicita).
 
 ### 1.3 Flussi
@@ -54,10 +57,10 @@ Le configurazioni chiave passano da env con default sensati: poll outbox 1 s, le
 ```text
 harness/client → api:3000 o mcp:3333 → PostgreSQL (+ Redis come cache)
                                               ↓ outbox
-                                            worker → Neo4j
+                                            worker → Memgraph
 ```
 
-Mai il contrario: niente legge Neo4j come verità, niente tranne il worker lo scrive.
+Mai il contrario: niente legge il grafo come verità, niente tranne il worker lo scrive.
 La web non tocca mai il database: parla solo con l'API.
 
 ### 1.4 Locale contro mini
@@ -153,7 +156,7 @@ contenuto e derivazioni lasciando tombstone + ledger.
   `expectedVersion` — una modifica concorrente dà 409, niente sovrascritture silenziose.
 - **Correggere** crea una nuova revisione e invalida la precedente (`SUPERSEDES` logico);
   **revocare** dichiara errato; **dimenticare** è in due fasi (`prepare` con payload firmato
-  HMAC, poi esecuzione) e si propaga a PostgreSQL, pgvector, Neo4j e Redis.
+  HMAC, poi esecuzione) e si propaga a PostgreSQL, pgvector, grafo e Redis.
 
 ### 3.2 Conflitti
 
@@ -275,13 +278,13 @@ legenda. Carica fino a 2000 memorie (20 pagine) più conflitti, archi e progetti
   `WORKER_ANALYZER_WINDOW` (es. `03:30-06:00` dopo il backup 02:00) e rientranza per
   costruzione: batch id dai membri, già-analizzato mai rispedito, pending esclusi,
   contatori `skipped` nel report. Probing: `node scripts/probe-analyzer.mjs`.
-- **Proiezione Neo4j** incrementale da outbox (batch 100, lease 30 s) con `rebuild()`
+- **Proiezione a grafo** incrementale da outbox (batch 100, lease 30 s) con `rebuild()`
   completo: `:Project` per ogni progetto governato, `:Area` per ogni area dichiarata,
   ogni memoria legata con `IN_PROJECT`, le area-scoped anche con `IN_AREA`, le aree con
   `(Area)-[:PART_OF]->(Project)`, `:LINK` per gli archi accettati. Solo il grafo live
   controlla il Cypher: è stringa per ogni altro gate.
 - **Heartbeat capacità** ogni 60 s su tabella dedicata (fidato per 300 s): API e MCP non
-  vedono estrattore/Neo4j/retention, li attestano tramite lui.
+  vedono estrattore/grafo/retention, li attestano tramite lui.
 
 ## 9. Export, restore, backup
 
@@ -335,11 +338,12 @@ privacy marking, giudice encoder su llama.cpp).
 - `npm run eval:all`: governance 9/9 (inclusi i guard cross-scope), retrieval 11/11 a
   nDCG 1.0 con giudizi rivisti (hash dataset `fe1369c0cd5e`, riportato non pinnato).
 - `npm run e2e:synthetic`: flusso completo su container isolati usa-e-getta
-  (PostgreSQL+pgvector, Redis, Neo4j): ciclo di vita a tre memorie (una area-scoped),
+  (PostgreSQL+pgvector, Redis, Memgraph): ciclo di vita a tre memorie (una area-scoped),
   asserzioni psql sui vincoli (immutabilità, unicità area, RESTRICT, cicli gerarchici
   rifiutati e influenze consentite), grafo live (`IN_PROJECT`/`IN_AREA`/`PART_OF`),
   export/restore con nomi preservati, marking privacy via endpoint owner e flag in export,
-  risposta `disabled` dell'analisi senza analyzer, reindex embedding.
+  risposta `disabled` dell'analisi senza analyzer, reindex embedding, e la superficie di
+  esplorazione (directory dei progetti, profilo, filtri e paginazione sull'elenco memorie).
 - Load test su 10.000 memorie sintetiche: governato ~212/s, bulk ~545/s, reindex 17 s;
   query discriminative ~2 ms, caso patologico full-match ~91 ms (proprietà della query,
   non dell'indice).
@@ -357,7 +361,8 @@ a mano), `README.md`, `CHANGELOG.md`.
 Glossario minimo: **corpus** = l'insieme governato; **harness** = client non privilegiato
 che propone; **owner** = chi revisiona e amministra; **scope** = ambito derivato di una
 revisione; **root** = progetto (sempre) o area (se dichiarata); **arco** = relazione
-pesata e governata fra nodi; **proiezione** = Neo4j, derivata e ricostruibile;
+pesata e governata fra nodi; **proiezione** = il grafo derivato (Memgraph su Bolt), derivata
+e ricostruibile;
 **outbox** = feed degli eventi da proiettare; **ledger** = registro indelebile dei forget;
 **consolidation** = fusione delle pending a chiusura sessione; **retention** = potatura
 schedulata secondo policy.

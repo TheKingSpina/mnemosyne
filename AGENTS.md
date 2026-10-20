@@ -4,27 +4,32 @@
 
 Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and private Tailscale access. The detailed runbook is [`docs/macos-mini-tailscale.md`](docs/macos-mini-tailscale.md).
 
-## Current handoff — 2026-09-27
+## Current handoff — 2026-10-20
 
 ### Repository and Git
 
-- `main` tracks `origin/main` with no local divergence and no side branches; the per-client token work (`9567535`, `310dca3`) and the credential-path fix are merged.
+- `main` tracks `origin/main`; the per-client token work (`9567535`, `310dca3`) and the credential-path fix are merged.
 - Retrieval commits: `8b5becc` (hybrid ranking), `7de9187` (dashboard/MCP wiring), `29c3ef9` (reviewed relevance judgments), `609e63e` (handoff documentation).
 - 2026-09-27 operational commits: `10a128d` (scheduled backup reads the deployment env), `b866f47` (host keep-alive agents and persistence docs), `7d68519` (bounded docker calls, runtime recycle), `ed7274a` (anonymous MCP opt-out), `7552d00` (anonymous callers scoped to harness), `597c671` (opencode config lives in the user profile).
+- 2026-10-20 exploration commits: `05e8ca6` (project and memory exploration tools for both MCP profiles), `97e7577` (cached project directory, project reads moved into SQL). Both are **local only**: they are not pushed and not deployed.
 - Use `main` as the base for new work and preserve any uncommitted changes before switching branches.
 - Host tools: Node `v25.8.2`, npm `11.11.1`, OrbStack/Docker, Tailscale App `1.88.3` (an update is available). The repository requires Node `>=22.12`; npm may print an engine warning for Node 25 even though verification passes.
 
 ### Running deployment
 
-- Full stack is running: PostgreSQL, Redis, Neo4j, API, worker, MCP, and web. API/web report healthy; MCP/worker report running.
-- Loopback bindings only: API `127.0.0.1:3000`, web `127.0.0.1:18080`, MCP `127.0.0.1:3333`, PostgreSQL `127.0.0.1:5432`, Redis `127.0.0.1:6379`, Neo4j `127.0.0.1:7474`.
+- **The live deployment is `/Users/spina/mnemosyne-experiment`, not `~/Mnemosyne`.** The Compose project is `mnemosyne-experiment`; the containers are `mnemosyne-experiment-{api,web,mcp,worker,postgres,redis}` plus `mnemosyne-memgraph-1`. `~/Mnemosyne` on the mini is a **stale checkout** (it was at `a5d357c`, 59 commits behind `origin/main`, clean) that is **not** what runs. An earlier version of this handoff pointed at `~/Mnemosyne` and was wrong: read the working directory and the compose project from the running containers before acting.
+  - `docker inspect mnemosyne-experiment-api-1 --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'` gives the directory the stack was started from.
+- Full stack is running: PostgreSQL, Redis, Memgraph, API, worker, MCP, and web. API/web report healthy; MCP/worker report running.
+- Loopback bindings only: API `127.0.0.1:3000`, web `127.0.0.1:18080`, MCP `127.0.0.1:3333`, PostgreSQL `127.0.0.1:5432`, Redis `127.0.0.1:6379`, Memgraph `127.0.0.1:7687` (Bolt only, the container publishes no HTTP port for the graph).
+- The graph engine is **Memgraph** since `45072e0`; the Compose service is `memgraph` and there is no `neo4j` service, so a command naming `neo4j` fails with "no such service". The env names (`NEO4J_URI`, `NEO4J_USERNAME`), the driver (`neo4j-driver`) and the capability key (`projections.neo4j`) kept their names: they are the wire names of the Bolt protocol, not the engine.
+- The graph data lives in the volume `mnemosyne-experiment_memgraph_data`. The volume `mnemosyne_neo4j_data` belongs to the old `mnemosyne` project and is a leftover: leave it alone unless the owner asks, and never delete it with a `down -v`.
 - Port 18080 is intentional: port 8080 is used by an unrelated Open WebUI process that must not be stopped.
 - Private Tailscale Serve only, never Funnel:
   - dashboard: `https://<tailscale-host>/`
   - MCP: `https://<tailscale-host>:8443/mcp`
 - `.env` remains local with mode `0600`; it was not modified, printed, or committed. OpenRouter remains disabled.
 - Rebuild with `env -u OPENROUTER_API_KEY -u OPENROUTER_MODEL docker compose up --build -d api worker mcp`; add `web` for the dashboard. Over SSH the build fails on the Docker credential helper because the login keychain cannot be unlocked in a non-interactive session: back up `~/.docker/config.json`, delete `credsStore` and `credHelpers`, build, then restore the file. A public base image needs no credentials.
-- The host is reached with `ssh mnemosyne-mini`; the alias uses a dedicated ed25519 key, not a password.
+- The host is reached with `ssh mnemosyne-mini`; the alias uses a dedicated ed25519 key, not a password. The `docker` binary is not on the default non-interactive `PATH`: export `/usr/local/bin` and `/opt/homebrew/bin` before using it over SSH.
 
 ### Seed cleanup status
 
@@ -64,7 +69,7 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 
 ### Capability reporting status
 
-- `GET /v1/admin/capabilities` reports only what the answering process can attest to, and names that process in `reporter`. The values are process-scoped, not deployment-scoped, so read `reporter` before drawing a conclusion about the deployment. API and MCP both own a Redis corpus cache as of the `packages/redis` extraction, so both report `redis: true`; `redis: false` from either one is now a real degradation, not the expected shape. API and MCP do not own the extraction provider, the Neo4j projection or the retention timer, so those come from a worker heartbeat in the new `runtime_capabilities` table, written every `WORKER_CAPABILITY_HEARTBEAT_MS` (default 60s) and trusted only for `MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS` (default 300). Keep the heartbeat shorter than the TTL, or capabilities read unknown while the worker is alive.
+- `GET /v1/admin/capabilities` reports only what the answering process can attest to, and names that process in `reporter`. The values are process-scoped, not deployment-scoped, so read `reporter` before drawing a conclusion about the deployment. API and MCP both own a Redis corpus cache as of the `packages/redis` extraction, so both report `redis: true`; `redis: false` from either one is now a real degradation, not the expected shape. API and MCP do not own the extraction provider, the graph projection or the retention timer, so those come from a worker heartbeat in the new `runtime_capabilities` table, written every `WORKER_CAPABILITY_HEARTBEAT_MS` (default 60s) and trusted only for `MNEMOSYNE_RUNTIME_CAPABILITY_TTL_SECONDS` (default 300). Keep the heartbeat shorter than the TTL, or capabilities read unknown while the worker is alive.
 - Capabilities have three states. `null` means unobserved, never disabled, and every `null` is named with a reason in `gaps`. `operations.backupVerified` is always `null` because backups run outside the process. `workerObservedAt` says how fresh the worker's contribution is.
 - Previously `neo4j` and `openRouterConfigured` were hardcoded to `false` and pinned with `z.literal`, so the endpoint asserted facts about a process that cannot see them. Do not reintroduce hardcoded capability values, and do not pin a field that some process can genuinely observe differently.
 - The live JSONB round trip through Zod is covered by `verifyRuntimeCapabilities` in the synthetic E2E, not by unit tests. That E2E has been executed against real PostgreSQL and pgvector and passes.
@@ -179,7 +184,7 @@ The embedding reindex/health and load-test follow-ups are done; see the sections
 
 ### Cleanup guardrails
 
-- Do not run `docker compose down -v`, prune Docker volumes, or remove PostgreSQL/Neo4j data.
+- Do not run `docker compose down -v`, prune Docker volumes, or remove PostgreSQL/graph data.
 - Do not recreate the deleted seed manifest or seed project.
 - Do not delete the pre-existing pending record or rewrite forget-ledger tombstones without explicit approval.
 - Do not print, copy, commit, or upload `.env`, tokens, passwords, provider keys, or corpus contents.
@@ -189,10 +194,10 @@ The embedding reindex/health and load-test follow-ups are done; see the sections
 
 - Work only in the repository and the local Mac host unless the user explicitly authorizes another system.
 - Never print, paste, commit, or upload `.env` values, database passwords, owner/harness tokens, provider keys, backup passphrases, or corpus data.
-- Never run destructive Docker commands such as `docker compose down -v`, `docker volume prune`, `docker system prune`, or delete a PostgreSQL/Neo4j volume without explicit confirmation.
+- Never run destructive Docker commands such as `docker compose down -v`, `docker volume prune`, `docker system prune`, or delete a PostgreSQL/Neo4j/Memgraph volume without explicit confirmation.
 - Prefer the local extractor. Do not enable OpenRouter unless the user explicitly requests it.
 - Do not use Tailscale Funnel or public ingress. Use private Tailscale Serve and ACLs.
-- Treat web/API/MCP as private services; do not publish PostgreSQL, Redis, Neo4j, or raw service ports.
+- Treat web/API/MCP as private services; do not publish PostgreSQL, Redis, the graph, or raw service ports.
 
 ## Automatic sequence
 
@@ -202,7 +207,7 @@ The embedding reindex/health and load-test follow-ups are done; see the sections
 4. Validate configuration with `docker compose config --quiet`.
 5. Start the smallest useful stack:
    - dashboard/API: `docker compose up --build -d postgres redis api web`
-   - full worker/projections: `docker compose up --build -d postgres redis neo4j api worker web`
+   - full worker/projections: `docker compose up --build -d postgres redis memgraph api worker web`
 6. Wait for API and web health. Never report success from `docker compose up` alone.
 7. Verify `curl -fsS http://127.0.0.1:3000/health/ready`, the dashboard root, and an authenticated owner proxy request without printing the token.
 8. If Tailscale Serve is not configured, show the safe command and ask before changing host-wide Tailscale state. Do not enable Funnel.

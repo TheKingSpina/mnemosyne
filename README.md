@@ -331,6 +331,15 @@ Mnemosyne includes a zero-dependency administrative CLI:
 # Check cluster status and projection health
 npm run cli:dev -- status
 
+# List the projects of the corpus with their size
+npm run cli:dev -- projects
+
+# Read one project: areas, breakdown, recent memories, conflicts
+npm run cli:dev -- project my-project
+
+# List the memories of a project
+npm run cli:dev -- project-memories my-project
+
 # List active memories
 npm run cli:dev -- memories
 
@@ -406,6 +415,7 @@ mnemosyne/
 For in-depth operational guides and architectural deep dives:
 
 - 📖 **[V2 Architecture Reference Manual](docs/v2-architecture-reference-manual.md)**: Comprehensive guide on CQRS, Memgraph C++, conflict quarantine, and epistemic state machines.
+- 🧭 **[Architecture & Operations Overview](docs/overview.md)**: The system in one document: infrastructure, data model, REST surface, MCP profiles, worker, retention, and the exploration tools.
 - 🍏 **[macOS M1 & Tailscale Runbook](docs/macos-mini-tailscale.md)**: Operational guide for private Tailscale Serve deployment and LaunchAgents.
 - 🎯 **[Retrieval & Hybrid Ranking](docs/retrieval-ranking.md)**: Mathematics and benchmarks for lexical BM25 + pgvector + cross-encoder reranking.
 - ✂️ **[Semantic Pruning & Retention](docs/potatura-semantica.md)**: Conservative decay, privacy boundaries, and deterministic pruning vetoes.

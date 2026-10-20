@@ -40,6 +40,8 @@
 - Retrieval evaluation now uses graded, order-sensitive cases and fails under the legacy ordering baseline.
 - The scheduled PostgreSQL backup could never succeed against a real deployment: the backup command runs `docker compose` with `--env-file /dev/null`, and compose interpolates every service, so the run failed on an unrelated service. `run-backup.sh` now sources the deployment environment and drops the provider key.
 - The host keep-alive scripts no longer block on a wedged container runtime: every docker call is bounded with a timeout, the daemon is probed with `docker version` instead of trusting the socket file, and the runtime is recycled at most once per run.
+- The runbook named a `neo4j` Compose service that stopped existing when the graph engine moved to Memgraph, so the documented commands failed with "no such service" and the resource notes still budgeted a JVM. The runbook, the architecture overview and the handoff now name `memgraph`, describe the Bolt-only loopback binding, and carry the real footprint. The env names (`NEO4J_URI`, `NEO4J_USERNAME`), the `neo4j-driver` and the capability key `projections.neo4j` keep their names on purpose: they are the wire names of the protocol, not of the engine.
+- The handoff pointed at `~/Mnemosyne` on the mini, but the running stack comes from `/Users/spina/mnemosyne-experiment` (Compose project `mnemosyne-experiment`); `~/Mnemosyne` was a stale checkout 59 commits behind. The handoff now says where the deployment really is and how to read it from the running containers.
 
 ### Changed
 
