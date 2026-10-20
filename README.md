@@ -234,18 +234,29 @@ Mnemosyne natively supports the [Model Context Protocol (MCP)](https://modelcont
 
 ### Tools Provided
 
-| Tool Name              | Profile | Description                                                    |
-| :--------------------- | :------ | :------------------------------------------------------------- |
-| `memory_open_session`  | Harness | Starts a session scoped to a project and optional areas        |
-| `memory_record_events` | Harness | Records raw conversation events for background extraction      |
-| `memory_context`       | Harness | Retrieves token-budgeted approved context and active conflicts |
-| `memory_search`        | Harness | Semantic + lexical hybrid memory search                        |
-| `memory_propose`       | Harness | Submits candidate memories for governance approval             |
-| `memory_close_session` | Harness | Closes the session and triggers consolidation                  |
-| `memory_propose_arc`   | Harness | Submits relationships between existing memories                |
-| `memory_export`        | Owner   | Canonical JSON corpus export (no-store download)               |
-| `memory_forget`        | Owner   | Cryptographic irreversible memory deletion                     |
-| `memory_admin_*`       | Owner   | Direct administrative review, retention, and inspection        |
+| Tool Name                      | Profile | Description                                                         |
+| :----------------------------- | :------ | :------------------------------------------------------------------ |
+| `memory_open_session`          | Harness | Starts a session scoped to a project and optional areas             |
+| `memory_record_events`         | Harness | Records raw conversation events for background extraction           |
+| `memory_context`               | Harness | Retrieves token-budgeted approved context and active conflicts      |
+| `memory_search`                | Harness | Semantic + lexical hybrid memory search                             |
+| `memory_propose`               | Harness | Submits candidate memories for governance approval                  |
+| `memory_close_session`         | Harness | Closes the session and triggers consolidation                       |
+| `memory_propose_arc`           | Harness | Submits relationships between existing memories                     |
+| `memory_list_projects`         | Both    | Lists every project with its size, so an agent can orient itself    |
+| `memory_get_project`           | Both    | Reads a project whole: areas, breakdown, recent memories, conflicts |
+| `memory_list_project_memories` | Both    | Lists the memories of one project, filtered and paginated           |
+| `memory_get_memory`            | Both    | Reads one memory with its arcs and conflicts                        |
+| `memory_export`                | Owner   | Canonical JSON corpus export (no-store download)                    |
+| `memory_forget`                | Owner   | Cryptographic irreversible memory deletion                          |
+| `memory_admin_*`               | Owner   | Direct administrative review, retention, and inspection             |
+
+The four exploration tools are how an agent walks the corpus without guessing.
+A harness reaches them through its session: the `sessionId` it opened decides
+which memories are visible, and only the accepted ones are. The owner reads the
+corpus as it is, every lifecycle included. The counts in a project summary are
+corpus-level aggregates and carry no content, so both profiles read the same
+numbers.
 
 ### Configuration Examples
 

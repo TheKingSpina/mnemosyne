@@ -1096,3 +1096,97 @@ describe('Mnemosyne API client tokens and idempotency', () => {
     expect(reissued.token).not.toBe(first.token);
   });
 });
+
+describe('Mnemosyne API exploration', () => {
+  it('lets a harness list the projects of the corpus', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    await service.openSession({ projectId: 'synthetic-alpha' });
+
+    const response = await fetch(`${baseUrl}/v1/projects`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      projects: Array<{ id: string; memoryCount: number; privacy: string }>;
+    };
+    expect(body.projects.map((project) => project.id)).toContain('synthetic-alpha');
+    expect(body.projects[0]?.privacy).toBe('local_only');
+  });
+
+  it('lets a harness list the memories of the project its session belongs to', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    const session = await service.openSession({ projectId: 'synthetic-alpha' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: { type: 'project', id: 'synthetic-alpha' },
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const response = await fetch(
+      `${baseUrl}/v1/projects/synthetic-alpha/memories?sessionId=${session.sessionId}`,
+      { headers: { authorization: `Bearer ${harnessToken}` } },
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { total: number; items: { content: string }[] };
+    expect(body.total).toBe(1);
+    expect(body.items[0]?.content).toBe('Il progetto usa pnpm');
+  });
+
+  it('refuses a harness that lists project memories without a session', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+
+    const response = await fetch(`${baseUrl}/v1/projects/synthetic-alpha/memories`, {
+      headers: { authorization: `Bearer ${harnessToken}` },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'session_id_required' });
+  });
+
+  it('gives the owner the outline of a project without a session', async () => {
+    const { service, server } = createTestServer();
+    const baseUrl = await listen(server);
+    await service.openSession({ projectId: 'synthetic-alpha' });
+
+    const response = await fetch(`${baseUrl}/v1/projects/synthetic-alpha`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      project: { id: string };
+      counts: { byLifecycle: Record<string, number> };
+      recentMemories: unknown[];
+    };
+    expect(body.project.id).toBe('synthetic-alpha');
+    expect(body.counts.byLifecycle.accepted).toBe(0);
+    expect(body.recentMemories).toEqual([]);
+  });
+
+  it('answers a missing project with a 404', async () => {
+    const { server } = createTestServer();
+    const baseUrl = await listen(server);
+
+    const response = await fetch(`${baseUrl}/v1/projects/ghost`, {
+      headers: { authorization: `Bearer ${ownerToken}` },
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: 'project_not_found' });
+  });
+});

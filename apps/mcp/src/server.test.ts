@@ -56,6 +56,37 @@ describe('Mnemosyne MCP tool profiles', () => {
     expect(tools.map((tool) => tool.name)).not.toContain('memory_resolve_conflict');
   });
 
+  it('exposes the exploration tools in both profiles', async () => {
+    const harness = await connect('harness');
+    const owner = await connect('owner');
+    const exploration = [
+      'memory_list_projects',
+      'memory_get_project',
+      'memory_list_project_memories',
+      'memory_get_memory',
+    ];
+
+    for (const client of [harness.client, owner.client]) {
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(exploration));
+    }
+  });
+
+  it('requires a session from the harness and not from the owner', async () => {
+    const harness = await connect('harness');
+    const owner = await connect('owner');
+
+    const harnessTool = (await harness.client.listTools()).tools.find(
+      (tool) => tool.name === 'memory_get_project',
+    );
+    const ownerTool = (await owner.client.listTools()).tools.find(
+      (tool) => tool.name === 'memory_get_project',
+    );
+
+    expect(harnessTool?.inputSchema.required).toContain('sessionId');
+    expect(ownerTool?.inputSchema.required).not.toContain('sessionId');
+  });
+
   it('exposes owner conflict administration in the owner profile', async () => {
     const { client } = await connect('owner');
     const { tools } = await client.listTools();
@@ -129,5 +160,86 @@ describe('Mnemosyne MCP tool profiles', () => {
 
     expect(response.isError).not.toBe(true);
     expect(conflicts.items[0]?.status).toBe('resolved');
+  });
+});
+
+describe('Mnemosyne MCP exploration tools', () => {
+  it('walks a harness from the project list to a single memory', async () => {
+    const service = createService();
+    const server = createMcpServer(service, 'harness');
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    closeables.push(server, client);
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+    await service.proposeMemory(
+      {
+        sessionId: session.sessionId,
+        content: 'Il progetto usa pnpm',
+        kind: 'convention',
+        scope: { type: 'project', id: 'synthetic-project' },
+        epistemicBasis: 'user_asserted',
+        assessment: 'uncontested',
+        confidence: 1,
+        sensitivity: 'normal',
+        activation: 'on_demand',
+        sourceEventIds: [],
+      },
+      { actor: 'owner', explicitDirective: true },
+    );
+
+    const projects = await client.callTool({ name: 'memory_list_projects', arguments: {} });
+    const listed = await client.callTool({
+      name: 'memory_list_project_memories',
+      arguments: { projectId: 'synthetic-project', sessionId: session.sessionId },
+    });
+    const memoryId = (listed.structuredContent as { items: { memoryId: string }[] }).items[0]
+      ?.memoryId;
+    const detail = await client.callTool({
+      name: 'memory_get_memory',
+      arguments: { memoryId: memoryId ?? '', sessionId: session.sessionId },
+    });
+
+    expect(projects.isError).not.toBe(true);
+    expect(projects.structuredContent).toHaveProperty('projects.0.id', 'synthetic-project');
+    expect(listed.isError).not.toBe(true);
+    expect(listed.structuredContent).toHaveProperty('total', 1);
+    expect(detail.isError).not.toBe(true);
+    expect(detail.structuredContent).toHaveProperty('memory.content', 'Il progetto usa pnpm');
+  });
+
+  it('shows a harness the outline of the project its session belongs to', async () => {
+    const service = createService();
+    const server = createMcpServer(service, 'harness');
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    closeables.push(server, client);
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const session = await service.openSession({ projectId: 'synthetic-project' });
+
+    const response = await client.callTool({
+      name: 'memory_get_project',
+      arguments: { projectId: 'synthetic-project', sessionId: session.sessionId },
+    });
+
+    expect(response.isError).not.toBe(true);
+    expect(response.structuredContent).toHaveProperty('project.id', 'synthetic-project');
+    expect(response.structuredContent).toHaveProperty('counts.byKind.fact', 0);
+  });
+
+  it('refuses a harness that reads a project without a session', async () => {
+    const service = createService();
+    const server = createMcpServer(service, 'harness');
+    const client = new Client({ name: 'test-client', version: '0.1.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    closeables.push(server, client);
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const response = await client.callTool({
+      name: 'memory_list_project_memories',
+      arguments: { projectId: 'synthetic-project' },
+    });
+
+    expect(response.isError).toBe(true);
   });
 });

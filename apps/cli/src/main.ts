@@ -15,8 +15,11 @@ import {
   conflictListOutputSchema,
   corpusExportSchema,
   corpusRestoreResultSchema,
+  listProjectsOutputSchema,
   memoryAdminViewSchema,
   pendingProposalsOutputSchema,
+  projectMemoriesOutputSchema,
+  projectOutlineSchema,
   projectViewSchema,
   privacyFlagSchema,
   retentionRunOutputSchema,
@@ -182,6 +185,36 @@ async function run(name: string, args: string[]): Promise<void> {
     );
     return;
   }
+  if (name === 'projects') {
+    printJson(await request('/v1/projects', listProjectsOutputSchema));
+    return;
+  }
+  if (name === 'project') {
+    const id = required(args, 0, 'project ID');
+    const sessionId = args[1];
+    printJson(
+      await request(
+        `/v1/projects/${encodeURIComponent(id)}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+        projectOutlineSchema,
+      ),
+    );
+    return;
+  }
+  if (name === 'project-memories') {
+    const id = required(args, 0, 'project ID');
+    const sessionId = args[1];
+    printJson(
+      await request(
+        `/v1/projects/${encodeURIComponent(id)}/memories${query({
+          sessionId,
+          limit: optionalNumber(args, 2, 50),
+          offset: optionalNumber(args, 3, 0),
+        })}`,
+        projectMemoriesOutputSchema,
+      ),
+    );
+    return;
+  }
   if (name === 'export') {
     const destination = required(args, 0, 'output path');
     const value = corpusExportSchema.parse(await request('/v1/admin/exports/corpus', z.unknown()));
@@ -282,6 +315,9 @@ function printHelp(): void {
       'mnemosyne jobs [limit] [offset]',
       'mnemosyne conflicts',
       'mnemosyne resolve-conflict <conflict-id> --yes',
+      'mnemosyne projects',
+      'mnemosyne project <project-id> [session-id]',
+      'mnemosyne project-memories <project-id> [session-id] [limit] [offset]',
       'mnemosyne project-privacy <project-id> <local_only|anonymized|public> --yes',
       'mnemosyne export <output.json>',
       'mnemosyne restore <input.json>',

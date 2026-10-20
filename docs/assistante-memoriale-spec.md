@@ -818,6 +818,9 @@ memory_open_session
 memory_record_events
 memory_context
 memory_search
+memory_list_projects
+memory_get_project
+memory_list_project_memories
 memory_get_memory
 memory_propose
 memory_propose_correction
@@ -826,6 +829,14 @@ memory_get_job
 memory_feedback
 memory_propose_arc
 ```
+
+Gli strumenti di esplorazione esistono perché un agente che può solo cercare deve
+indovinare i termini, e un errore di ricerca somiglia a un corpus vuoto. Un agente che
+non conosce gli id dei progetti non può neppure aprire la sessione giusta. La regola di
+visibilità è quella che la ricerca già applica: il profilo harness legge le memorie
+accepted che la sua sessione raggiunge, il profilo owner legge il corpus com'è. I
+conteggi di un progetto sono aggregati di corpus e non contengono contenuto, quindi
+entrambi i profili leggono gli stessi numeri.
 
 #### `owner`
 

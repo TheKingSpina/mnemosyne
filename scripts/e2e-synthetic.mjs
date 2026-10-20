@@ -205,6 +205,7 @@ async function runLifecycle() {
     { token: harnessToken },
   );
   assert(search.items.some((memory) => memory.memoryId === second.memory.memoryId));
+  await verifyExploration(session);
   const feedback = await api('/v1/memories/feedback', {
     token: ownerToken,
     method: 'POST',
@@ -809,6 +810,50 @@ async function verifyScopeIsolation() {
     fromItsOwnSession.items.some((memory) => memory.memoryId === proposed.memoryId),
     'memory_not_visible_in_its_own_project',
   );
+}
+
+async function verifyExploration(session) {
+  // The exploration surface is how an agent walks the corpus without guessing,
+  // so the E2E proves it against the real database: the directory carries the
+  // counts, the outline carries the declared areas, and the isolation rule
+  // holds on the new read path as well as on search.
+  const projects = await api('/v1/projects', { token: harnessToken });
+  const synthetic = projects.projects.find((project) => project.id === 'e2e-synthetic');
+  assert(synthetic, 'exploration_project_missing');
+  assert(synthetic.memoryCount === 3, `unexpected_project_memory_count:${synthetic.memoryCount}`);
+  assert(synthetic.acceptedCount === 3, 'unexpected_project_accepted_count');
+  assert(
+    synthetic.openConflictCount === 1,
+    `unexpected_project_conflict_count:${synthetic.openConflictCount}`,
+  );
+  assert(synthetic.areaCount === 1, 'unexpected_project_area_count');
+  assert(synthetic.sessionCount >= 1, 'unexpected_project_session_count');
+
+  const outline = await api(
+    `/v1/projects/e2e-synthetic?${new URLSearchParams({ sessionId: session.sessionId })}`,
+    { token: harnessToken },
+  );
+  assert(outline.project.id === 'e2e-synthetic');
+  assert(
+    outline.areas.some((area) => area.id === 'e2e-area'),
+    'outline_area_missing',
+  );
+  assert(outline.counts.byScope.project === 2, 'outline_project_scope_count');
+  assert(outline.counts.byScope.area === 1, 'outline_area_scope_count');
+  assert(outline.recentMemories.length === 3, 'outline_recent_memories_missing');
+
+  const memories = await api(
+    `/v1/projects/e2e-synthetic/memories?${new URLSearchParams({ sessionId: session.sessionId })}`,
+    { token: harnessToken },
+  );
+  assert(memories.total === 3, `unexpected_project_memories:${memories.total}`);
+
+  // A harness reads the project its session belongs to, and no other.
+  const other = await api(
+    `/v1/projects/e2e-alt/memories?${new URLSearchParams({ sessionId: session.sessionId })}`,
+    { token: harnessToken },
+  );
+  assert(other.total === 0, 'project_memories_leaked_across_projects');
 }
 
 async function searchToCreateCache(sessionId, memoryId) {

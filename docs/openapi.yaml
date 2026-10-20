@@ -38,6 +38,8 @@ tags:
     description: Proposal, retrieval e lifecycle delle memorie.
   - name: Context
     description: Composizione del contesto approvato.
+  - name: Exploration
+    description: 'Lettura del corpus per orientarsi: progetti, aree, memorie.'
   - name: Jobs
     description: Stato dei job asincroni.
   - name: Administration
@@ -1170,6 +1172,275 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/MemoryView'
                   - $ref: '#/components/schemas/MemoryAdminView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/projects:
+    get:
+      tags:
+        - Exploration
+      operationId: listProjects
+      summary: Elenca i progetti del corpus con la loro dimensione
+      description: 'I conteggi sono aggregati di corpus e non contengono contenuto:
+        entrambi i profili leggono gli stessi numeri. Il profilo harness usa
+        questo elenco per scoprire gli id di progetto da aprire.'
+      x-required-profile: harness_or_owner
+      responses:
+        '200':
+          description: Progetti trovati.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListProjectsOutput'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/projects/{id}:
+    get:
+      tags:
+        - Exploration
+      operationId: getProjectOutline
+      summary: Legge un progetto per intero
+      description: Restituisce aree, ripartizione per tipo, stato e scope, le memorie
+        più recenti, i conflitti aperti e le relazioni fra progetti. I conteggi
+        descrivono il progetto; il campione di memorie è filtrato sugli scope
+        del lettore.
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+        - name: sessionId
+          in: query
+          required: false
+          description: 'Obbligatoria per il profilo harness: è la sessione che determina
+            gli scope visibili.'
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          description: Memorie recenti.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        '200':
+          description: Profilo del progetto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectOutline'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/projects/{id}/memories:
+    get:
+      tags:
+        - Exploration
+      operationId: listProjectMemories
+      summary: Elenca le memorie di un progetto
+      description: Il filtro è sul progetto radice a cui la memoria appartiene, non
+        sul suo scope. Il profilo harness vede solo le memorie accepted che la
+        sua sessione puo raggiungere.
+      x-required-profile: harness_or_owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+        - name: sessionId
+          in: query
+          required: false
+          description: 'Obbligatoria per il profilo harness: è la sessione che determina
+            gli scope visibili.'
+          schema:
+            type: string
+            minLength: 1
+        - name: kind
+          in: query
+          required: false
+          description: Filtro opzionale sul tipo di memoria.
+          schema:
+            type: string
+            enum:
+              - fact
+              - preference
+              - instruction
+              - decision
+              - convention
+              - constraint
+              - goal
+              - hypothesis
+              - episode
+        - name: lifecycle
+          in: query
+          required: false
+          description: Filtro opzionale sullo stato. Il profilo harness vede solo accepted.
+          schema:
+            type: string
+            enum:
+              - candidate
+              - pending_approval
+              - accepted
+              - rejected
+              - superseded
+              - expired
+              - retracted
+              - forgotten
+        - name: scopeType
+          in: query
+          required: false
+          description: Filtro opzionale sul tipo di scope.
+          schema:
+            type: string
+            enum:
+              - session
+              - project
+              - area
+        - name: scopeId
+          in: query
+          required: false
+          description: Filtro opzionale sull identificatore esatto dello scope.
+          schema:
+            type: string
+            minLength: 1
+        - name: q
+          in: query
+          required: false
+          description: Filtro testuale.
+          schema:
+            type: string
+            maxLength: 2000
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di elementi da restituire.
+          schema:
+            default: 50
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: offset
+          in: query
+          required: false
+          description: Numero di elementi da saltare.
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+      responses:
+        '200':
+          description: Memorie del progetto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMemoriesOutput'
         '400':
           description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
           content:
@@ -3894,6 +4165,9 @@ components:
                 type: integer
                 exclusiveMinimum: 0
                 maximum: 9007199254740991
+              projectId:
+                type: string
+                minLength: 1
               createdAt:
                 type: string
                 format: date-time
@@ -3916,6 +4190,7 @@ components:
               - sourceEventIds
               - lifecycle
               - currentVersion
+              - projectId
               - createdAt
               - updatedAt
             additionalProperties: false
@@ -4106,6 +4381,9 @@ components:
               type: integer
               exclusiveMinimum: 0
               maximum: 9007199254740991
+            projectId:
+              type: string
+              minLength: 1
             createdAt:
               type: string
               format: date-time
@@ -4128,6 +4406,7 @@ components:
             - sourceEventIds
             - lifecycle
             - currentVersion
+            - projectId
             - createdAt
             - updatedAt
           additionalProperties: false
@@ -4425,6 +4704,9 @@ components:
           type: integer
           exclusiveMinimum: 0
           maximum: 9007199254740991
+        projectId:
+          type: string
+          minLength: 1
         createdAt:
           type: string
           format: date-time
@@ -4447,6 +4729,7 @@ components:
         - sourceEventIds
         - lifecycle
         - currentVersion
+        - projectId
         - createdAt
         - updatedAt
       additionalProperties: false
@@ -4547,6 +4830,9 @@ components:
               type: integer
               exclusiveMinimum: 0
               maximum: 9007199254740991
+            projectId:
+              type: string
+              minLength: 1
             createdAt:
               type: string
               format: date-time
@@ -4569,6 +4855,7 @@ components:
             - sourceEventIds
             - lifecycle
             - currentVersion
+            - projectId
             - createdAt
             - updatedAt
           additionalProperties: false
@@ -4965,13 +5252,966 @@ components:
                   - local_only
                   - anonymized
                   - public
+              areaCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              memoryCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              acceptedCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              pendingApprovalCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              rejectedCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              retractedCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              openConflictCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              sessionCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              arcCount:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              latestMemoryAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             required:
               - id
               - name
               - privacy
+              - areaCount
+              - memoryCount
+              - acceptedCount
+              - pendingApprovalCount
+              - rejectedCount
+              - retractedCount
+              - openConflictCount
+              - sessionCount
+              - arcCount
             additionalProperties: false
       required:
         - projects
+      additionalProperties: false
+    AreaView:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        projectId:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        createdAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        updatedAt:
+          type: string
+          format: date-time
+          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+      required:
+        - id
+        - projectId
+        - name
+        - createdAt
+        - updatedAt
+      additionalProperties: false
+    ProjectOutline:
+      type: object
+      properties:
+        project:
+          type: object
+          properties:
+            id:
+              type: string
+              minLength: 1
+            name:
+              type: string
+              minLength: 1
+            description:
+              type: string
+              minLength: 1
+            privacy:
+              type: string
+              enum:
+                - local_only
+                - anonymized
+                - public
+            areaCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            memoryCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            acceptedCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            pendingApprovalCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            rejectedCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            retractedCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            openConflictCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            sessionCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            arcCount:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            latestMemoryAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - id
+            - name
+            - privacy
+            - areaCount
+            - memoryCount
+            - acceptedCount
+            - pendingApprovalCount
+            - rejectedCount
+            - retractedCount
+            - openConflictCount
+            - sessionCount
+            - arcCount
+          additionalProperties: false
+        areas:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              projectId:
+                type: string
+                minLength: 1
+              name:
+                type: string
+                minLength: 1
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - id
+              - projectId
+              - name
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+        counts:
+          type: object
+          properties:
+            byKind:
+              type: object
+              propertyNames:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              additionalProperties:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              required:
+                - fact
+                - preference
+                - instruction
+                - decision
+                - convention
+                - constraint
+                - goal
+                - hypothesis
+                - episode
+            byLifecycle:
+              type: object
+              propertyNames:
+                type: string
+                enum:
+                  - candidate
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - superseded
+                  - expired
+                  - retracted
+                  - forgotten
+              additionalProperties:
+                type: integer
+                minimum: 0
+                maximum: 9007199254740991
+              required:
+                - candidate
+                - pending_approval
+                - accepted
+                - rejected
+                - superseded
+                - expired
+                - retracted
+                - forgotten
+            byScope:
+              type: object
+              properties:
+                session:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                project:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                area:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              required:
+                - session
+                - project
+                - area
+              additionalProperties: false
+          required:
+            - byKind
+            - byLifecycle
+            - byScope
+          additionalProperties: false
+        recentMemories:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              lifecycle:
+                type: string
+                enum:
+                  - candidate
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - superseded
+                  - expired
+                  - retracted
+                  - forgotten
+              currentVersion:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              projectId:
+                type: string
+                minLength: 1
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+              - lifecycle
+              - currentVersion
+              - projectId
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+        openConflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                enum:
+                  - direct_contradiction
+                  - scope_mismatch
+                  - temporal_overlap
+                  - different_subject
+                  - semantic_tension
+              memoryIds:
+                minItems: 2
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              status:
+                type: string
+                enum:
+                  - open
+                  - resolved
+            required:
+              - id
+              - type
+              - memoryIds
+              - status
+            additionalProperties: false
+        projectArcs:
+          type: array
+          items:
+            type: object
+            properties:
+              arcId:
+                type: string
+                minLength: 1
+              fromProjectId:
+                type: string
+                minLength: 1
+              toProjectId:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                minLength: 1
+              weight:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              lifecycle:
+                type: string
+                enum:
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - retracted
+            required:
+              - arcId
+              - fromProjectId
+              - toProjectId
+              - type
+              - weight
+              - lifecycle
+            additionalProperties: false
+      required:
+        - project
+        - areas
+        - counts
+        - recentMemories
+        - openConflicts
+        - projectArcs
+      additionalProperties: false
+    ProjectMemoriesOutput:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              lifecycle:
+                type: string
+                enum:
+                  - candidate
+                  - pending_approval
+                  - accepted
+                  - rejected
+                  - superseded
+                  - expired
+                  - retracted
+                  - forgotten
+              currentVersion:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              projectId:
+                type: string
+                minLength: 1
+              createdAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+              updatedAt:
+                type: string
+                format: date-time
+                pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+              - lifecycle
+              - currentVersion
+              - projectId
+              - createdAt
+              - updatedAt
+            additionalProperties: false
+        total:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        limit:
+          type: integer
+          exclusiveMinimum: 0
+          maximum: 9007199254740991
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+      required:
+        - items
+        - total
+        - limit
+        - offset
+      additionalProperties: false
+    MemoryDetail:
+      type: object
+      properties:
+        memory:
+          type: object
+          properties:
+            memoryId:
+              type: string
+              minLength: 1
+            version:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            content:
+              type: string
+              minLength: 1
+              maxLength: 10000
+            kind:
+              type: string
+              enum:
+                - fact
+                - preference
+                - instruction
+                - decision
+                - convention
+                - constraint
+                - goal
+                - hypothesis
+                - episode
+            scope:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - session
+                    - project
+                    - area
+                id:
+                  type: string
+                  minLength: 1
+              required:
+                - type
+                - id
+              additionalProperties: false
+            epistemicBasis:
+              type: string
+              enum:
+                - user_asserted
+                - observed
+                - verified
+                - inferred
+                - unknown
+            assessment:
+              type: string
+              enum:
+                - uncontested
+                - disputed
+            confidence:
+              anyOf:
+                - type: number
+                  minimum: 0
+                  maximum: 1
+                - type: 'null'
+            sensitivity:
+              type: string
+              enum:
+                - normal
+                - private
+                - sensitive
+                - secret
+            activation:
+              type: string
+              enum:
+                - always
+                - on_demand
+            sourceEventIds:
+              default: []
+              type: array
+              items:
+                type: string
+                minLength: 1
+            lifecycle:
+              type: string
+              enum:
+                - candidate
+                - pending_approval
+                - accepted
+                - rejected
+                - superseded
+                - expired
+                - retracted
+                - forgotten
+            currentVersion:
+              type: integer
+              exclusiveMinimum: 0
+              maximum: 9007199254740991
+            projectId:
+              type: string
+              minLength: 1
+            createdAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            updatedAt:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+          required:
+            - memoryId
+            - version
+            - content
+            - kind
+            - scope
+            - epistemicBasis
+            - assessment
+            - confidence
+            - sensitivity
+            - activation
+            - sourceEventIds
+            - lifecycle
+            - currentVersion
+            - projectId
+            - createdAt
+            - updatedAt
+          additionalProperties: false
+        arcs:
+          type: object
+          properties:
+            from:
+              type: array
+              items:
+                type: object
+                properties:
+                  arcId:
+                    type: string
+                    minLength: 1
+                  fromMemoryId:
+                    type: string
+                    minLength: 1
+                  toMemoryId:
+                    type: string
+                    minLength: 1
+                  type:
+                    type: string
+                    minLength: 1
+                  weight:
+                    anyOf:
+                      - type: number
+                        minimum: 0
+                        maximum: 1
+                      - type: 'null'
+                  lifecycle:
+                    type: string
+                    enum:
+                      - pending_approval
+                      - accepted
+                      - rejected
+                      - retracted
+                required:
+                  - arcId
+                  - fromMemoryId
+                  - toMemoryId
+                  - type
+                  - weight
+                  - lifecycle
+                additionalProperties: false
+            to:
+              type: array
+              items:
+                type: object
+                properties:
+                  arcId:
+                    type: string
+                    minLength: 1
+                  fromMemoryId:
+                    type: string
+                    minLength: 1
+                  toMemoryId:
+                    type: string
+                    minLength: 1
+                  type:
+                    type: string
+                    minLength: 1
+                  weight:
+                    anyOf:
+                      - type: number
+                        minimum: 0
+                        maximum: 1
+                      - type: 'null'
+                  lifecycle:
+                    type: string
+                    enum:
+                      - pending_approval
+                      - accepted
+                      - rejected
+                      - retracted
+                required:
+                  - arcId
+                  - fromMemoryId
+                  - toMemoryId
+                  - type
+                  - weight
+                  - lifecycle
+                additionalProperties: false
+          required:
+            - from
+            - to
+          additionalProperties: false
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                minLength: 1
+              type:
+                type: string
+                enum:
+                  - direct_contradiction
+                  - scope_mismatch
+                  - temporal_overlap
+                  - different_subject
+                  - semantic_tension
+              memoryIds:
+                minItems: 2
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+              status:
+                type: string
+                enum:
+                  - open
+                  - resolved
+            required:
+              - id
+              - type
+              - memoryIds
+              - status
+            additionalProperties: false
+        revisions:
+          type: array
+          items:
+            type: object
+            properties:
+              memoryId:
+                type: string
+                minLength: 1
+              version:
+                type: integer
+                exclusiveMinimum: 0
+                maximum: 9007199254740991
+              content:
+                type: string
+                minLength: 1
+                maxLength: 10000
+              kind:
+                type: string
+                enum:
+                  - fact
+                  - preference
+                  - instruction
+                  - decision
+                  - convention
+                  - constraint
+                  - goal
+                  - hypothesis
+                  - episode
+              scope:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum:
+                      - session
+                      - project
+                      - area
+                  id:
+                    type: string
+                    minLength: 1
+                required:
+                  - type
+                  - id
+                additionalProperties: false
+              epistemicBasis:
+                type: string
+                enum:
+                  - user_asserted
+                  - observed
+                  - verified
+                  - inferred
+                  - unknown
+              assessment:
+                type: string
+                enum:
+                  - uncontested
+                  - disputed
+              confidence:
+                anyOf:
+                  - type: number
+                    minimum: 0
+                    maximum: 1
+                  - type: 'null'
+              sensitivity:
+                type: string
+                enum:
+                  - normal
+                  - private
+                  - sensitive
+                  - secret
+              activation:
+                type: string
+                enum:
+                  - always
+                  - on_demand
+              sourceEventIds:
+                default: []
+                type: array
+                items:
+                  type: string
+                  minLength: 1
+            required:
+              - memoryId
+              - version
+              - content
+              - kind
+              - scope
+              - epistemicBasis
+              - assessment
+              - confidence
+              - sensitivity
+              - activation
+              - sourceEventIds
+            additionalProperties: false
+      required:
+        - memory
+        - arcs
+        - conflicts
       additionalProperties: false
     PruningAnalysisOutput:
       type: object
@@ -5232,6 +6472,9 @@ components:
               type: integer
               exclusiveMinimum: 0
               maximum: 9007199254740991
+            projectId:
+              type: string
+              minLength: 1
             createdAt:
               type: string
               format: date-time
@@ -5254,6 +6497,7 @@ components:
             - sourceEventIds
             - lifecycle
             - currentVersion
+            - projectId
             - createdAt
             - updatedAt
           additionalProperties: false
@@ -5972,6 +7216,9 @@ components:
                 type: integer
                 exclusiveMinimum: 0
                 maximum: 9007199254740991
+              projectId:
+                type: string
+                minLength: 1
               createdAt:
                 type: string
                 format: date-time
@@ -5994,6 +7241,7 @@ components:
               - sourceEventIds
               - lifecycle
               - currentVersion
+              - projectId
               - createdAt
               - updatedAt
             additionalProperties: false

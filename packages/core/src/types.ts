@@ -26,11 +26,15 @@ import type {
   MemoryRevision,
   MemoryView,
   MemoryAdminView,
+  MemoryDetail,
   ListPendingProposalsInput,
   OpenSessionInput,
   OpenSessionOutput,
   PendingProposalsOutput,
   PrepareForgetOutput,
+  ProjectMemoriesOutput,
+  ProjectOutline,
+  ProjectSummary,
   ProposalResult,
   PruningAnalysisOutput,
   ProposeMemoryInput,
@@ -42,6 +46,8 @@ import type {
   RetentionStatusOutput,
   PrivacyFlag,
   Scope,
+  ScopeType,
+  MemoryKind,
   SearchMemoriesInput,
   SessionConsolidationOutput,
   WorkerRuntimeCapabilities,
@@ -298,6 +304,39 @@ export interface ProposalContext {
   explicitDirective: boolean;
 }
 
+// Exploration reads the corpus from the outside in. The actor decides the
+// rule, and the rule is the same one search already applies: a harness reads
+// the accepted memories its session can reach, an owner reads everything.
+// The session is what a harness points at, so it is required for that profile
+// and optional for the owner.
+export interface ExplorationContext {
+  actor: MemoryActor;
+  sessionId?: string;
+}
+
+export interface ListProjectMemoriesInput {
+  projectId: string;
+  context: ExplorationContext;
+  kind?: MemoryKind;
+  lifecycle?: MemoryLifecycle;
+  scopeType?: ScopeType;
+  scopeId?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetProjectOutlineInput {
+  projectId: string;
+  context: ExplorationContext;
+  limit?: number;
+}
+
+export interface GetMemoryDetailInput {
+  memoryId: string;
+  context: ExplorationContext;
+}
+
 export interface MemoryService {
   getAdminCapabilities(): Promise<AdminCapabilitiesOutput>;
   getRetrievalTelemetry(): RetrievalTelemetry;
@@ -323,6 +362,10 @@ export interface MemoryService {
   listMemoryArcs(memoryId: string): Promise<{ from: MemoryArc[]; to: MemoryArc[] }>;
   listAllArcs(): Promise<{ memoryArcs: MemoryArc[]; projectArcs: ProjectArc[] }>;
   listProjects(): Promise<ProjectRecord[]>;
+  listProjectSummaries(): Promise<ProjectSummary[]>;
+  getProjectOutline(input: GetProjectOutlineInput): Promise<ProjectOutline>;
+  listProjectMemories(input: ListProjectMemoriesInput): Promise<ProjectMemoriesOutput>;
+  getMemoryDetail(input: GetMemoryDetailInput): Promise<MemoryDetail>;
   setProjectPrivacy(projectId: string, privacy: PrivacyFlag): Promise<ProjectRecord>;
   runPruningAnalysis(analyzer?: PruningAnalyzer): Promise<PruningAnalysisOutput>;
   listProjectArcs(projectId: string): Promise<ProjectArc[]>;

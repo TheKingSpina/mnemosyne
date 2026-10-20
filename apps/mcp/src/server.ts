@@ -11,6 +11,7 @@ import {
   listAdminMemoriesInputSchema,
   listAdminJobsInputSchema,
   listAdminSessionsInputSchema,
+  listProjectMemoriesInputSchema,
   corpusExportSchema,
   memoryFeedbackSchema,
   ownerProposalSubmissionSchema,
@@ -30,6 +31,14 @@ const pendingShape = shape(listPendingProposalsInputSchema);
 const adminMemoriesShape = shape(listAdminMemoriesInputSchema);
 const adminJobsShape = shape(listAdminJobsInputSchema);
 const adminSessionsShape = shape(listAdminSessionsInputSchema);
+
+// A harness reads the corpus through a session: that is where its scopes come
+// from, and without one it has nothing it is allowed to read. The owner is the
+// operator and may read without a session, so the same tool carries a
+// different required set per profile.
+function sessionField(profile: 'harness' | 'owner') {
+  return profile === 'harness' ? z.string().min(1) : z.string().min(1).optional();
+}
 
 async function authorized<T>(
   profile: 'harness' | 'owner',
@@ -91,6 +100,100 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         await authorized(profile, 'memory.read', async () => ({
           items: await service.searchMemories(input),
         })),
+      ),
+  );
+
+  // Exploration. Search answers a question but does not show the shape of the
+  // corpus, so an agent that only searches has to guess the terms and reads a
+  // miss as an empty project. These four tools let it walk the corpus from
+  // the outside in.
+  server.registerTool(
+    'memory_list_projects',
+    {
+      description:
+        'List every project of the corpus with its size: how many memories it holds, how many are still awaiting approval, how many conflicts it has. Start here, because the project id is what memory_open_session needs.',
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async () =>
+      result(
+        await authorized(profile, 'memory.read', async () => ({
+          projects: await service.listProjectSummaries(),
+        })),
+      ),
+  );
+
+  server.registerTool(
+    'memory_get_project',
+    {
+      description:
+        'Read one project whole: its areas, how its memories break down by kind, lifecycle and scope, its most recent memories, its open conflicts and its project relations.',
+      inputSchema: {
+        projectId: z.string().min(1),
+        sessionId: sessionField(profile),
+        limit: z.number().int().min(1).max(50).optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async (input) =>
+      result(
+        await authorized(profile, 'memory.read', () =>
+          service.getProjectOutline({
+            projectId: input.projectId,
+            context: { actor: profile, sessionId: input.sessionId },
+            limit: input.limit,
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'memory_list_project_memories',
+    {
+      description:
+        'List the memories of one project, with filters on kind, scope and text. The result is paginated and ordered by the most recently updated first. A harness sees the accepted memories of its session, so a lifecycle filter other than accepted returns nothing.',
+      inputSchema: {
+        ...shape(listProjectMemoriesInputSchema),
+        sessionId: sessionField(profile),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async (input) =>
+      result(
+        await authorized(profile, 'memory.read', () =>
+          service.listProjectMemories({
+            projectId: input.projectId,
+            context: { actor: profile, sessionId: input.sessionId },
+            kind: input.kind,
+            lifecycle: input.lifecycle,
+            scopeType: input.scopeType,
+            scopeId: input.scopeId,
+            q: input.q,
+            limit: input.limit,
+            offset: input.offset,
+          }),
+        ),
+      ),
+  );
+
+  server.registerTool(
+    'memory_get_memory',
+    {
+      description:
+        'Read one memory with its relations and conflicts. Use it to go deeper on an id returned by a search or by a project listing.',
+      inputSchema: {
+        memoryId: z.string().min(1),
+        sessionId: sessionField(profile),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async (input) =>
+      result(
+        await authorized(profile, 'memory.read', () =>
+          service.getMemoryDetail({
+            memoryId: input.memoryId,
+            context: { actor: profile, sessionId: input.sessionId },
+          }),
+        ),
       ),
   );
 

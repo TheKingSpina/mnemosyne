@@ -4,6 +4,8 @@
 
 ### Added
 
+- Exploration tools for the profiles that were blind to the shape of the corpus: `memory_list_projects` (the directory of every project with its size), `memory_get_project` (areas, breakdown by kind, lifecycle and scope, the most recent memories, the open conflicts, the project relations), `memory_list_project_memories` (the memories of one project, filtered and paginated) and `memory_get_memory` (one memory with its arcs and conflicts). The same surface is exposed over REST as `GET /v1/projects`, `GET /v1/projects/{id}` and `GET /v1/projects/{id}/memories`, plus the CLI commands `projects`, `project` and `project-memories`.
+- A harness reads the corpus through a session, exactly as search already did: the exploration tools require `sessionId` in that profile and answer only with the accepted memories its scopes reach, while the owner reads the corpus as it is. The counts in a project summary are corpus-level aggregates and carry no content, so both profiles read the same numbers and never disagree about the size of a project.
 - Graph model: projects and areas are first-class entities with real foreign keys. `memories.project_id` is immutable identity, `memory_revisions.area_id` references a declared area of the same project through a trigger, and scope is derived at read time instead of stored. The scope enum is `session | project | area`: `global` is retired in favour of the reserved `personal` project, which stays readable and writable from every session as attached policy rather than as a fourth scope kind.
 - Weighted arcs between nodes: `memory_arcs` may cross projects and `project_arcs` link projects, both governed like memories through proposal and owner review, with only accepted arcs reaching the graph. Cycles are legitimate except for relation types declared hierarchical in `hierarchical_relation`, which a trigger keeps acyclic. Corpus export and restore carry both arc tables and the area rows; a restore skips an arc whose endpoint was forgotten rather than failing.
 - Neo4j projection draws the roots: every governed project and declared area becomes a node, each memory links to its project with `IN_PROJECT`, area-scoped memories additionally link with `IN_AREA`, and the generic scope nodes are gone. The owner graph view draws accepted memory arcs with the weight in the line width and pending arcs dashed, names type, weight and review state in the inspector, and counts project arcs in the summary.
@@ -21,6 +23,8 @@
 
 ### Changed
 
+- `GET /v1/admin/projects` answers with the same project summaries as the new exploration route, so the response finally matches its own OpenAPI schema: the privacy flag and the counts are part of the payload, and the dashboard keeps working because it only reads `id` and `name`.
+- A memory view carries its `projectId`: the root project a memory belongs to is identity, and a reader that sees a memory can always say where it lives.
 - Credential writes are excluded from the idempotent replay path: the mint response carries a token in plaintext and must not be persisted, and reissuing a live client name returns `409` instead of silently rotating a credential in use.
 - A presented `Authorization` header is always verified, including on an anonymous endpoint: a valid per-client token escalates to its profile and an invalid or revoked one gets `401` instead of a silent downgrade.
 - `AccessPolicy.authenticate` may return a promise, which is what lets a deployment resolve per-client tokens from PostgreSQL.

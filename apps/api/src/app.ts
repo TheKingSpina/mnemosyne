@@ -7,6 +7,7 @@ import {
   listAdminSessionsInputSchema,
   listMemoryFeedbackOutputSchema,
   listPendingProposalsInputSchema,
+  listProjectMemoriesInputSchema,
   memoryFeedbackSchema,
   openSessionInputSchema,
   proposeMemoryInputSchema,
@@ -57,6 +58,9 @@ const pendingQuerySchema = z.object({
   sessionId: z.string().min(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
+});
+const outlineQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
 interface ApiServerOptions {
@@ -351,6 +355,51 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, await service.listPendingProposals(input));
     return;
   }
+  // Exploration. A harness reads the corpus through a session, so the session
+  // is what tells the service which scopes it may read; the owner may read
+  // without one.
+  if (request.method === 'GET' && url.pathname === '/v1/projects') {
+    sendJson(response, 200, { projects: await service.listProjectSummaries() });
+    return;
+  }
+  const projectMemories = url.pathname.match(/^\/v1\/projects\/([^/]+)\/memories$/u);
+  if (request.method === 'GET' && projectMemories) {
+    const { id } = paramsSchema.parse({ id: projectMemories[1] });
+    const input = listProjectMemoriesInputSchema.parse({
+      projectId: id,
+      kind: url.searchParams.get('kind') || undefined,
+      lifecycle: url.searchParams.get('lifecycle') || undefined,
+      scopeType: url.searchParams.get('scopeType') || undefined,
+      scopeId: url.searchParams.get('scopeId') || undefined,
+      q: url.searchParams.get('q') ?? '',
+      limit: url.searchParams.get('limit') ?? undefined,
+      offset: url.searchParams.get('offset') ?? undefined,
+    });
+    sendJson(
+      response,
+      200,
+      await service.listProjectMemories({
+        ...input,
+        context: { actor, sessionId: url.searchParams.get('sessionId') ?? undefined },
+      }),
+    );
+    return;
+  }
+  const projectOutline = url.pathname.match(/^\/v1\/projects\/([^/]+)$/u);
+  if (request.method === 'GET' && projectOutline) {
+    const { id } = paramsSchema.parse({ id: projectOutline[1] });
+    const query = outlineQuerySchema.parse({ limit: url.searchParams.get('limit') ?? undefined });
+    sendJson(
+      response,
+      200,
+      await service.getProjectOutline({
+        projectId: id,
+        context: { actor, sessionId: url.searchParams.get('sessionId') ?? undefined },
+        limit: query.limit,
+      }),
+    );
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/admin/memories') {
     const query = listAdminMemoriesInputSchema.parse({
       q: url.searchParams.get('q') ?? '',
@@ -376,14 +425,7 @@ async function handleAuthorizedRequestUnchecked(
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/admin/projects') {
-    const projects = await service.listProjects();
-    sendJson(response, 200, {
-      projects: projects.map((project) => ({
-        id: project.id,
-        name: project.name,
-        ...(project.description === undefined ? {} : { description: project.description }),
-      })),
-    });
+    sendJson(response, 200, { projects: await service.listProjectSummaries() });
     return;
   }
   const adminProjectPrivacy = url.pathname.match(/^\/v1\/admin\/projects\/([^/]+)\/privacy$/u);
@@ -782,6 +824,9 @@ function permissionForPath(pathname: string, method: string | undefined): Memory
   if (pathname.includes('/forget')) return 'memory.forget';
   if (pathname === '/v1/memories/feedback') return 'proposal.review';
   if (pathname === '/v1/memories') return 'memory.read';
+  // Exploration is a read: a harness may walk the corpus it is scoped to, the
+  // owner may walk all of it.
+  if (pathname === '/v1/projects' || pathname.startsWith('/v1/projects/')) return 'memory.read';
   if (pathname === '/v1/context/resolve') return 'context.resolve';
   if (pathname.startsWith('/v1/memories/')) return 'memory.read';
   if (pathname.endsWith('/events')) return 'events.write';

@@ -76,6 +76,9 @@ export type MemoryRevision = z.infer<typeof memoryRevisionSchema>;
 export const memoryViewSchema = memoryRevisionSchema.extend({
   lifecycle: memoryLifecycleSchema,
   currentVersion: z.number().int().positive(),
+  // The root project the memory belongs to. It is identity, not content: a
+  // memory never changes project, so a view can always say where it lives.
+  projectId: z.string().min(1),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
 });
@@ -186,8 +189,26 @@ export const projectViewSchema = z.object({
 });
 export type ProjectView = z.infer<typeof projectViewSchema>;
 
+// A project seen from the outside: the same identity plus the size of what it
+// holds. The counts are corpus-level aggregates, so every profile reads the
+// same numbers; only the memory content behind them is scoped. An agent that
+// cannot see the shape of the corpus cannot decide where to explore.
+export const projectSummarySchema = projectViewSchema.extend({
+  areaCount: z.number().int().nonnegative(),
+  memoryCount: z.number().int().nonnegative(),
+  acceptedCount: z.number().int().nonnegative(),
+  pendingApprovalCount: z.number().int().nonnegative(),
+  rejectedCount: z.number().int().nonnegative(),
+  retractedCount: z.number().int().nonnegative(),
+  openConflictCount: z.number().int().nonnegative(),
+  sessionCount: z.number().int().nonnegative(),
+  arcCount: z.number().int().nonnegative(),
+  latestMemoryAt: z.string().datetime({ offset: true }).optional(),
+});
+export type ProjectSummary = z.infer<typeof projectSummarySchema>;
+
 export const listProjectsOutputSchema = z.object({
-  projects: z.array(projectViewSchema),
+  projects: z.array(projectSummarySchema),
 });
 export type ListProjectsOutput = z.infer<typeof listProjectsOutputSchema>;
 
@@ -265,6 +286,71 @@ export const memoryAdminViewSchema = z.object({
   conflicts: z.array(conflictViewSchema).default([]),
 });
 export type MemoryAdminView = z.infer<typeof memoryAdminViewSchema>;
+
+// Exploration. An agent that can only search cannot explore: it has to guess
+// the terms, and a miss looks like an empty corpus. These shapes let it walk
+// the corpus from the outside in, without turning the corpus into a dump.
+export const areaViewSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+});
+export type AreaView = z.infer<typeof areaViewSchema>;
+
+export const projectOutlineSchema = z.object({
+  project: projectSummarySchema,
+  areas: z.array(areaViewSchema),
+  counts: z.object({
+    // Every key is always present, zero included: a stable shape is what lets
+    // a reader compare projects without probing for the missing ones.
+    byKind: z.record(memoryKindSchema, z.number().int().nonnegative()),
+    byLifecycle: z.record(memoryLifecycleSchema, z.number().int().nonnegative()),
+    byScope: z.object({
+      session: z.number().int().nonnegative(),
+      project: z.number().int().nonnegative(),
+      area: z.number().int().nonnegative(),
+    }),
+  }),
+  recentMemories: z.array(memoryViewSchema),
+  openConflicts: z.array(conflictViewSchema),
+  projectArcs: z.array(projectArcViewSchema),
+});
+export type ProjectOutline = z.infer<typeof projectOutlineSchema>;
+
+export const listProjectMemoriesInputSchema = z.object({
+  projectId: z.string().min(1),
+  kind: memoryKindSchema.optional(),
+  lifecycle: memoryLifecycleSchema.optional(),
+  scopeType: scopeTypeSchema.optional(),
+  scopeId: z.string().min(1).optional(),
+  q: z.string().max(2_000).default(''),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ListProjectMemoriesInput = z.infer<typeof listProjectMemoriesInputSchema>;
+
+export const projectMemoriesOutputSchema = z.object({
+  items: z.array(memoryViewSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type ProjectMemoriesOutput = z.infer<typeof projectMemoriesOutputSchema>;
+
+// The single-memory read. `revisions` is owner-only: the history of a memory
+// is governance state, not something a harness needs to read a memory.
+export const memoryDetailSchema = z.object({
+  memory: memoryViewSchema,
+  arcs: z.object({
+    from: z.array(memoryArcViewSchema),
+    to: z.array(memoryArcViewSchema),
+  }),
+  conflicts: z.array(conflictViewSchema),
+  revisions: z.array(memoryRevisionSchema).optional(),
+});
+export type MemoryDetail = z.infer<typeof memoryDetailSchema>;
 
 export const conflictListOutputSchema = z.object({
   items: z.array(conflictViewSchema),

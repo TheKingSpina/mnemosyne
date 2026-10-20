@@ -15,6 +15,8 @@ import {
   listAdminSessionsInputSchema,
   memoryFeedbackSchema,
   memoryRevisionSchema,
+  memoryKindSchema,
+  memoryLifecycleSchema,
   type ContextInput,
   type ContextOutput,
   type AdminMemoriesOutput,
@@ -34,6 +36,7 @@ import {
   type MemoryRevision,
   type MemoryView,
   type MemoryAdminView,
+  type MemoryDetail,
   type AdminJobsOutput,
   type AdminSessionDetailOutput,
   type AdminSessionsOutput,
@@ -41,6 +44,9 @@ import {
   type OpenSessionOutput,
   type PendingProposalsOutput,
   type PrepareForgetOutput,
+  type ProjectMemoriesOutput,
+  type ProjectOutline,
+  type ProjectSummary,
   type ProposalResult,
   type ProposeMemoryInput,
   type AnalyzerBatch,
@@ -99,7 +105,11 @@ import { RetrievalTelemetryCollector } from './retrieval-telemetry.js';
 import type {
   ConflictRecord,
   CorpusRevision,
+  ExplorationContext,
+  GetMemoryDetailInput,
+  GetProjectOutlineInput,
   JobRecord,
+  ListProjectMemoriesInput,
   MemoryRecord,
   MemoryRepository,
   MemoryService,
@@ -140,6 +150,14 @@ function llmProposalSignature(input: {
   return [input.proposalType, [...input.sourceIds].sort().join(','), input.targetId ?? ''].join(
     '|',
   );
+}
+
+// Every key is always present, zero included: a stable shape is what lets a
+// reader compare two projects without probing for the missing ones.
+function countBy<T extends string>(values: readonly T[], keys: readonly T[]): Record<T, number> {
+  const counts = Object.fromEntries(keys.map((key) => [key, 0])) as Record<T, number>;
+  for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+  return counts;
 }
 
 export class CoreMemoryService implements MemoryService {
@@ -542,6 +560,285 @@ export class CoreMemoryService implements MemoryService {
   // needs every project in one call.
   async listProjects(): Promise<ProjectRecord[]> {
     return this.repository.listProjects();
+  }
+
+  /**
+   * The directory of the corpus: every project with the size of what it holds.
+   * The counts are corpus-level aggregates and carry no content, so both
+   * profiles read the same numbers. It is the first call an agent makes,
+   * because a project id is what `openSession` needs and an agent that cannot
+   * list the projects can only guess one.
+   */
+  async listProjectSummaries(): Promise<ProjectSummary[]> {
+    const projects = await this.repository.listProjects();
+    const context = await this.loadProjectContext();
+    const areaCounts = await this.countAreas(projects);
+    return this.buildSummaries({ projects, areaCounts, ...context });
+  }
+
+  /**
+   * One project seen whole: its areas, how its memories break down, the most
+   * recent ones, its open conflicts and its project relations. The counts
+   * describe the project, the same numbers every profile reads; the sample is
+   * what this reader is allowed to read.
+   */
+  async getProjectOutline(input: GetProjectOutlineInput): Promise<ProjectOutline> {
+    const project = await this.repository.findProjectById(input.projectId);
+    if (!project) throw new Error('project_not_found');
+    const scopes = await this.explorationScopes(input.context);
+    const [context, areas] = await Promise.all([
+      this.loadProjectContext(),
+      this.repository.listAreas(project.id),
+    ]);
+    const summary = this.buildSummaries({
+      projects: [project],
+      areaCounts: new Map([[project.id, areas.length]]),
+      ...context,
+    })[0];
+    if (!summary) throw new Error('project_not_found');
+    const projectViews = context.views.filter((view) => view.record.projectId === project.id);
+    const visible = projectViews.filter((view) => this.explorationSees(view, scopes));
+    const visibleIds = new Set(visible.map((view) => view.record.id));
+    const projectIds = new Set(projectViews.map((view) => view.record.id));
+    const limit = Math.min(Math.max(input.limit ?? 10, 1), 50);
+    return {
+      project: summary,
+      areas: areas.map((area) => ({
+        id: area.id,
+        projectId: area.projectId,
+        name: area.name,
+        createdAt: area.createdAt,
+        updatedAt: area.updatedAt,
+      })),
+      counts: {
+        byKind: countBy(
+          projectViews.map((view) => view.current.kind),
+          memoryKindSchema.options,
+        ),
+        byLifecycle: countBy(
+          projectViews.map((view) => view.record.lifecycle),
+          memoryLifecycleSchema.options,
+        ),
+        byScope: {
+          session: projectViews.filter((view) => view.current.scope.type === 'session').length,
+          project: projectViews.filter((view) => view.current.scope.type === 'project').length,
+          area: projectViews.filter((view) => view.current.scope.type === 'area').length,
+        },
+      },
+      recentMemories: visible
+        .slice()
+        .sort((left, right) => right.record.updatedAt.localeCompare(left.record.updatedAt))
+        .slice(0, limit)
+        .map((view) => this.viewFromRepository(view.record, view.current)),
+      // A conflict is shown only when the harness can see every memory it
+      // touches: a half-visible conflict would name a memory it may not read.
+      openConflicts: context.conflicts.filter(
+        (conflict) =>
+          conflict.status === 'open' &&
+          conflict.memoryIds.some((id) => projectIds.has(id)) &&
+          (scopes === null || conflict.memoryIds.every((id) => visibleIds.has(id))),
+      ),
+      projectArcs: context.projectArcs
+        .filter(
+          (arc) =>
+            (arc.fromProjectId === project.id || arc.toProjectId === project.id) &&
+            (scopes === null || arc.lifecycle === 'accepted'),
+        )
+        .map((arc) => ({
+          arcId: arc.id,
+          fromProjectId: arc.fromProjectId,
+          toProjectId: arc.toProjectId,
+          type: arc.type,
+          weight: arc.weight,
+          lifecycle: arc.lifecycle,
+        })),
+    };
+  }
+
+  /**
+   * The memories of one project, paginated. The project filter is on the root
+   * project a memory belongs to, not on its scope: a session-scoped memory of
+   * a project is still a memory of that project.
+   */
+  async listProjectMemories(input: ListProjectMemoriesInput): Promise<ProjectMemoriesOutput> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    const offset = Math.max(input.offset ?? 0, 0);
+    const scopes = await this.explorationScopes(input.context);
+    const views = await this.repository.listMemoryViews();
+    const query = (input.q ?? '').trim().toLocaleLowerCase();
+    const filtered = views
+      .filter((view) => view.record.projectId === input.projectId)
+      .filter((view) => this.explorationSees(view, scopes))
+      .filter((view) => !input.kind || view.current.kind === input.kind)
+      .filter((view) => !input.lifecycle || view.record.lifecycle === input.lifecycle)
+      .filter((view) => !input.scopeType || view.current.scope.type === input.scopeType)
+      .filter((view) => !input.scopeId || view.current.scope.id === input.scopeId)
+      .filter(
+        (view) => query.length === 0 || view.current.content.toLocaleLowerCase().includes(query),
+      );
+    return {
+      items: filtered
+        .slice(offset, offset + limit)
+        .map((view) => this.viewFromRepository(view.record, view.current)),
+      total: filtered.length,
+      limit,
+      offset,
+    };
+  }
+
+  /**
+   * One memory with its relations. The revision history is owner-only: it is
+   * governance state, and a harness reading a memory does not need it.
+   */
+  async getMemoryDetail(input: GetMemoryDetailInput): Promise<MemoryDetail> {
+    const view = await this.repository.getMemory(input.memoryId);
+    if (!view) throw new Error('memory_not_found');
+    const scopes = await this.explorationScopes(input.context);
+    if (!this.explorationSees(view, scopes)) throw new Error('memory_not_visible');
+    const [from, to, conflicts] = await Promise.all([
+      this.repository.listMemoryArcsFrom(input.memoryId),
+      this.repository.listMemoryArcsTo(input.memoryId),
+      this.repository.findConflicts(input.memoryId),
+    ]);
+    const acceptedOnly = (arc: MemoryArc) => scopes === null || arc.lifecycle === 'accepted';
+    // A conflict names the memories it touches, so it is shown only when the
+    // harness can see all of them: a half-visible conflict would point at a
+    // memory it may not read.
+    const visibleConflicts = await this.conflictsVisibleTo(conflicts, scopes);
+    return {
+      memory: this.viewFromRepository(view.record, view.current),
+      arcs: {
+        from: from.filter(acceptedOnly).map((arc) => this.memoryArcView(arc)),
+        to: to.filter(acceptedOnly).map((arc) => this.memoryArcView(arc)),
+      },
+      conflicts: visibleConflicts.map((conflict) => ({
+        id: conflict.id,
+        type: conflict.type,
+        memoryIds: conflict.memoryIds,
+        status: conflict.status,
+      })),
+      ...(input.context.actor === 'owner'
+        ? { revisions: await this.repository.listRevisions(input.memoryId) }
+        : {}),
+    };
+  }
+
+  /**
+   * The scopes an exploration may read. The owner is the operator and reads
+   * the corpus as it is; a harness reads what its own session can reach, the
+   * same rule search applies, so the two paths never disagree about what is
+   * visible.
+   */
+  private async explorationScopes(context: ExplorationContext): Promise<Scope[] | null> {
+    if (context.actor === 'owner') return null;
+    if (!context.sessionId) throw new Error('session_id_required');
+    return this.listScopesForSession(context.sessionId);
+  }
+
+  private explorationSees(view: MemoryWithCurrent, scopes: Scope[] | null): boolean {
+    if (scopes === null) return true;
+    if (view.record.lifecycle !== 'accepted') return false;
+    return scopes.some((scope) => this.matchesScope(view.current.scope, scope));
+  }
+
+  private async conflictsVisibleTo(
+    conflicts: ConflictRecord[],
+    scopes: Scope[] | null,
+  ): Promise<ConflictRecord[]> {
+    if (scopes === null) return conflicts;
+    const visible: ConflictRecord[] = [];
+    for (const conflict of conflicts) {
+      const members = await Promise.all(
+        conflict.memoryIds.map((memoryId) => this.repository.getMemory(memoryId)),
+      );
+      if (members.every((member) => member && this.explorationSees(member, scopes))) {
+        visible.push(conflict);
+      }
+    }
+    return visible;
+  }
+
+  private async loadProjectContext(): Promise<{
+    views: MemoryWithCurrent[];
+    conflicts: ConflictRecord[];
+    sessions: SessionRecord[];
+    memoryArcs: MemoryArc[];
+    projectArcs: ProjectArc[];
+  }> {
+    const [views, conflicts, sessions, memoryArcs, projectArcs] = await Promise.all([
+      this.repository.listMemoryViews(),
+      this.repository.listAllConflicts(),
+      this.repository.listSessions(),
+      this.repository.listAllMemoryArcs(),
+      this.repository.listAllProjectArcs(),
+    ]);
+    return { views, conflicts, sessions, memoryArcs, projectArcs };
+  }
+
+  private async countAreas(projects: ProjectRecord[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    for (const project of projects) {
+      counts.set(project.id, (await this.repository.listAreas(project.id)).length);
+    }
+    return counts;
+  }
+
+  private buildSummaries(input: {
+    projects: ProjectRecord[];
+    areaCounts: Map<string, number>;
+    views: MemoryWithCurrent[];
+    conflicts: ConflictRecord[];
+    sessions: SessionRecord[];
+    memoryArcs: MemoryArc[];
+    projectArcs: ProjectArc[];
+  }): ProjectSummary[] {
+    return input.projects.map((project) => {
+      const memories = input.views.filter((view) => view.record.projectId === project.id);
+      const memoryIds = new Set(memories.map((view) => view.record.id));
+      const openConflicts = input.conflicts.filter(
+        (conflict) =>
+          conflict.status === 'open' && conflict.memoryIds.some((id) => memoryIds.has(id)),
+      );
+      const arcCount =
+        input.memoryArcs.filter(
+          (arc) => memoryIds.has(arc.fromMemoryId) || memoryIds.has(arc.toMemoryId),
+        ).length +
+        input.projectArcs.filter(
+          (arc) => arc.fromProjectId === project.id || arc.toProjectId === project.id,
+        ).length;
+      const latestMemoryAt = memories
+        .map((view) => view.record.updatedAt)
+        .sort((left, right) => right.localeCompare(left))[0];
+      return {
+        id: project.id,
+        name: project.name,
+        ...(project.description === undefined ? {} : { description: project.description }),
+        privacy: project.privacy,
+        areaCount: input.areaCounts.get(project.id) ?? 0,
+        memoryCount: memories.length,
+        acceptedCount: memories.filter((view) => view.record.lifecycle === 'accepted').length,
+        pendingApprovalCount: memories.filter(
+          (view) => view.record.lifecycle === 'pending_approval',
+        ).length,
+        rejectedCount: memories.filter((view) => view.record.lifecycle === 'rejected').length,
+        retractedCount: memories.filter((view) => view.record.lifecycle === 'retracted').length,
+        openConflictCount: openConflicts.length,
+        sessionCount: input.sessions.filter((session) => session.projectId === project.id).length,
+        arcCount,
+        ...(latestMemoryAt === undefined ? {} : { latestMemoryAt }),
+      };
+    });
+  }
+
+  private memoryArcView(arc: MemoryArc) {
+    return {
+      arcId: arc.id,
+      fromMemoryId: arc.fromMemoryId,
+      toMemoryId: arc.toMemoryId,
+      type: arc.type,
+      weight: arc.weight,
+      lifecycle: arc.lifecycle,
+    };
   }
 
   async setProjectPrivacy(projectId: string, privacy: PrivacyFlag): Promise<ProjectRecord> {
@@ -2106,6 +2403,7 @@ export class CoreMemoryService implements MemoryService {
       ...revision,
       lifecycle: record.lifecycle,
       currentVersion: record.currentVersion,
+      projectId: record.projectId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

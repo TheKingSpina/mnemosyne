@@ -19,6 +19,8 @@ export function toDomainError(error: unknown): DomainError {
       area_not_found: ['Area not found', 404],
       area_not_in_project: ['Area does not belong to the project', 409],
       memory_not_found: ['Memory not found', 404],
+      memory_not_visible: ['Memory is not visible in this session', 403],
+      session_id_required: ['sessionId is required to read the corpus', 400],
       project_not_found: ['Project not found', 404],
       memory_not_active: ['Memory is not active', 409],
       proposal_not_pending: ['Proposal is not pending', 409],

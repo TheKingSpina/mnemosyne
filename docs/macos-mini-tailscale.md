@@ -96,6 +96,8 @@ Verifica con `opencode mcp list` o con l’equivalente del client usato.
 
 **Cosa comporta** il profilo anonimo `harness` non registra nemmeno i tool owner-only: `memory_forget`, `memory_export`, `memory_correct`, `memory_retract`, le review e `memory_admin_*` non compaiono in `tools/list` e ogni tentativo di chiamarli risponde che il tool non esiste. Restano disponibili sessioni, eventi, `memory_context`, `memory_propose`, letture e job, che è tutto ciò che serve a un agente. Dashboard e API `/v1/admin/*` restano protette da `MNEMOSYNE_OWNER_TOKEN`.
 
+Gli strumenti di esplorazione (`memory_list_projects`, `memory_get_project`, `memory_list_project_memories`, `memory_get_memory`) sono registrati anche nel profilo anonimo: sono la via con cui un agente orientarsi nel corpus senza indovinare i termini di una ricerca. Richiedono `sessionId` e restituiscono solo le memorie accepted che quella sessione raggiunge, quindi non aprono nessuna vista nuova sul corpus.
+
 Se il client manda comunque un header `Authorization`, viene sempre verificato: un token valido escala a `owner`, un token sbagliato o revocato risponde `401` invece di degradare in silenzio.
 
 ### Token per client

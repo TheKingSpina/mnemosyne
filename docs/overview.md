@@ -201,6 +201,14 @@ la lista rompe il gate).
 - **Memorie e contesto**: `POST /v1/context/resolve` (budget token),
   `GET /v1/memories` (ricerca+filtri), `GET /v1/memories/{id}`, correzioni, retrazioni,
   `forget/prepare` + `forget`, `feedback`, `GET /v1/jobs/{id}`.
+- **Esplorazione**: `GET /v1/projects` (l'elenco dei progetti con la loro dimensione:
+  conteggi di memorie per stato, conflitti aperti, aree, sessioni, archi),
+  `GET /v1/projects/{id}` (profilo del progetto: aree, ripartizione per tipo/stato/scope,
+  memorie più recenti, conflitti aperti, relazioni fra progetti),
+  `GET /v1/projects/{id}/memories` (memorie del progetto con filtri e paginazione).
+  Il profilo harness passa `sessionId`: è la sessione che determina gli scope visibili,
+  e vede solo le memorie accepted che raggiunge. I conteggi sono aggregati di corpus e
+  non contengono contenuto, quindi entrambi i profili leggono gli stessi numeri.
 - **Admin (owner)**: overview, client-tokens (+revoke), capabilities (process-scoped:
   leggere sempre `reporter`), telemetry retrieval, embeddings health/reindex, memories,
   projects (+ `POST /v1/admin/projects/{id}/privacy`: marking manuale, mai inferito),
@@ -213,7 +221,16 @@ la lista rompe il gate).
 Stessa policy dell'API, due profili. Trasporti: stdio in locale, Streamable HTTP in
 remoto. **harness** (proporre, mai decidere): `memory_open_session`,
 `memory_record_events`, `memory_context`, `memory_search`, `memory_propose`,
-`memory_propose_arc`, `memory_close_session`, `memory_get_job`. **owner**: review e
+`memory_propose_arc`, `memory_close_session`, `memory_get_job`. **Esplorazione, in
+entrambi i profili**: `memory_list_projects` (l'elenco dei progetti con la loro
+dimensione: è la chiamata che un agente fa per orientarsi, perché l'id di progetto è
+quello che `memory_open_session` richiede), `memory_get_project` (aree, ripartizione per
+tipo/stato/scope, memorie più recenti, conflitti aperti, relazioni fra progetti),
+`memory_list_project_memories` (memorie di un progetto, con filtri e paginazione),
+`memory_get_memory` (una memoria con archi e conflitti). Nel profilo harness questi
+tool richiedono `sessionId`: è la sessione che determina gli scope visibili, e
+l'unica memoria accettata che l'agente raggiunge. L'owner legge il corpus com'è.
+**owner**: review e
 governance (`memory_review_decision`, `memory_review_arc`, `memory_propose_owner`,
 `memory_correct`, `memory_retract`, `memory_prepare_forget`, `memory_forget`,
 `memory_pending_review`), conflitti (`memory_list_conflicts`, `memory_resolve_conflict`),
