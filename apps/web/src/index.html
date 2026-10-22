@@ -1418,14 +1418,22 @@
           for (const edge of relations) {
             const relation = document.createElement('span');
             relation.className = 'graph-relation-chip';
-            const otherId = edge.from === node.id ? edge.to : edge.from;
+            const outgoing = edge.from === node.id;
+            const otherId = outgoing ? edge.to : edge.from;
+            const otherNode = (state.graphNodeIndex || new Map()).get(otherId);
+            const otherLabel =
+              otherNode && otherNode.label
+                ? graphTruncate(String(otherNode.label).replace(/^\\s+/, ''), 42)
+                : otherId;
             if (edge.kind === 'arc') {
               const weight =
                 edge.weight === null || edge.weight === undefined
                   ? 'senza peso'
                   : `peso ${edge.weight}`;
               const arcState = edge.lifecycle === 'accepted' ? 'accettato' : 'in review';
-              relation.textContent = `arco · ${edge.type} · ${weight} · ${arcState} · ${otherId}`;
+              const direction = outgoing ? '→' : '←';
+              relation.textContent = `arco ${direction} ${otherLabel} · ${edge.type} · ${weight} · ${arcState}`;
+              relation.title = `arco ${edge.arcId || ''} · ${edge.from} → ${edge.to}`;
             } else if (edge.kind === 'project-arc') {
               const weight =
                 edge.weight === null || edge.weight === undefined
