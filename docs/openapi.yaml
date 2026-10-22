@@ -3622,6 +3622,19 @@ components:
           items:
             type: string
             minLength: 1
+        relatedMemoryIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        relationType:
+          type: string
+          minLength: 1
+          maxLength: 100
+        relationWeight:
+          type: number
+          minimum: 0
+          maximum: 1
       required:
         - sessionId
         - content
@@ -4063,6 +4076,11 @@ components:
           type: string
         reason:
           type: string
+        arcIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
       required:
         - status
       additionalProperties: false

@@ -497,6 +497,36 @@ export class CoreMemoryService implements MemoryService {
     };
   }
 
+  // When a proposal names related memories, propose an arc (pending approval)
+  // from the new memory to each of them, so the relation is explicit instead of
+  // implicit. Missing or self-referential endpoints are skipped rather than
+  // failing the memory proposal.
+  private async proposeRelatedArcs(
+    newMemoryId: string,
+    input: { relatedMemoryIds?: string[]; relationType?: string; relationWeight?: number },
+    context: ProposalContext,
+  ): Promise<string[]> {
+    const ids = input.relatedMemoryIds ?? [];
+    if (ids.length === 0) return [];
+    const type = input.relationType ?? 'relates_to';
+    const arcIds: string[] = [];
+    for (const targetId of ids) {
+      if (targetId === newMemoryId) continue;
+      const target = await this.repository.getMemory(targetId);
+      if (!target) continue;
+      try {
+        const result = await this.proposeMemoryArc(
+          { fromMemoryId: newMemoryId, toMemoryId: targetId, type, weight: input.relationWeight },
+          context,
+        );
+        arcIds.push(result.arcId);
+      } catch {
+        // A duplicate (from,to,type) triple is idempotent: ignore.
+      }
+    }
+    return arcIds;
+  }
+
   async reviewMemoryArc(arcId: string, decision: 'accept' | 'reject'): Promise<MemoryArc> {
     return this.repository.reviewMemoryArc(arcId, decision);
   }
@@ -913,12 +943,14 @@ export class CoreMemoryService implements MemoryService {
       await this.indexMemory(record.id, record.currentVersion, validated.content);
       await this.repository.updateMemoryLifecycle(record.id, 'pending_approval');
       const conflict = await this.repository.createConflict([contradiction.record.id, record.id]);
+      const arcIds = await this.proposeRelatedArcs(record.id, validated, context);
       return {
         status: 'pending_approval',
         memoryId: record.id,
         proposalId: record.id,
         conflictId: conflict.id,
         reason: 'direct_contradiction',
+        ...(arcIds.length ? { arcIds } : {}),
       };
     }
     const record = await this.repository.createMemory({ ...validated, projectId });
@@ -927,7 +959,13 @@ export class CoreMemoryService implements MemoryService {
       record.id,
       decision.status === 'accepted' ? 'accepted' : 'pending_approval',
     );
-    return { ...decision, memoryId: record.id, proposalId: record.id };
+    const arcIds = await this.proposeRelatedArcs(record.id, validated, context);
+    return {
+      ...decision,
+      memoryId: record.id,
+      proposalId: record.id,
+      ...(arcIds.length ? { arcIds } : {}),
+    };
   }
 
   async searchMemories(input: SearchMemoriesInput): Promise<MemoryRevision[]> {

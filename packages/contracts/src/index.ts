@@ -614,6 +614,12 @@ export const proposeMemoryInputSchema = z.object({
   sensitivity: sensitivitySchema.default('normal'),
   activation: activationSchema.default('on_demand'),
   sourceEventIds: z.array(z.string().min(1)).default([]),
+  // Optional relations to existing memories: when present, the service also
+  // proposes an arc (pending approval) from the new memory to each of them, so
+  // the graph is populated in the same call instead of being forgotten.
+  relatedMemoryIds: z.array(z.string().min(1)).optional(),
+  relationType: z.string().min(1).max(100).optional(),
+  relationWeight: z.number().min(0).max(1).optional(),
 });
 export type ProposeMemoryInput = z.infer<typeof proposeMemoryInputSchema>;
 
@@ -629,6 +635,8 @@ export const proposalResultSchema = z.object({
   conflictId: z.string().optional(),
   jobId: z.string().optional(),
   reason: z.string().optional(),
+  // Arcs proposed alongside the memory, when relatedMemoryIds was provided.
+  arcIds: z.array(z.string().min(1)).optional(),
 });
 export type ProposalResult = z.infer<typeof proposalResultSchema>;
 

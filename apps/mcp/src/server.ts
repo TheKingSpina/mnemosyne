@@ -52,7 +52,17 @@ async function authorized<T>(
 export function createMcpServer(service: MemoryService, profile: 'harness' | 'owner'): McpServer {
   const server = new McpServer(
     { name: 'mnemosyne', version: '0.1.0' },
-    { instructions: 'Persistent, governed memory for LLM harnesses.' },
+    {
+      instructions:
+        'Persistent, governed memory for LLM harnesses. ' +
+        'Nodes are memories (and projects/areas); create one with memory_propose. ' +
+        'Arcs between nodes are NOT created automatically: when a new memory relates to ' +
+        'existing ones, pass relatedMemoryIds to memory_propose (it proposes a pending arc ' +
+        'to each) or call memory_propose_arc. Only accepted arcs reach the graph and context ' +
+        'expansion (owner accepts with memory_review_arc). ' +
+        'Use memory_list_projects, memory_get_project and memory_get_memory to discover ' +
+        'existing nodes before guessing ids.',
+    },
   );
 
   server.registerTool(
@@ -200,7 +210,13 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
   server.registerTool(
     'memory_propose',
     {
-      description: 'Propose a memory; the server applies the governing policy.',
+      description:
+        'Propose a memory; the server applies the governing policy. ' +
+        'To also link it to existing memories in the same call, pass relatedMemoryIds ' +
+        '(and optionally relationType, default "relates_to", and relationWeight): the service ' +
+        'proposes a pending arc from the new memory to each of them. Otherwise use ' +
+        'memory_propose_arc separately. Arcs are never created automatically: if you omit ' +
+        'relatedMemoryIds, no relation is recorded.',
       inputSchema: proposeShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
