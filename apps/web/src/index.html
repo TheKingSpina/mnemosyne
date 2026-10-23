@@ -1628,8 +1628,10 @@
           const conflicts = await request('/v1/admin/conflicts');
           const conflictItems = conflicts.items || [];
           // Dead memories: never applied or not applied in 30 days
-          const projects = await request('/v1/admin/projects');
-          const projectStatus = new Map((projects.projects || []).map((p) => [p.id, p.status || 'active']));
+          // NOTE: reuse the `projects` fetched at the top of this function.
+          const projectStatus = new Map(
+            (projects.projects || []).map((p) => [p.id, p.status || 'active']),
+          );
           const collected = [];
           for (let offset = 0; offset < 2000; offset += 100) {
             const page = await request(`/v1/admin/memories?limit=100&offset=${offset}`);
