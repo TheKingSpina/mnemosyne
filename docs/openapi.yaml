@@ -5282,10 +5282,18 @@ components:
             - local_only
             - anonymized
             - public
+        status:
+          default: active
+          type: string
+          enum:
+            - active
+            - dormant
+            - archived
       required:
         - id
         - name
         - privacy
+        - status
       additionalProperties: false
     ListProjectsOutput:
       type: object
@@ -5310,6 +5318,13 @@ components:
                   - local_only
                   - anonymized
                   - public
+              status:
+                default: active
+                type: string
+                enum:
+                  - active
+                  - dormant
+                  - archived
               areaCount:
                 type: integer
                 minimum: 0
@@ -5354,6 +5369,7 @@ components:
               - id
               - name
               - privacy
+              - status
               - areaCount
               - memoryCount
               - acceptedCount
@@ -5415,6 +5431,13 @@ components:
                 - local_only
                 - anonymized
                 - public
+            status:
+              default: active
+              type: string
+              enum:
+                - active
+                - dormant
+                - archived
             areaCount:
               type: integer
               minimum: 0
@@ -5459,6 +5482,7 @@ components:
             - id
             - name
             - privacy
+            - status
             - areaCount
             - memoryCount
             - acceptedCount

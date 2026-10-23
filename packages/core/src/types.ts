@@ -83,6 +83,9 @@ export interface ProjectRecord {
   description?: string;
   // Manual marking by the owner at creation; default local_only. Never inferred.
   privacy: PrivacyFlag;
+  // Manual lifecycle status set by the owner: active projects are worked on,
+  // dormant/archived ones are finished. Drives follow-rate "dead" detection.
+  status: 'active' | 'dormant' | 'archived';
   createdAt: string;
   updatedAt: string;
 }
@@ -380,6 +383,7 @@ export interface MemoryService {
   listProjectMemories(input: ListProjectMemoriesInput): Promise<ProjectMemoriesOutput>;
   getMemoryDetail(input: GetMemoryDetailInput): Promise<MemoryDetail>;
   setProjectPrivacy(projectId: string, privacy: PrivacyFlag): Promise<ProjectRecord>;
+  setProjectStatus(projectId: string, status: 'active' | 'dormant' | 'archived'): Promise<ProjectRecord>;
   runPruningAnalysis(analyzer?: PruningAnalyzer): Promise<PruningAnalysisOutput>;
   listProjectArcs(projectId: string): Promise<ProjectArc[]>;
   proposeMemory(input: ProposeMemoryInput, context?: ProposalContext): Promise<ProposalResult>;
@@ -436,6 +440,7 @@ export interface MemoryRepository {
   // Manual marking by the owner. Projects are otherwise provisioned silently,
   // so without this there would be no path from default local_only outward.
   updateProjectPrivacy(id: string, privacy: PrivacyFlag): Promise<ProjectRecord>;
+  updateProjectStatus(id: string, status: 'active' | 'dormant' | 'archived'): Promise<ProjectRecord>;
   findProjectByName(name: string): Promise<ProjectRecord | null>;
   listProjects(): Promise<ProjectRecord[]>;
   createArea(input: CreateAreaInput): Promise<AreaRecord>;

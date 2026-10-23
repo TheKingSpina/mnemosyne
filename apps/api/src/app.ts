@@ -15,6 +15,7 @@ import {
   proposeProjectArcInputSchema,
   reviewArcInputSchema,
   setProjectPrivacyInputSchema,
+  setProjectStatusInputSchema,
   type MemoryArcView,
   type ProjectArcView,
   recordEventsInputSchema,
@@ -438,6 +439,18 @@ async function handleAuthorizedRequestUnchecked(
       id: project.id,
       name: project.name,
       privacy: project.privacy,
+    });
+    return;
+  }
+  const adminProjectStatus = url.pathname.match(/^\/v1\/admin\/projects\/([^/]+)\/status$/u);
+  if (request.method === 'POST' && adminProjectStatus) {
+    const { id } = paramsSchema.parse({ id: adminProjectStatus[1] });
+    const body = setProjectStatusInputSchema.parse(await readJson(request, maxRequestBodyBytes));
+    const project = await service.setProjectStatus(id, body.status);
+    sendJson(response, 200, {
+      id: project.id,
+      name: project.name,
+      status: project.status,
     });
     return;
   }

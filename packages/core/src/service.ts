@@ -615,6 +615,7 @@ export class CoreMemoryService implements MemoryService {
         name: project.name,
         ...(project.description === undefined ? {} : { description: project.description }),
         privacy: project.privacy,
+        status: project.status,
         areaCount: shape?.areaCount ?? 0,
         memoryCount: aggregate?.memoryCount ?? 0,
         acceptedCount: aggregate?.acceptedCount ?? 0,
@@ -664,6 +665,7 @@ export class CoreMemoryService implements MemoryService {
         name: project.name,
         ...(project.description === undefined ? {} : { description: project.description }),
         privacy: project.privacy,
+        status: project.status,
         areaCount: shape?.areaCount ?? 0,
         memoryCount: aggregate?.memoryCount ?? 0,
         acceptedCount: aggregate?.acceptedCount ?? 0,
@@ -867,6 +869,15 @@ export class CoreMemoryService implements MemoryService {
     const project = await this.repository.findProjectById(projectId);
     if (!project) throw new Error('project_not_found');
     return this.repository.updateProjectPrivacy(projectId, privacy);
+  }
+
+  async setProjectStatus(
+    projectId: string,
+    status: 'active' | 'dormant' | 'archived',
+  ): Promise<ProjectRecord> {
+    const project = await this.repository.findProjectById(projectId);
+    if (!project) throw new Error('project_not_found');
+    return this.repository.updateProjectStatus(projectId, status);
   }
 
   // The owner dashboard draws the whole graph at once, so it needs every arc

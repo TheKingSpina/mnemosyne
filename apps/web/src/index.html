@@ -1261,7 +1261,13 @@
               <option value="anonymized">anonymized</option>
               <option value="public">public</option>
             </select>
-            <button class="button" id="privacy-apply">Applica</button>
+            <select id="status-flag">
+              <option value="active">active</option>
+              <option value="dormant">dormant</option>
+              <option value="archived">archived</option>
+            </select>
+            <button class="button" id="privacy-apply">Privacy</button>
+            <button class="button" id="status-apply">Stato</button>
           </div>
           <div id="privacy-status" class="sub" style="margin-top: 8px">—</div>
         </div>
@@ -1577,13 +1583,15 @@
             option.value = project.id;
             option.textContent = `${project.name || project.id} (${project.privacy})`;
             option.dataset.privacy = project.privacy;
+            option.dataset.status = project.status || 'active';
             privacySelect.append(option);
           }
           privacySelect.onchange = () => {
             const selected = privacySelect.options[privacySelect.selectedIndex];
             if (selected) $('privacy-flag').value = selected.dataset.privacy || 'local_only';
+            if (selected) $('status-flag').value = selected.dataset.status || 'active';
             $('privacy-status').textContent =
-              `Privacy attuale: ${selected ? selected.dataset.privacy : '—'}`;
+              `Privacy: ${selected ? selected.dataset.privacy : '—'} · Stato: ${selected ? selected.dataset.status : '—'}`;
           };
           if (privacySelect.options.length > 0) privacySelect.onchange();
           const hookSelect = $('hook-project');
@@ -1620,6 +1628,8 @@
           const conflicts = await request('/v1/admin/conflicts');
           const conflictItems = conflicts.items || [];
           // Dead memories: never applied or not applied in 30 days
+          const projects = await request('/v1/admin/projects');
+          const projectStatus = new Map((projects.projects || []).map((p) => [p.id, p.status || 'active']));
           const collected = [];
           for (let offset = 0; offset < 2000; offset += 100) {
             const page = await request(`/v1/admin/memories?limit=100&offset=${offset}`);
@@ -1629,6 +1639,9 @@
           const now = Date.now();
           const thirtyDays = 30 * 24 * 60 * 60 * 1000;
           const dead = collected.filter((m) => {
+            // A finished project is expected to be inactive: don't flag its
+            // memories as dead just because they weren't recently applied.
+            if (projectStatus.get(m.projectId) !== 'active') return false;
             const applied = m.appliedCount || 0;
             if (applied === 0) return true;
             if (m.lastAppliedAt) {
@@ -1770,6 +1783,21 @@
           });
           await loadSettings();
           showMessage(`Privacy di ${projectId} aggiornata a ${privacy}.`);
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('status-apply').onclick = async () => {
+        try {
+          const projectId = $('privacy-project').value;
+          const status = $('status-flag').value;
+          await request(`/v1/admin/projects/${encodeURIComponent(projectId)}/status`, {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: { status },
+          });
+          await loadSettings();
+          showMessage(`Stato di ${projectId} aggiornato a ${status}.`);
         } catch (error) {
           showMessage(error.message, true);
         }

@@ -117,6 +117,7 @@ export class InMemoryRepository implements MemoryRepository {
         name: project.name,
         ...(project.description === undefined ? {} : { description: project.description }),
         privacy: project.privacy,
+        status: (project as ProjectRecord).status ?? 'active',
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       });
@@ -202,6 +203,7 @@ export class InMemoryRepository implements MemoryRepository {
       name: input.name,
       ...(input.description === undefined ? {} : { description: input.description }),
       privacy: input.privacy ?? 'local_only',
+      status: 'active',
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -223,6 +225,17 @@ export class InMemoryRepository implements MemoryRepository {
     const project = this.projects.get(id);
     if (!project) throw new Error('project_not_found');
     const marked: ProjectRecord = { ...project, privacy, updatedAt: this.now().toISOString() };
+    this.projects.set(id, marked);
+    return marked;
+  }
+
+  async updateProjectStatus(
+    id: string,
+    status: 'active' | 'dormant' | 'archived',
+  ): Promise<ProjectRecord> {
+    const project = this.projects.get(id);
+    if (!project) throw new Error('project_not_found');
+    const marked: ProjectRecord = { ...project, status, updatedAt: this.now().toISOString() };
     this.projects.set(id, marked);
     return marked;
   }

@@ -194,6 +194,7 @@ export const projectViewSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1).optional(),
   privacy: privacyFlagSchema,
+  status: z.enum(['active', 'dormant', 'archived']).default('active'),
 });
 export type ProjectView = z.infer<typeof projectViewSchema>;
 
@@ -250,6 +251,11 @@ export const setProjectPrivacyInputSchema = z.object({
   privacy: privacyFlagSchema,
 });
 export type SetProjectPrivacyInput = z.infer<typeof setProjectPrivacyInputSchema>;
+
+export const setProjectStatusInputSchema = z.object({
+  status: z.enum(['active', 'dormant', 'archived']),
+});
+export type SetProjectStatusInput = z.infer<typeof setProjectStatusInputSchema>;
 
 export const listAllArcsOutputSchema = z.object({
   memoryArcs: z.array(memoryArcViewSchema),

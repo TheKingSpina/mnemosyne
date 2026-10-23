@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS privacy text NOT NULL DEFAULT 'local_only'
   CHECK (privacy IN ('local_only', 'anonymized', 'public'));
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'
+  CHECK (status IN ('active', 'dormant', 'archived'));
 
 -- Case-insensitive uniqueness, so "Alpha" and "alpha" cannot both exist and
 -- make a lookup by name ambiguous.

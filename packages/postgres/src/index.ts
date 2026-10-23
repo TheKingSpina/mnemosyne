@@ -71,6 +71,7 @@ interface ProjectRow extends QueryResultRow {
   name: string;
   description: string | null;
   privacy: PrivacyFlag;
+  status: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -208,6 +209,7 @@ function projectFromRow(row: ProjectRow): ProjectRecord {
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     privacy: row.privacy,
+    status: (row.status as ProjectRecord['status']) ?? 'active',
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -628,6 +630,19 @@ export class PostgresMemoryRepository implements MemoryRepository {
       `UPDATE projects SET privacy = $2, updated_at = now()
        WHERE id = $1 RETURNING *`,
       [id, privacy],
+    );
+    if (!result.rows[0]) throw new Error('project_not_found');
+    return projectFromRow(result.rows[0]);
+  }
+
+  async updateProjectStatus(
+    id: string,
+    status: 'active' | 'dormant' | 'archived',
+  ): Promise<ProjectRecord> {
+    const result = await this.database.query<ProjectRow>(
+      `UPDATE projects SET status = $2, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [id, status],
     );
     if (!result.rows[0]) throw new Error('project_not_found');
     return projectFromRow(result.rows[0]);
