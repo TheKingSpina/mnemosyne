@@ -781,14 +781,18 @@
       <div class="topbar">
         <div id="page-title" class="sub"></div>
         <div class="auth">
+          <span id="connection-status" class="tag" style="min-width: 92px; text-align: center"
+            >Non connesso</span
+          >
           <input
             id="owner-token"
             aria-label="Owner token"
             type="password"
             placeholder="Owner token"
-            style="max-width: 260px"
+            style="max-width: 220px"
           />
           <button class="button" id="connect">Connetti</button>
+          <button class="button" id="disconnect" style="display: none">Disconnetti</button>
         </div>
       </div>
       <div id="message" class="message hidden"></div>
@@ -810,7 +814,7 @@
         <div class="panel graph-panel">
           <div class="graph-toolbar">
             <div class="graph-toolbar-copy">
-              <div class="graph-kicker">Memory constellation</div>
+              <div class="graph-kicker">Costellazione della memoria</div>
               <div id="graph-summary" class="sub"></div>
             </div>
             <div class="graph-toolbar-actions">
@@ -861,7 +865,7 @@
             <aside id="graph-inspector" class="graph-inspector hidden" aria-live="polite">
               <div class="graph-inspector-head">
                 <div>
-                  <div class="graph-inspector-kicker">Node inspector</div>
+                  <div class="graph-inspector-kicker">Inspector nodo</div>
                   <div id="graph-inspector-title" class="graph-inspector-title"></div>
                 </div>
                 <button
@@ -1820,8 +1824,14 @@
               const row = document.createElement('tr');
               row.className = 'clickable';
               row.onclick = () => showMemory(memory);
+              const contentCell = td(memory.content, 'content');
+              contentCell.title = memory.content;
+              contentCell.style.maxWidth = '360px';
+              contentCell.style.overflow = 'hidden';
+              contentCell.style.textOverflow = 'ellipsis';
+              contentCell.style.whiteSpace = 'nowrap';
               row.append(
-                td(memory.content, 'content'),
+                contentCell,
                 td(memory.kind),
                 td(`${memory.scope.type}:${memory.scope.id}`),
                 td(memory.lifecycle, lifecycleClass(memory.lifecycle)),
@@ -2141,15 +2151,37 @@
           showMessage(error.message, true);
         }
       };
+      const setConnectionStatus = (connected) => {
+        const status = $('connection-status');
+        status.textContent = connected ? '● Connesso' : '○ Non connesso';
+        status.className = connected ? 'tag good' : 'tag';
+        $('owner-token').style.display = connected ? 'none' : '';
+        $('connect').style.display = connected ? 'none' : '';
+        $('disconnect').style.display = connected ? '' : 'none';
+      };
       $('connect').onclick = () => {
         if (!token()) {
           showMessage('Inserisci il token owner.', true);
           return;
         }
         sessionStorage.setItem('mnemosyne-owner-token', token());
+        setConnectionStatus(true);
         loadOverview();
       };
-      $('owner-token').value = sessionStorage.getItem('mnemosyne-owner-token') || '';
+      $('disconnect').onclick = () => {
+        sessionStorage.removeItem('mnemosyne-owner-token');
+        $('owner-token').value = '';
+        setConnectionStatus(false);
+        showMessage('Disconnesso.');
+      };
+      const storedToken = sessionStorage.getItem('mnemosyne-owner-token') || '';
+      $('owner-token').value = storedToken;
+      if (storedToken) {
+        setConnectionStatus(true);
+        loadOverview();
+      } else {
+        setConnectionStatus(false);
+      }
       $('graph-refresh').onclick = loadGraph;
       const refreshGraphView = () => {
         state.graph = buildGraphView();
