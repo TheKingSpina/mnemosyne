@@ -774,7 +774,6 @@
         <button data-view="propose">Proposta</button>
         <button data-view="arcs">Archi</button>
         <button data-view="review">Revisione</button>
-        <button data-view="context">Contesto</button>
         <button data-view="settings">Impostazioni</button>
       </nav>
     </header>
@@ -782,6 +781,13 @@
       <div class="topbar">
         <div id="page-title" class="sub"></div>
         <div class="auth">
+          <input
+            id="global-search"
+            type="search"
+            placeholder="Cerca memorie…"
+            style="max-width: 200px"
+            aria-label="Ricerca globale"
+          />
           <span id="connection-status" class="tag" style="min-width: 92px; text-align: center"
             >Non connesso</span
           >
@@ -1016,26 +1022,6 @@
           <div id="job-attempts" class="table-wrap"></div>
         </div>
       </section>
-      <section id="context" class="view hidden">
-        <div class="panel form-grid">
-          <h2>Anteprima contesto</h2>
-          <label>Sessione<input id="context-session" placeholder="Session ID" /></label>
-          <label>Query<input id="context-query" value="package manager" /></label>
-          <label
-            >Budget token<input
-              id="context-budget"
-              type="number"
-              value="1200"
-              min="100"
-              max="100000"
-          /></label>
-          <button class="button" id="context-resolve">Calcola contesto</button>
-        </div>
-        <div class="panel" style="margin-top: 14px">
-          <h2>Memorie selezionate</h2>
-          <pre id="context-output" class="content">—</pre>
-        </div>
-      </section>
       <section id="propose" class="view hidden">
         <div class="panel">
           <h2>Proponi una memoria</h2>
@@ -1187,6 +1173,19 @@
           </div>
         </div>
         <div class="panel" style="margin-top: 14px">
+          <h2>Privacy progetto</h2>
+          <div class="toolbar">
+            <select id="privacy-project"></select>
+            <select id="privacy-flag">
+              <option value="local_only">local_only</option>
+              <option value="anonymized">anonymized</option>
+              <option value="public">public</option>
+            </select>
+            <button class="button" id="privacy-apply">Applica</button>
+          </div>
+          <div id="privacy-status" class="sub" style="margin-top: 8px">—</div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
           <h2>Capacità servizio</h2>
           <pre id="capabilities-output" class="content">—</pre>
         </div>
@@ -1271,7 +1270,6 @@
           propose: 'Proponi memoria',
           arcs: 'Gestione archi',
           review: 'Coda di revisione',
-          context: 'Composizione contesto',
           settings: 'Impostazioni',
         }[view];
         if (!token()) {
@@ -1410,6 +1408,23 @@
         try {
           const health = await request('/v1/admin/embeddings/health');
           $('embedding-health').textContent = JSON.stringify(health, null, 2);
+          const projects = await request('/v1/admin/projects');
+          const privacySelect = $('privacy-project');
+          privacySelect.replaceChildren();
+          for (const project of projects.projects || []) {
+            const option = document.createElement('option');
+            option.value = project.id;
+            option.textContent = `${project.name || project.id} (${project.privacy})`;
+            option.dataset.privacy = project.privacy;
+            privacySelect.append(option);
+          }
+          privacySelect.onchange = () => {
+            const selected = privacySelect.options[privacySelect.selectedIndex];
+            if (selected) $('privacy-flag').value = selected.dataset.privacy || 'local_only';
+            $('privacy-status').textContent =
+              `Privacy attuale: ${selected ? selected.dataset.privacy : '—'}`;
+          };
+          if (privacySelect.options.length > 0) privacySelect.onchange();
           const capabilities = await request('/v1/admin/capabilities');
           $('capabilities-output').textContent = JSON.stringify(capabilities, null, 2);
           const tokens = await request('/v1/admin/client-tokens');
@@ -1480,6 +1495,21 @@
           $('issued-client-token').textContent = JSON.stringify(result, null, 2);
           await loadSettings();
           showMessage('Token generato. Copia il valore ora: non sarà più mostrato.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('privacy-apply').onclick = async () => {
+        try {
+          const projectId = $('privacy-project').value;
+          const privacy = $('privacy-flag').value;
+          await request(`/v1/admin/projects/${encodeURIComponent(projectId)}/privacy`, {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: { privacy },
+          });
+          await loadSettings();
+          showMessage(`Privacy di ${projectId} aggiornata a ${privacy}.`);
         } catch (error) {
           showMessage(error.message, true);
         }
@@ -2539,6 +2569,15 @@
       } else {
         setConnectionStatus(false);
       }
+      const runGlobalSearch = () => {
+        const query = $('global-search').value.trim();
+        setView('memories');
+        $('memory-query').value = query;
+        loadMemories();
+      };
+      $('global-search').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') runGlobalSearch();
+      });
       $('graph-refresh').onclick = loadGraph;
       const refreshGraphView = () => {
         state.graph = buildGraphView();
@@ -2563,22 +2602,6 @@
       $('memory-search').onclick = loadMemories;
       $('job-refresh').onclick = loadJobs;
       $('review-load').onclick = loadReview;
-      $('context-resolve').onclick = async () => {
-        try {
-          const data = await request('/v1/context/resolve', {
-            method: 'POST',
-            body: {
-              sessionId: $('context-session').value.trim(),
-              query: $('context-query').value.trim(),
-              budgetTokens: Number($('context-budget').value),
-            },
-          });
-          $('context-output').textContent = JSON.stringify(data, null, 2);
-          clearMessage();
-        } catch (error) {
-          showMessage(error.message, true);
-        }
-      };
       document
         .querySelectorAll('#nav button')
         .forEach((button) => (button.onclick = () => setView(button.dataset.view)));
