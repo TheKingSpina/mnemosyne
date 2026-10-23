@@ -131,7 +131,11 @@ export class InMemoryRepository implements MemoryRepository {
       this.events.set(`${event.sessionId}:${event.id}`, event);
     }
     for (const memory of restoredMemories) {
-      this.memories.set(memory.record.id, memory.record);
+      this.memories.set(memory.record.id, {
+        ...memory.record,
+        appliedCount: (memory.record as MemoryRecord).appliedCount ?? 0,
+        lastAppliedAt: (memory.record as MemoryRecord).lastAppliedAt ?? null,
+      });
       const revisions = new Map<number, MemoryRevision>();
       for (const item of restoredRevisions.filter((value) => value.memoryId === memory.record.id)) {
         revisions.set(item.revision.version, item.revision);
@@ -683,6 +687,8 @@ export class InMemoryRepository implements MemoryRepository {
       privacy: input.privacy ?? null,
       createdAt: now,
       updatedAt: now,
+      appliedCount: 0,
+      lastAppliedAt: null,
     };
     this.memories.set(id, record);
     this.revisions.set(id, new Map([[1, this.revisionFromInput(id, input)]]));
@@ -839,6 +845,16 @@ export class InMemoryRepository implements MemoryRepository {
     this.corpusRevision += 1n;
     this.enqueueOutbox(lifecycle === 'accepted' ? 'memory.accepted' : `memory.${lifecycle}`, id);
     return updated;
+  }
+
+  async incrementApplied(id: string): Promise<void> {
+    const record = this.memories.get(id);
+    if (!record) return;
+    this.memories.set(id, {
+      ...record,
+      appliedCount: record.appliedCount + 1,
+      lastAppliedAt: this.now().toISOString(),
+    });
   }
 
   async removeMemory(id: string): Promise<void> {

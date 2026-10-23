@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS memories (
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS privacy text
   CHECK (privacy IN ('local_only', 'anonymized', 'public'));
 
+-- Follow-rate tracking: how many times a memory has actually been applied
+-- (included in a resolved context) and when it was last applied. Used to flag
+-- "dead" memories that are never used, so the owner can prune them.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS applied_count integer NOT NULL DEFAULT 0;
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS last_applied_at timestamptz;
+
 -- Project membership is identity, not content: a memory never changes project.
 -- RESTRICT rather than CASCADE, because a cascade would remove memories without
 -- writing a forget-ledger row and the ledger is the record that they existed.

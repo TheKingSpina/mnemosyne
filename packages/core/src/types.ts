@@ -136,6 +136,8 @@ export interface MemoryRecord {
   privacy: PrivacyFlag | null;
   createdAt: string;
   updatedAt: string;
+  appliedCount: number;
+  lastAppliedAt: string | null;
 }
 
 export type ArcLifecycle = 'pending_approval' | 'accepted' | 'rejected' | 'retracted';
@@ -518,6 +520,7 @@ export interface MemoryRepository {
   }): Promise<boolean>;
   updateMemoryLifecycle(id: string, lifecycle: MemoryLifecycle): Promise<MemoryRecord>;
   removeMemory(id: string): Promise<void>;
+  incrementApplied(id: string): Promise<void>;
   runBalancedRetention(cutoffs: BalancedRetentionCutoffs): Promise<RetentionRunCounts>;
   listCurrentMemories(): Promise<MemoryRevision[]>;
   searchCurrentMemories?(input: {

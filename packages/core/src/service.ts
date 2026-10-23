@@ -1082,6 +1082,9 @@ export class CoreMemoryService implements MemoryService {
         selected.push(enriched);
         selectedIds.add(memory.memoryId);
         usedTokens += tokens;
+        // Track follow-rate: a memory that enters a resolved context counts as
+        // applied. Fire-and-forget; a failure here must not break the read.
+        void this.repository.incrementApplied(memory.memoryId).catch(() => undefined);
       }
     }
     const revision = await this.repository.getCorpusRevision();
@@ -2436,6 +2439,8 @@ export class CoreMemoryService implements MemoryService {
       projectId: record.projectId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+      appliedCount: record.appliedCount,
+      lastAppliedAt: record.lastAppliedAt,
     };
   }
 

@@ -960,6 +960,7 @@
                   <th>Scope</th>
                   <th>Stato</th>
                   <th>Aggiornata</th>
+                  <th>Applicazioni</th>
                   <th></th>
                 </tr>
               </thead>
@@ -2639,12 +2640,20 @@
               contentCell.style.overflow = 'hidden';
               contentCell.style.textOverflow = 'ellipsis';
               contentCell.style.whiteSpace = 'nowrap';
+              const applied = memory.appliedCount || 0;
+              const appliedCell = td(String(applied), applied === 0 ? 'muted' : 'good');
+              appliedCell.title =
+                applied === 0
+                  ? 'Mai applicata: candidata a potatura'
+                  : `Applicata ${applied} volte` +
+                    (memory.lastAppliedAt ? ` · ultima: ${formatDate(memory.lastAppliedAt)}` : '');
               row.append(
                 contentCell,
                 td(memory.kind),
                 td(`${memory.scope.type}:${memory.scope.id}`),
                 td(memory.lifecycle, lifecycleClass(memory.lifecycle)),
                 td(formatDate(memory.updatedAt)),
+                appliedCell,
               );
               const actions = td('', 'row-actions');
               const open = document.createElement('button');
@@ -2685,7 +2694,7 @@
           panel.className = 'split';
           const main = document.createElement('div');
           main.className = 'panel stack';
-          main.innerHTML = `<h2>${memory.memoryId}</h2><div class="content">${escapeHtml(data.memory.content)}</div><div class="sub">${data.memory.kind} · ${data.memory.scope.type}:${data.memory.scope.id} · ${data.memory.lifecycle} · v${data.memory.currentVersion}</div><div class="row-actions"><button class="button" data-action="correct">Correggi</button><button class="button" data-action="retract">Revoca</button><button class="button danger" data-action="forget">Dimentica</button></div>`;
+          main.innerHTML = `<h2>${memory.memoryId}</h2><div class="content">${escapeHtml(data.memory.content)}</div><div class="sub">${data.memory.kind} · ${data.memory.scope.type}:${data.memory.scope.id} · ${data.memory.lifecycle} · v${data.memory.currentVersion} · applicazioni: ${data.memory.appliedCount || 0}${data.memory.lastAppliedAt ? ' (ultima: ' + formatDate(data.memory.lastAppliedAt) + ')' : ''}</div><div class="row-actions"><button class="button" data-action="correct">Correggi</button><button class="button" data-action="retract">Revoca</button><button class="button danger" data-action="forget">Dimentica</button></div>`;
           const history = document.createElement('div');
           history.className = 'panel stack';
           const conflicts = data.conflicts ?? [];

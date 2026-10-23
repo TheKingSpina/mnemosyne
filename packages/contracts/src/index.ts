@@ -85,6 +85,10 @@ export const memoryViewSchema = memoryRevisionSchema.extend({
   projectId: z.string().min(1),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
+  // Follow-rate: how often this memory has been applied (included in a
+  // resolved context). Optional for backward compatibility with older exports.
+  appliedCount: z.number().int().nonnegative().optional(),
+  lastAppliedAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 export type MemoryView = z.infer<typeof memoryViewSchema>;
 

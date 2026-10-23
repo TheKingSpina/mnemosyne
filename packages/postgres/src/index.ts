@@ -251,6 +251,8 @@ interface MemoryRow extends QueryResultRow {
   privacy: PrivacyFlag | null;
   created_at: Date;
   updated_at: Date;
+  applied_count: number;
+  last_applied_at: Date | null;
 }
 interface MemoryRevisionRow extends QueryResultRow {
   memory_id: string;
@@ -1531,6 +1533,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
     }
   }
 
+  async incrementApplied(id: string): Promise<void> {
+    await this.database.query(
+      'UPDATE memories SET applied_count = applied_count + 1, last_applied_at = now() WHERE id = $1',
+      [id],
+    );
+  }
+
   async removeMemory(id: string): Promise<void> {
     const client = await this.client();
     try {
@@ -2356,6 +2365,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
       privacy: row.privacy,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
+      appliedCount: row.applied_count ?? 0,
+      lastAppliedAt: row.last_applied_at ? row.last_applied_at.toISOString() : null,
     };
   }
 
