@@ -771,10 +771,11 @@
         <button data-view="overview" class="active">Panoramica</button>
         <button data-view="graph">Grafo</button>
         <button data-view="memories">Memorie</button>
+        <button data-view="propose">Proposta</button>
+        <button data-view="arcs">Archi</button>
         <button data-view="review">Revisione</button>
-        <button data-view="conflicts">Conflitti</button>
-        <button data-view="jobs">Job</button>
         <button data-view="context">Contesto</button>
+        <button data-view="settings">Impostazioni</button>
       </nav>
     </header>
     <main>
@@ -1035,6 +1036,161 @@
           <pre id="context-output" class="content">—</pre>
         </div>
       </section>
+      <section id="propose" class="view hidden">
+        <div class="panel">
+          <h2>Proponi una memoria</h2>
+          <div class="form-grid">
+            <label
+              >Progetto
+              <select id="propose-project"></select>
+            </label>
+            <label
+              >Contenuto
+              <textarea
+                id="propose-content"
+                placeholder="Una singola affermazione atomica"
+              ></textarea>
+            </label>
+            <label
+              >Tipo
+              <select id="propose-kind">
+                <option value="fact">fact</option>
+                <option value="preference">preference</option>
+                <option value="instruction">instruction</option>
+                <option value="decision">decision</option>
+                <option value="convention">convention</option>
+                <option value="constraint">constraint</option>
+                <option value="goal">goal</option>
+                <option value="hypothesis">hypothesis</option>
+                <option value="episode">episode</option>
+              </select>
+            </label>
+            <label
+              >Scope tipo
+              <select id="propose-scope-type">
+                <option value="project">project</option>
+                <option value="session">session</option>
+                <option value="area">area</option>
+              </select>
+            </label>
+            <label
+              >Scope id
+              <input id="propose-scope-id" placeholder="id dello scope" />
+            </label>
+            <label
+              >Base epistemica
+              <select id="propose-basis">
+                <option value="observed">observed</option>
+                <option value="user_asserted">user_asserted</option>
+                <option value="verified">verified</option>
+                <option value="inferred">inferred</option>
+                <option value="unknown">unknown</option>
+              </select>
+            </label>
+            <label
+              >Confidenza (0-1)
+              <input
+                id="propose-confidence"
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value="0.8"
+              />
+            </label>
+            <label
+              >Sensibilità
+              <select id="propose-sensitivity">
+                <option value="normal">normal</option>
+                <option value="private">private</option>
+                <option value="sensitive">sensitive</option>
+              </select>
+            </label>
+            <label
+              >Attivazione
+              <select id="propose-activation">
+                <option value="on_demand">on_demand</option>
+                <option value="always">always</option>
+              </select>
+            </label>
+            <label
+              >Memorie correlate (id separati da virgola)
+              <input id="propose-related" placeholder="mem_..., mem_..." />
+            </label>
+            <label
+              >Tipo relazione
+              <input id="propose-rel-type" value="relates_to" />
+            </label>
+            <button class="button" id="propose-submit">Proponi</button>
+          </div>
+          <pre id="propose-output" class="content">—</pre>
+        </div>
+      </section>
+      <section id="arcs" class="view hidden">
+        <div class="panel">
+          <div class="toolbar">
+            <select id="arc-filter">
+              <option value="all">Tutti</option>
+              <option value="pending_approval">In review</option>
+              <option value="accepted">Accettati</option>
+              <option value="rejected">Rifiutati</option>
+            </select>
+            <button class="button" id="arc-refresh">Aggiorna</button>
+          </div>
+          <div id="arc-empty" class="empty hidden">Nessun arco.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Da</th>
+                  <th>A</th>
+                  <th>Tipo</th>
+                  <th>Peso</th>
+                  <th>Stato</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody id="arc-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      <section id="settings" class="view hidden">
+        <div class="panel">
+          <h2>Salute embedding</h2>
+          <pre id="embedding-health" class="content">—</pre>
+          <div class="row-actions" style="margin-top: 10px">
+            <button class="button" id="reindex-embeddings">Reindex embedding</button>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Client token</h2>
+          <div class="toolbar">
+            <input id="client-token-name" placeholder="nome-slug" />
+            <button class="button" id="issue-client-token">Genera token</button>
+          </div>
+          <pre id="issued-client-token" class="content">—</pre>
+          <div class="table-wrap" style="margin-top: 14px">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Prefisso</th>
+                  <th>Ruolo</th>
+                  <th>Creato</th>
+                  <th>Revocato</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody id="client-token-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Capacità servizio</h2>
+          <pre id="capabilities-output" class="content">—</pre>
+        </div>
+      </section>
     </main>
     <script>
       const state = {
@@ -1112,10 +1268,11 @@
           overview: 'Panoramica del corpus',
           graph: 'Grafo della memoria',
           memories: 'Esplora memorie',
+          propose: 'Proponi memoria',
+          arcs: 'Gestione archi',
           review: 'Coda di revisione',
-          conflicts: 'Conflitti',
-          jobs: 'Job e tentativi',
           context: 'Composizione contesto',
+          settings: 'Impostazioni',
         }[view];
         if (!token()) {
           showMessage('Inserisci il token owner e premi Connetti.', true);
@@ -1124,8 +1281,208 @@
         if (view === 'overview') loadOverview();
         if (view === 'graph') loadGraph();
         if (view === 'memories') loadMemories();
-        if (view === 'conflicts') loadConflicts();
-        if (view === 'jobs') loadJobs();
+        if (view === 'propose') loadPropose();
+        if (view === 'arcs') loadArcs();
+        if (view === 'settings') loadSettings();
+      };
+      const loadProjectsForSelect = async () => {
+        try {
+          const data = await request('/v1/admin/projects');
+          const select = $('propose-project');
+          select.replaceChildren();
+          for (const project of data.projects || []) {
+            const option = document.createElement('option');
+            option.value = project.id;
+            option.textContent = project.name || project.id;
+            select.append(option);
+          }
+          if (select.options.length > 0) {
+            const first = select.options[0].value;
+            $('propose-scope-id').value = first;
+          }
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const loadPropose = async () => {
+        await loadProjectsForSelect();
+        clearMessage();
+      };
+      const openSessionForProject = async (projectId) => {
+        const data = await request('/v1/sessions', {
+          method: 'POST',
+          headers: { 'idempotency-key': idempotencyKey() },
+          body: { projectId },
+        });
+        return data.sessionId;
+      };
+      $('propose-submit').onclick = async () => {
+        try {
+          const projectId = $('propose-project').value;
+          const sessionId = await openSessionForProject(projectId);
+          const related = $('propose-related')
+            .value.split(',')
+            .map((value) => value.trim())
+            .filter(Boolean);
+          const body = {
+            sessionId,
+            content: $('propose-content').value.trim(),
+            kind: $('propose-kind').value,
+            scope: { type: $('propose-scope-type').value, id: $('propose-scope-id').value.trim() },
+            epistemicBasis: $('propose-basis').value,
+            confidence: Number($('propose-confidence').value),
+            sensitivity: $('propose-sensitivity').value,
+            activation: $('propose-activation').value,
+            sourceEventIds: [],
+          };
+          if (related.length > 0) {
+            body.relatedMemoryIds = related;
+            body.relationType = $('propose-rel-type').value.trim() || 'relates_to';
+          }
+          const result = await request('/v1/proposals', {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body,
+          });
+          await request(`/v1/sessions/${encodeURIComponent(sessionId)}/close`, {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: {},
+          }).catch(() => undefined);
+          $('propose-output').textContent = JSON.stringify(result, null, 2);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      const loadArcs = async () => {
+        try {
+          const data = await request('/v1/admin/arcs');
+          const filter = $('arc-filter').value;
+          const memoryArcs = (data.memoryArcs || []).filter(
+            (arc) => filter === 'all' || arc.lifecycle === filter,
+          );
+          $('arc-rows').replaceChildren(
+            ...memoryArcs.map((arc) => {
+              const row = document.createElement('tr');
+              row.append(
+                td(arc.fromMemoryId),
+                td(arc.toMemoryId),
+                td(arc.type),
+                td(arc.weight === null ? '—' : arc.weight),
+                td(arc.lifecycle, lifecycleClass(arc.lifecycle)),
+              );
+              const actions = td('', 'row-actions');
+              if (arc.lifecycle === 'pending_approval') {
+                for (const decision of ['accept', 'reject']) {
+                  const button = document.createElement('button');
+                  button.textContent = decision === 'accept' ? 'Accetta' : 'Rifiuta';
+                  button.onclick = async (event) => {
+                    event.stopPropagation();
+                    try {
+                      await request(`/v1/admin/arcs/${encodeURIComponent(arc.arcId)}/review`, {
+                        method: 'POST',
+                        headers: { 'idempotency-key': idempotencyKey() },
+                        body: { decision },
+                      });
+                      await loadArcs();
+                      showMessage(decision === 'accept' ? 'Arco accettato.' : 'Arco rifiutato.');
+                    } catch (error) {
+                      showMessage(error.message, true);
+                    }
+                  };
+                  actions.append(button);
+                }
+              }
+              row.append(actions);
+              return row;
+            }),
+          );
+          $('arc-empty').classList.toggle('hidden', memoryArcs.length > 0);
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('arc-refresh').onclick = loadArcs;
+      $('arc-filter').onchange = loadArcs;
+      const loadSettings = async () => {
+        try {
+          const health = await request('/v1/admin/embeddings/health');
+          $('embedding-health').textContent = JSON.stringify(health, null, 2);
+          const capabilities = await request('/v1/admin/capabilities');
+          $('capabilities-output').textContent = JSON.stringify(capabilities, null, 2);
+          const tokens = await request('/v1/admin/client-tokens');
+          $('client-token-rows').replaceChildren(
+            ...(tokens.tokens || []).map((token) => {
+              const row = document.createElement('tr');
+              row.append(
+                td(token.name),
+                td(token.prefix),
+                td(token.role),
+                td(formatDate(token.createdAt)),
+                td(token.revokedAt ? formatDate(token.revokedAt) : '—'),
+              );
+              const actions = td('', 'row-actions');
+              if (!token.revokedAt) {
+                const revoke = document.createElement('button');
+                revoke.textContent = 'Revoca';
+                revoke.className = 'danger';
+                revoke.onclick = async (event) => {
+                  event.stopPropagation();
+                  try {
+                    await request(
+                      `/v1/admin/client-tokens/${encodeURIComponent(token.name)}/revoke`,
+                      {
+                        method: 'POST',
+                        headers: { 'idempotency-key': idempotencyKey() },
+                        body: {},
+                      },
+                    );
+                    await loadSettings();
+                    showMessage('Token revocato.');
+                  } catch (error) {
+                    showMessage(error.message, true);
+                  }
+                };
+                actions.append(revoke);
+              }
+              row.append(actions);
+              return row;
+            }),
+          );
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('reindex-embeddings').onclick = async () => {
+        try {
+          const result = await request('/v1/admin/embeddings/reindex', {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: {},
+          });
+          $('embedding-health').textContent = JSON.stringify(result, null, 2);
+          showMessage('Reindex completato.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('issue-client-token').onclick = async () => {
+        try {
+          const name = $('client-token-name').value.trim();
+          const result = await request('/v1/admin/client-tokens', {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: { name },
+          });
+          $('issued-client-token').textContent = JSON.stringify(result, null, 2);
+          await loadSettings();
+          showMessage('Token generato. Copia il valore ora: non sarà più mostrato.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
       };
       const loadOverview = async () => {
         try {
