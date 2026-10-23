@@ -1555,10 +1555,16 @@
         try {
           const projectFilter = $('timeline-project').value;
           const kindFilter = $('timeline-kind').value;
-          const params = new URLSearchParams({ q: '', limit: '200', offset: '0' });
-          if (kindFilter) params.set('kind', kindFilter);
-          const data = await request(`/v1/admin/memories?${params}`);
-          let items = data.items || [];
+          const collected = [];
+          for (let offset = 0; offset < 2000; offset += 100) {
+            const params = new URLSearchParams({ q: '', limit: '100', offset: String(offset) });
+            if (kindFilter) params.set('kind', kindFilter);
+            const page = await request(`/v1/admin/memories?${params}`);
+            const pageItems = page.items || [];
+            collected.push(...pageItems);
+            if (pageItems.length < 100) break;
+          }
+          let items = collected;
           if (projectFilter) items = items.filter((m) => m.projectId === projectFilter);
           items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
           const projectSelect = $('timeline-project');
