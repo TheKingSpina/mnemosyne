@@ -25,7 +25,11 @@ if (!connectionString || !forgetSecret || !ownerToken || !harnessToken) {
   );
 }
 
-const pool = new Pool({ connectionString });
+const pool = new Pool({
+  connectionString,
+  connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS ?? 10_000),
+  idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30_000),
+});
 const repository = await PostgresMemoryRepository.fromPool(pool);
 const embeddingProvider = new DeterministicEmbeddingProvider();
 const semanticSearchIndex = new PostgresSemanticSearchIndex(pool, {
@@ -71,6 +75,13 @@ const server = createApiServer(service, {
   requireIdempotencyKey: true,
   pruningAnalyzer,
 });
+// Node's default keepAliveTimeout (5s) is too short for clients that reuse
+// connections across Tailscale with gaps between requests: the server closes
+// the socket and the next call surfaces as a socket hang-up / timeout. Keep
+// idle connections alive long enough to outlive a normal think pause.
+server.keepAliveTimeout = Number(process.env.API_KEEP_ALIVE_TIMEOUT_MS ?? 120_000);
+server.headersTimeout = server.keepAliveTimeout + 5_000;
+server.timeout = Number(process.env.API_REQUEST_TIMEOUT_MS ?? 300_000);
 server.listen(port, host, () => {
   process.stdout.write(`Mnemosyne API listening on ${host}:${port}\n`);
 });

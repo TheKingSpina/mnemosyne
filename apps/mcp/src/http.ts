@@ -91,6 +91,11 @@ export function createMcpHttpServer(
     }
     sessions.clear();
   });
+  // See apps/api/src/main.ts: Node's 5s default keep-alive timeout drops
+  // reused connections across Tailscale and surfaces as client-side timeouts.
+  server.keepAliveTimeout = Number(process.env.MCP_KEEP_ALIVE_TIMEOUT_MS ?? 120_000);
+  server.headersTimeout = server.keepAliveTimeout + 5_000;
+  server.timeout = Number(process.env.MCP_REQUEST_TIMEOUT_MS ?? 300_000);
   return server;
 }
 

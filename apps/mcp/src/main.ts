@@ -49,7 +49,11 @@ if (!Number.isSafeInteger(maxSessions) || maxSessions <= 0) {
 if (!Number.isSafeInteger(sessionIdleTimeoutMs) || sessionIdleTimeoutMs < 1_000) {
   throw new Error('MCP_SESSION_IDLE_TIMEOUT_MS must be at least 1000');
 }
-const pool = new Pool({ connectionString });
+const pool = new Pool({
+  connectionString,
+  connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS ?? 10_000),
+  idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30_000),
+});
 const clientTokenStore = new PostgresClientTokenStore(pool);
 // A per-client token escalates the anonymous harness default to owner, so a
 // client can hold its own revocable credential instead of the shared owner one.
