@@ -853,6 +853,11 @@
               <select id="graph-scope" aria-label="Filtro ambito">
                 <option value="">Tutti gli ambiti</option>
               </select>
+              <select id="graph-cluster" aria-label="Raggruppa per">
+                <option value="scope">Scope</option>
+                <option value="project">Progetto</option>
+                <option value="kind">Tipo</option>
+              </select>
               <button class="button" id="graph-fit">Adatta</button>
               <button class="button" id="graph-labels" aria-pressed="false">Etichette</button>
               <button class="button" id="graph-refresh">Aggiorna</button>
@@ -1162,6 +1167,10 @@
             <select id="timeline-project" aria-label="Progetto">
               <option value="">Tutti i progetti</option>
             </select>
+            <select id="timeline-group" aria-label="Raggruppa per">
+              <option value="day">Per giorno</option>
+              <option value="project">Per progetto</option>
+            </select>
             <select id="timeline-kind" aria-label="Tipo">
               <option value="">Tutti i tipi</option>
               <option value="fact">Fact</option>
@@ -1239,6 +1248,13 @@
           <div id="privacy-status" class="sub" style="margin-top: 8px">—</div>
         </div>
         <div class="panel" style="margin-top: 14px">
+          <h2>Potatura (hygiene)</h2>
+          <div class="row-actions">
+            <button class="button" id="run-pruning">Analizza potatura</button>
+          </div>
+          <pre id="pruning-output" class="content" style="margin-top: 10px">—</pre>
+        </div>
+        <div class="panel" style="margin-top: 14px">
           <h2>Retention</h2>
           <div class="row-actions">
             <button class="button" id="run-retention">Lancia retention</button>
@@ -1283,8 +1299,9 @@
           </div>
         </div>
         <div class="panel" style="margin-top: 14px">
-          <h2>Telemetria retrieval</h2>
-          <pre id="retrieval-telemetry" class="content">—</pre>
+          <h2>Metriche retrieval (numeri onesti)</h2>
+          <div id="retrieval-metrics" class="sub">—</div>
+          <pre id="retrieval-telemetry" class="content" style="margin-top: 10px">—</pre>
         </div>
         <div class="panel" style="margin-top: 14px">
           <h2>Capacità servizio</h2>
@@ -1536,8 +1553,22 @@
           try {
             const telemetry = await request('/v1/admin/retrieval/telemetry');
             $('retrieval-telemetry').textContent = JSON.stringify(telemetry, null, 2);
+            const searches = telemetry.searches || 0;
+            const cacheHits = telemetry.cacheHits || 0;
+            const cacheMisses = telemetry.cacheMisses || 0;
+            const cacheTotal = cacheHits + cacheMisses;
+            const cacheRate = cacheTotal > 0 ? ((cacheHits / cacheTotal) * 100).toFixed(1) : '0.0';
+            const paths = telemetry.paths || {};
+            $('retrieval-metrics').innerHTML = `
+              <strong>Ricerche:</strong> ${searches} ·
+              <strong>Context:</strong> ${telemetry.contextResolutions || 0} ·
+              <strong>Cache hit rate:</strong> ${cacheRate}% (${cacheHits}/${cacheTotal}) ·
+              <strong>Semantica indisponibile:</strong> ${telemetry.semanticUnavailable || 0}<br>
+              <strong>Percorsi:</strong> lessicale ${paths.lexicalOnly || 0} · semantico ${paths.semanticOnly || 0} · ibrido ${paths.hybrid || 0} · vuoto ${paths.empty || 0}
+            `;
           } catch (e) {
             $('retrieval-telemetry').textContent = 'n/d';
+            $('retrieval-metrics').textContent = 'n/d';
           }
           const tokens = await request('/v1/admin/client-tokens');
           const conflicts = await request('/v1/admin/conflicts');
@@ -1734,19 +1765,23 @@
             return;
           }
           $('timeline-empty').classList.add('hidden');
-          const byDay = new Map();
+          const groupBy = $('timeline-group').value || 'day';
+          const groups = new Map();
           for (const memory of items) {
-            const day = new Date(memory.updatedAt).toLocaleDateString('it');
-            if (!byDay.has(day)) byDay.set(day, []);
-            byDay.get(day).push(memory);
+            const key =
+              groupBy === 'project'
+                ? memory.projectId || '—'
+                : new Date(memory.updatedAt).toLocaleDateString('it');
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(memory);
           }
-          for (const [day, memories] of byDay) {
-            const dayHeader = document.createElement('div');
-            dayHeader.className = 'sub';
-            dayHeader.style.marginTop = '12px';
-            dayHeader.style.fontWeight = '700';
-            dayHeader.textContent = day;
-            list.append(dayHeader);
+          for (const [groupKey, memories] of groups) {
+            const header = document.createElement('div');
+            header.className = 'sub';
+            header.style.marginTop = '12px';
+            header.style.fontWeight = '700';
+            header.textContent = groupKey;
+            list.append(header);
             for (const memory of memories) {
               const row = document.createElement('div');
               row.className = 'revision';
@@ -1799,6 +1834,7 @@
       $('timeline-refresh').onclick = loadTimeline;
       $('timeline-project').onchange = loadTimeline;
       $('timeline-kind').onchange = loadTimeline;
+      $('timeline-group').onchange = loadTimeline;
       const loadSessions = async () => {
         try {
           const data = await request('/v1/admin/sessions?limit=50');
@@ -1850,6 +1886,19 @@
           });
           $('retention-output').textContent = JSON.stringify(result, null, 2);
           showMessage('Retention completata.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('run-pruning').onclick = async () => {
+        try {
+          const result = await request('/v1/admin/pruning/analyze', {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: {},
+          });
+          $('pruning-output').textContent = JSON.stringify(result, null, 2);
+          showMessage('Analisi potatura completata.');
         } catch (error) {
           showMessage(error.message, true);
         }
@@ -1961,17 +2010,41 @@
           return lifecycleMatch && scopeMatch && (!query || memory.graphSearchText.includes(query));
         });
         const visibleIds = new Set(visibleMemories.map((memory) => memory.memoryId));
-        const scopeIds = new Set();
+        const clusterBy = $('graph-cluster').value || 'scope';
+        const hubIds = new Set();
         const nodes = [];
         const edges = [];
+        const hubFor = (memory) => {
+          if (clusterBy === 'project') {
+            const id = memory.projectId || memory.scope.id;
+            return {
+              id: `project:${id}`,
+              label: (state.graphProjectNames && state.graphProjectNames.get(id)) || id,
+              groupKey: `project:${id}`,
+            };
+          }
+          if (clusterBy === 'kind') {
+            return {
+              id: `kind:${memory.kind}`,
+              label: memory.kind,
+              groupKey: `kind:${memory.kind}`,
+            };
+          }
+          const id = `${memory.scope.type}:${memory.scope.id}`;
+          return {
+            id: `scope:${id}`,
+            label: id,
+            groupKey: `scope:${id}`,
+          };
+        };
         for (const memory of visibleMemories) {
-          const scopeId = `scope:${memory.scope.type}:${memory.scope.id}`;
-          if (!scopeIds.has(scopeId)) {
-            scopeIds.add(scopeId);
+          const hub = hubFor(memory);
+          if (!hubIds.has(hub.id)) {
+            hubIds.add(hub.id);
             nodes.push({
-              id: scopeId,
+              id: hub.id,
               kind: 'scope',
-              label: `${memory.scope.type}:${memory.scope.id}`,
+              label: hub.label,
               lifecycle: 'scope',
               scopeType: memory.scope.type,
               scopeId: memory.scope.id,
@@ -1985,9 +2058,9 @@
             content: memory.content,
             memoryKind: memory.kind,
             version: memory.currentVersion,
-            scopeId,
+            scopeId: hub.id,
           });
-          edges.push({ from: memory.memoryId, to: scopeId, kind: 'scope' });
+          edges.push({ from: memory.memoryId, to: hub.id, kind: 'scope' });
         }
         const projectIds = new Set();
         for (const arc of state.graphProjectArcs ?? []) {
@@ -2995,6 +3068,7 @@
       let graphSearchTimer;
       $('graph-filter').onchange = refreshGraphView;
       $('graph-scope').onchange = refreshGraphView;
+      $('graph-cluster').onchange = refreshGraphView;
       $('graph-search').oninput = () => {
         clearTimeout(graphSearchTimer);
         graphSearchTimer = setTimeout(refreshGraphView, 120);
