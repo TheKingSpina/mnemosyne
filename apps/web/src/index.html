@@ -360,6 +360,12 @@
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }
+      .content mark {
+        background: rgba(250, 204, 21, 0.35);
+        color: inherit;
+        border-radius: 3px;
+        padding: 0 2px;
+      }
       .muted {
         color: var(--muted);
       }
@@ -774,7 +780,12 @@
         <button data-view="timeline">Timeline</button>
         <button data-view="propose">Proposta</button>
         <button data-view="arcs">Archi</button>
-        <button data-view="review">Revisione</button>
+        <button data-view="review">
+          Revisione
+          <span id="review-badge" class="tag hidden" style="margin-left: 6px; padding: 0 6px"
+            >0</span
+          >
+        </button>
         <button data-view="settings">Impostazioni</button>
       </nav>
     </header>
@@ -1252,6 +1263,26 @@
           </div>
         </div>
         <div class="panel" style="margin-top: 14px">
+          <h2>Sessioni</h2>
+          <div class="toolbar">
+            <button class="button" id="session-refresh">Aggiorna sessioni</button>
+          </div>
+          <div class="table-wrap" style="margin-top: 10px">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Progetto</th>
+                  <th>Stato</th>
+                  <th>Creata</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody id="session-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
           <h2>Telemetria retrieval</h2>
           <pre id="retrieval-telemetry" class="content">—</pre>
         </div>
@@ -1353,7 +1384,10 @@
         if (view === 'timeline') loadTimeline();
         if (view === 'propose') loadPropose();
         if (view === 'arcs') loadArcs();
-        if (view === 'settings') loadSettings();
+        if (view === 'settings') {
+          loadSettings();
+          loadSessions();
+        }
       };
       const loadProjectsForSelect = async () => {
         try {
@@ -1765,6 +1799,48 @@
       $('timeline-refresh').onclick = loadTimeline;
       $('timeline-project').onchange = loadTimeline;
       $('timeline-kind').onchange = loadTimeline;
+      const loadSessions = async () => {
+        try {
+          const data = await request('/v1/admin/sessions?limit=50');
+          $('session-rows').replaceChildren(
+            ...(data.items || []).map((session) => {
+              const row = document.createElement('tr');
+              row.append(
+                td(session.id),
+                td(session.projectId),
+                td(session.status, session.status === 'open' ? 'good' : 'muted'),
+                td(formatDate(session.createdAt)),
+              );
+              const actions = td('', 'row-actions');
+              if (session.status === 'open') {
+                const close = document.createElement('button');
+                close.textContent = 'Chiudi';
+                close.onclick = async (event) => {
+                  event.stopPropagation();
+                  try {
+                    await request(`/v1/sessions/${encodeURIComponent(session.id)}/close`, {
+                      method: 'POST',
+                      headers: { 'idempotency-key': idempotencyKey() },
+                      body: {},
+                    });
+                    await loadSessions();
+                    showMessage('Sessione chiusa.');
+                  } catch (error) {
+                    showMessage(error.message, true);
+                  }
+                };
+                actions.append(close);
+              }
+              row.append(actions);
+              return row;
+            }),
+          );
+          clearMessage();
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('session-refresh').onclick = loadSessions;
       $('run-retention').onclick = async () => {
         try {
           const result = await request('/v1/admin/retention/run', {
@@ -1798,6 +1874,13 @@
             }),
           );
           $('corpus-state').textContent = `Corpus revision: ${data.corpusRevision}`;
+          const badge = $('review-badge');
+          if (data.pendingApproval > 0) {
+            badge.textContent = data.pendingApproval;
+            badge.classList.remove('hidden');
+          } else {
+            badge.classList.add('hidden');
+          }
           const capabilities = await request('/v1/admin/capabilities');
           $('capabilities-state').textContent = JSON.stringify(capabilities, null, 2);
           clearMessage();
@@ -2475,7 +2558,9 @@
               const row = document.createElement('tr');
               row.className = 'clickable';
               row.onclick = () => showMemory(memory);
-              const contentCell = td(memory.content, 'content');
+              const contentCell = td('', 'content');
+              const query = $('memory-query').value.trim();
+              contentCell.innerHTML = highlightText(memory.content, query);
               contentCell.title = memory.content;
               contentCell.style.maxWidth = '360px';
               contentCell.style.overflow = 'hidden';
@@ -2567,6 +2652,12 @@
           (char) =>
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char],
         );
+      const highlightText = (value, query) => {
+        const safe = escapeHtml(value);
+        if (!query) return safe;
+        const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return safe.replace(new RegExp(`(${escapedQuery})`, 'gi'), '<mark>$1</mark>');
+      };
       const openEditor = (memory, current) => {
         const content = prompt('Nuovo contenuto', current.content);
         if (content === null || !content.trim()) return;
@@ -2922,6 +3013,47 @@
       document
         .querySelectorAll('#nav button')
         .forEach((button) => (button.onclick = () => setView(button.dataset.view)));
+      const shortcutMap = {
+        o: 'overview',
+        g: 'graph',
+        m: 'memories',
+        t: 'timeline',
+        p: 'propose',
+        a: 'arcs',
+        r: 'review',
+        s: 'settings',
+      };
+      let pendingG = false;
+      document.addEventListener('keydown', (event) => {
+        const target = event.target;
+        if (
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT')
+        )
+          return;
+        if (event.key === '/') {
+          event.preventDefault();
+          const search = $('global-search');
+          if (search) search.focus();
+          return;
+        }
+        const key = event.key.toLowerCase();
+        if (pendingG && shortcutMap[key]) {
+          setView(shortcutMap[key]);
+          pendingG = false;
+          return;
+        }
+        if (key === 'g') {
+          pendingG = true;
+          setTimeout(() => {
+            pendingG = false;
+          }, 800);
+          return;
+        }
+        pendingG = false;
+      });
       setView('overview');
     </script>
   </body>
