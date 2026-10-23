@@ -1222,6 +1222,23 @@
           </div>
         </div>
         <div class="panel" style="margin-top: 14px">
+          <h2>Auto-recall hook</h2>
+          <div class="form-grid">
+            <label
+              >Progetto
+              <select id="hook-project"></select>
+            </label>
+            <label
+              >Budget token
+              <input id="hook-budget" type="number" value="800" min="100" max="4000" />
+            </label>
+          </div>
+          <div class="row-actions" style="margin-top: 10px">
+            <button class="button" id="hook-generate">Genera snippet</button>
+          </div>
+          <pre id="hook-snippet" class="content" style="margin-top: 10px">—</pre>
+        </div>
+        <div class="panel" style="margin-top: 14px">
           <h2>Export / Restore</h2>
           <div class="row-actions">
             <button class="button" id="export-corpus">Esporta corpus (JSON)</button>
@@ -1247,6 +1264,26 @@
             <button class="button" id="privacy-apply">Applica</button>
           </div>
           <div id="privacy-status" class="sub" style="margin-top: 8px">—</div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Follow-rate (memorie morte)</h2>
+          <div class="sub" style="margin-bottom: 8px">
+            Memorie mai applicate (appliedCount = 0) o non applicate da oltre 30 giorni.
+          </div>
+          <div id="dead-memories-empty" class="empty hidden">Nessuna memoria morta.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Contenuto</th>
+                  <th>Applicazioni</th>
+                  <th>Ultima applicazione</th>
+                  <th>Stato</th>
+                </tr>
+              </thead>
+              <tbody id="dead-memories-rows"></tbody>
+            </table>
+          </div>
         </div>
         <div class="panel" style="margin-top: 14px">
           <h2>Potatura (hygiene)</h2>
@@ -1549,6 +1586,14 @@
               `Privacy attuale: ${selected ? selected.dataset.privacy : '—'}`;
           };
           if (privacySelect.options.length > 0) privacySelect.onchange();
+          const hookSelect = $('hook-project');
+          hookSelect.replaceChildren();
+          for (const project of projects.projects || []) {
+            const option = document.createElement('option');
+            option.value = project.id;
+            option.textContent = project.name || project.id;
+            hookSelect.append(option);
+          }
           const capabilities = await request('/v1/admin/capabilities');
           $('capabilities-output').textContent = JSON.stringify(capabilities, null, 2);
           try {
@@ -1574,6 +1619,39 @@
           const tokens = await request('/v1/admin/client-tokens');
           const conflicts = await request('/v1/admin/conflicts');
           const conflictItems = conflicts.items || [];
+          // Dead memories: never applied or not applied in 30 days
+          const collected = [];
+          for (let offset = 0; offset < 2000; offset += 100) {
+            const page = await request(`/v1/admin/memories?limit=100&offset=${offset}`);
+            collected.push(...(page.items || []));
+            if ((page.items || []).length < 100) break;
+          }
+          const now = Date.now();
+          const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+          const dead = collected.filter((m) => {
+            const applied = m.appliedCount || 0;
+            if (applied === 0) return true;
+            if (m.lastAppliedAt) {
+              const age = now - new Date(m.lastAppliedAt).getTime();
+              if (age > thirtyDays) return true;
+            }
+            return false;
+          });
+          $('dead-memories-rows').replaceChildren(
+            ...dead.map((m) => {
+              const row = document.createElement('tr');
+              const applied = m.appliedCount || 0;
+              const status = applied === 0 ? 'morta (mai applicata)' : 'stale (>30g)';
+              row.append(
+                td(m.content, 'content'),
+                td(String(applied), applied === 0 ? 'bad' : 'warn'),
+                td(m.lastAppliedAt ? formatDate(m.lastAppliedAt) : '—'),
+                td(status, applied === 0 ? 'bad' : 'warn'),
+              );
+              return row;
+            }),
+          );
+          $('dead-memories-empty').classList.toggle('hidden', dead.length > 0);
           $('conflict-rows').replaceChildren(
             ...conflictItems.map((conflict) => {
               const row = document.createElement('tr');
@@ -1695,6 +1773,30 @@
         } catch (error) {
           showMessage(error.message, true);
         }
+      };
+      $('hook-generate').onclick = () => {
+        const projectId = $('hook-project').value;
+        const budget = $('hook-budget').value;
+        const origin = window.location.origin.replace(/\/$/, '');
+        const apiUrl = origin.includes('localhost')
+          ? 'http://127.0.0.1:3000'
+          : origin.replace(/:18080$/, ':3000');
+        const snippet = [
+          '# Claude Code UserPromptSubmit hook',
+          '{',
+          '  "hooks": {',
+          '    "UserPromptSubmit": [{',
+          '      "matcher": "",',
+          '      "hooks": [{',
+          '        "type": "command",',
+          `        "command": "MNEMOSYNE_API_URL=${apiUrl} MNEMOSYNE_OWNER_TOKEN=<TOKEN> node /path/to/mnemosyne/ops/hooks/auto-recall.mjs ${projectId} \\"$PROMPT\\" ${budget}"`,
+          '      }]',
+          '    }]',
+          '  }',
+          '}',
+        ].join('\\n');
+        $('hook-snippet').textContent = snippet;
+        showMessage('Snippet generato. Sostituisci <TOKEN> e il path.');
       };
       $('export-corpus').onclick = async () => {
         try {
