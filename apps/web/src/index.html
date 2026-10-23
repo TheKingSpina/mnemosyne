@@ -962,6 +962,9 @@
             >
               Carica coda
             </button>
+            <button class="button" id="review-select-all">Seleziona tutto</button>
+            <button class="button" id="review-accept-selected">Approva selezionati</button>
+            <button class="button" id="review-reject-selected">Rifiuta selezionati</button>
           </div>
           <div id="review-empty" class="empty hidden">Nessuna candidate in attesa.</div>
           <div class="table-wrap">
@@ -1198,6 +1201,20 @@
           </div>
         </div>
         <div class="panel" style="margin-top: 14px">
+          <h2>Export / Restore</h2>
+          <div class="row-actions">
+            <button class="button" id="export-corpus">Esporta corpus (JSON)</button>
+          </div>
+          <div class="form-grid" style="margin-top: 10px">
+            <label
+              >File restore
+              <input id="restore-file" type="file" accept="application/json" />
+            </label>
+            <button class="button" id="restore-corpus">Ripristina corpus</button>
+          </div>
+          <pre id="restore-output" class="content" style="margin-top: 10px">—</pre>
+        </div>
+        <div class="panel" style="margin-top: 14px">
           <h2>Privacy progetto</h2>
           <div class="toolbar">
             <select id="privacy-project"></select>
@@ -1209,6 +1226,30 @@
             <button class="button" id="privacy-apply">Applica</button>
           </div>
           <div id="privacy-status" class="sub" style="margin-top: 8px">—</div>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Retention</h2>
+          <div class="row-actions">
+            <button class="button" id="run-retention">Lancia retention</button>
+          </div>
+          <pre id="retention-output" class="content" style="margin-top: 10px">—</pre>
+        </div>
+        <div class="panel" style="margin-top: 14px">
+          <h2>Conflitti aperti</h2>
+          <div id="conflict-empty" class="empty hidden">Nessun conflitto.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Memorie</th>
+                  <th>Stato</th>
+                  <th>Azioni</th>
+                </tr>
+              </thead>
+              <tbody id="conflict-rows"></tbody>
+            </table>
+          </div>
         </div>
         <div class="panel" style="margin-top: 14px">
           <h2>Telemetria retrieval</h2>
@@ -1465,6 +1506,44 @@
             $('retrieval-telemetry').textContent = 'n/d';
           }
           const tokens = await request('/v1/admin/client-tokens');
+          const conflicts = await request('/v1/admin/conflicts');
+          const conflictItems = conflicts.items || [];
+          $('conflict-rows').replaceChildren(
+            ...conflictItems.map((conflict) => {
+              const row = document.createElement('tr');
+              row.append(
+                td(conflict.type),
+                td((conflict.memoryIds || []).join(', ')),
+                td(conflict.status),
+              );
+              const actions = td('', 'row-actions');
+              if (conflict.status === 'open') {
+                const resolve = document.createElement('button');
+                resolve.textContent = 'Risolvi';
+                resolve.onclick = async (event) => {
+                  event.stopPropagation();
+                  try {
+                    await request(
+                      `/v1/admin/conflicts/${encodeURIComponent(conflict.id)}/resolution`,
+                      {
+                        method: 'POST',
+                        headers: { 'idempotency-key': idempotencyKey() },
+                        body: {},
+                      },
+                    );
+                    await loadSettings();
+                    showMessage('Conflitto risolto.');
+                  } catch (error) {
+                    showMessage(error.message, true);
+                  }
+                };
+                actions.append(resolve);
+              }
+              row.append(actions);
+              return row;
+            }),
+          );
+          $('conflict-empty').classList.toggle('hidden', conflictItems.length > 0);
           $('client-token-rows').replaceChildren(
             ...(tokens.tokens || []).map((token) => {
               const row = document.createElement('tr');
@@ -1547,6 +1626,43 @@
           });
           await loadSettings();
           showMessage(`Privacy di ${projectId} aggiornata a ${privacy}.`);
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('export-corpus').onclick = async () => {
+        try {
+          const response = await fetch('/api/backend/v1/admin/exports/corpus', {
+            headers: { authorization: `Bearer ${token()}` },
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'mnemosyne-corpus-export.json';
+          document.body.append(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          showMessage('Export scaricato.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
+      $('restore-corpus').onclick = async () => {
+        try {
+          const file = $('restore-file').files[0];
+          if (!file) throw new Error('Seleziona un file JSON.');
+          const text = await file.text();
+          const body = JSON.parse(text);
+          const result = await request('/v1/admin/restore/corpus', {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body,
+          });
+          $('restore-output').textContent = JSON.stringify(result, null, 2);
+          showMessage('Restore completato.');
         } catch (error) {
           showMessage(error.message, true);
         }
@@ -1649,6 +1765,19 @@
       $('timeline-refresh').onclick = loadTimeline;
       $('timeline-project').onchange = loadTimeline;
       $('timeline-kind').onchange = loadTimeline;
+      $('run-retention').onclick = async () => {
+        try {
+          const result = await request('/v1/admin/retention/run', {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey() },
+            body: {},
+          });
+          $('retention-output').textContent = JSON.stringify(result, null, 2);
+          showMessage('Retention completata.');
+        } catch (error) {
+          showMessage(error.message, true);
+        }
+      };
       const loadOverview = async () => {
         try {
           state.overview = await request('/v1/admin/overview');
@@ -2626,6 +2755,7 @@
           showMessage(error.message, true);
         }
       };
+      const reviewSelected = new Set();
       const loadReview = async () => {
         try {
           const sessionId = $('review-session').value.trim();
@@ -2633,10 +2763,21 @@
           const data = await request(
             `/v1/proposals?sessionId=${encodeURIComponent(sessionId)}&limit=100`,
           );
+          reviewSelected.clear();
+          state.reviewItems = data.items;
           $('review-rows').replaceChildren(
             ...data.items.map((memory) => {
               const row = document.createElement('tr');
+              const checkCell = document.createElement('td');
+              const checkbox = document.createElement('input');
+              checkbox.type = 'checkbox';
+              checkbox.onchange = () => {
+                if (checkbox.checked) reviewSelected.add(memory.memoryId);
+                else reviewSelected.delete(memory.memoryId);
+              };
+              checkCell.append(checkbox);
               row.append(
+                checkCell,
                 td(memory.content, 'content'),
                 td(`${memory.scope.type}:${memory.scope.id}`),
                 td(memory.lifecycle, lifecycleClass(memory.lifecycle)),
@@ -2658,6 +2799,47 @@
           showMessage(error.message, true);
         }
       };
+      $('review-select-all').onclick = () => {
+        const boxes = $('review-rows').querySelectorAll('input[type="checkbox"]');
+        const allChecked = Array.from(boxes).every((b) => b.checked);
+        boxes.forEach((b) => {
+          b.checked = !allChecked;
+          b.dispatchEvent(new Event('change'));
+        });
+      };
+      const batchReview = async (decision) => {
+        const sessionId = $('review-session').value.trim();
+        if (!sessionId) {
+          showMessage('Inserisci un Session ID.', true);
+          return;
+        }
+        if (reviewSelected.size === 0) {
+          showMessage('Seleziona almeno una candidate.', true);
+          return;
+        }
+        const selected = [...reviewSelected];
+        let ok = 0;
+        for (const memoryId of selected) {
+          const memory = (state.reviewItems || []).find((m) => m.memoryId === memoryId);
+          if (!memory) continue;
+          try {
+            await request(`/v1/proposals/${encodeURIComponent(memoryId)}/decision`, {
+              method: 'POST',
+              headers: { 'idempotency-key': idempotencyKey() },
+              body: { expectedVersion: memory.currentVersion, decision },
+            });
+            ok += 1;
+          } catch (error) {
+            showMessage(error.message, true);
+          }
+        }
+        await loadReview();
+        showMessage(
+          `${ok}/${selected.length} candidate ${decision === 'accept' ? 'approvate' : 'rifiutate'}.`,
+        );
+      };
+      $('review-accept-selected').onclick = () => batchReview('accept');
+      $('review-reject-selected').onclick = () => batchReview('reject');
       // The reload runs before the confirmation is shown, because every loader
       // calls clearMessage() when it finishes and would otherwise wipe it.
       const review = async (memory, decision, reload = loadReview) => {
