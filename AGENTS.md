@@ -4,14 +4,17 @@
 
 Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and private Tailscale access. The detailed runbook is [`docs/macos-mini-tailscale.md`](docs/macos-mini-tailscale.md).
 
-## Current handoff — 2026-10-20
+## Current handoff — 2026-10-26 (revises the 2026-10-20 handoff)
 
 ### Repository and Git
 
 - `main` tracks `origin/main`; the per-client token work (`9567535`, `310dca3`) and the credential-path fix are merged.
 - Retrieval commits: `8b5becc` (hybrid ranking), `7de9187` (dashboard/MCP wiring), `29c3ef9` (reviewed relevance judgments), `609e63e` (handoff documentation).
 - 2026-09-27 operational commits: `10a128d` (scheduled backup reads the deployment env), `b866f47` (host keep-alive agents and persistence docs), `7d68519` (bounded docker calls, runtime recycle), `ed7274a` (anonymous MCP opt-out), `7552d00` (anonymous callers scoped to harness), `597c671` (opencode config lives in the user profile).
-- 2026-10-20 exploration commits: `05e8ca6` (project and memory exploration tools for both MCP profiles), `97e7577` (cached project directory, project reads moved into SQL). Both are **local only**: they are not pushed and not deployed.
+- 2026-10-15/16 graph-model v2 landed on `main` and is pushed to `origin/main`: `fe27cce` (projects/areas first-class), `939e10f` (a memory belongs to a project permanently, `memories.project_id` NOT NULL), `2428ffd` (sessions scope to declared areas only), `de31e63` (memory scope references real rows), `0434e88` (weighted arcs, owner-reviewed), `ead27be` (`global` scope retired in favour of the `personal` project), `4056448`/`7485661` (project/area roots in the Neo4j projection), `5afc21b`/`8561371` (export/restore go along), `a5d357c` (MCP serves browser CORS preflights). Design and handoff: [`docs/v2-graph-model-plan.md`](docs/v2-graph-model-plan.md), [`docs/v2-handoff.md`](docs/v2-handoff.md).
+- 2026-10-16/17 semantic pruning landed on `main`: `69a3f3d` (deterministic pruning score from existing signals), `8a5f398` (pruning proposals, ledger, arc deletion in both backends), `09fe8e9` (pruning job inside the retention run), `d980c13` (manual privacy marking), `dc7cce0` (retention prunes terminal jobs and expired idempotency keys), `03144b1`/`94a7a8b` (Gemma analyzer with deterministic veto, same-flag batch composer), `ad583f1` (night window, resume-by-batch, proposer probing), `bcda2bf`/`a8709a9`/`9634ecc` (calibrated LlamaCppPruningJudge, deterministic score fusion, 30-pair golden set, probing harness, host llama-server launchd template, separate `rerankBaseUrl`). The pruning runtime is llama.cpp only; access tracking is deliberately deferred (`aa926b4`).
+- 2026-10-20 exploration commits: `05e8ca6` (project and memory exploration tools for both MCP profiles), `97e7577` (cached project directory, project reads moved into SQL). An earlier version of this handoff called them local-only: they are pushed, and the live MCP already serves them.
+- 2026-10-23/24 dashboard and follow-rate work, the tip of `main` at `1e9e180`: `979c75d`…`84bbabc` (dashboard reshaped: propose/arcs/settings, global search, Timeline + retrieval telemetry, batch review, retention run, export/restore, graph clustering, hygiene panel), `c542e5c`/`127b997`/`b082e6f`/`d7fc947` (follow-rate tracking with `appliedCount`/`lastAppliedAt`, openapi regenerated, dead-memories panel + auto-recall hook generator, project status active/dormant/archived), fix `1e9e180` (duplicate `const projects` in `loadSettings` froze the script).
 - Use `main` as the base for new work and preserve any uncommitted changes before switching branches.
 - Host tools: Node `v25.8.2`, npm `11.11.1`, OrbStack/Docker, Tailscale App `1.88.3` (an update is available). The repository requires Node `>=22.12`; npm may print an engine warning for Node 25 even though verification passes.
 
@@ -38,6 +41,11 @@ Operate Mnemosyne on an Apple M1 Mac mini with 8 GB RAM using Docker Compose and
 - Forget-ledger tombstones remain by design; do not delete or rewrite them.
 - The historical live benchmark below was measured before seed cleanup and remains useful only as a ranking baseline.
 - `restoreCorpus` does not rebuild embeddings; any future restore requires a separate explicit reindex procedure, not an improvised migration.
+
+### Project-memory alignment — 2026-10-26
+
+- An audit on 26 October 2026 found the `Mnemosyne` project inside Mnemosyne itself had stopped at 27 September 2026; the only later record was a rejected test memory. Five owner-direct `decision` memories were accepted to realign it: `mem_54427b4a` (graph-model v2 on `main`, 15–16 Oct), `mem_0b6ee95f` (semantic pruning, 16–17 Oct), `mem_eb8db6fb` (exploration tools, 20 Oct), `mem_b7f70a55` (dashboard reshaping, 23–24 Oct) and `mem_b2a69398` (follow-rate, 23–24 Oct), plus an accepted `relates_to` arc from follow-rate to the dashboard decision.
+- Read those five before re-deriving October history from the repo. The Lume "Mnemosyne archive" copies stop at the 2026-09-27 snapshot and are marked "not revalidated": never cite them as the current state of this project.
 
 ### Retrieval status
 
@@ -228,12 +236,17 @@ A deployment is complete only when the intended containers are running/healthy, 
 
 Keep the Mac/Tailscale runbook, `.env.example`, Compose, backup templates, and release documentation synchronized when deployment behavior changes.
 
-## Parallel v2 graph-model work (pointer only)
+## v2 graph-model status (updated 2026-10-26)
 
-A graph-model v2 lives on the local branch `feat/v2-graph-model` and is
-parallel and separate from everything above: projects and areas as real
+The graph-model v2 is no longer a parallel line: it landed on `main` and
+`origin/main` between 15 and 16 October 2026 — projects and areas as real
 entities, weighted arcs, scope-enum retirement, project/area roots in the
-Neo4j projection. Its state is recorded in `docs/v2-handoff.md`, its design
-in `docs/v2-graph-model-plan.md`. Nothing on that branch is pushed, nothing
-targets the mini, and `main` stays the deployment. Do not mix the two lines
-of work: mini operations stay on `main` at the pinned commit above.
+Neo4j projection — and the semantic pruning pipeline followed on `main`
+between 16 and 17 October with a local llama.cpp-only runtime (Gemma 3
+proposer, calibrated encoder judge). The design docs keep their value:
+[`docs/v2-graph-model-plan.md`](docs/v2-graph-model-plan.md),
+[`docs/v2-handoff.md`](docs/v2-handoff.md). `main` stays the deployment,
+and the live MCP already serves v2-era behaviour: first-class
+projects/areas, weighted arcs, the exploration tools, `appliedCount` and
+project status. Do not treat a handoff older than the tip of `main` as
+deployment truth: read the running containers and the version they serve.
