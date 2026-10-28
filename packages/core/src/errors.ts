@@ -51,9 +51,24 @@ export function toDomainError(error: unknown): DomainError {
         'Embedding provider and semantic index disagree on profile or dimensions',
         409,
       ],
+      arc_duplicate: ['An arc with the same endpoints and relation type already exists', 409],
+      arc_self_reference: ['An arc cannot link an element to itself', 400],
+      arc_not_found: ['Arc not found', 404],
+      arc_not_pending: ['Arc is not pending approval', 409],
+      project_name_taken: ['A project with this name already exists', 409],
+      area_name_taken: ['An area with this name already exists in the project', 409],
+      project_arc_would_close_cycle: [
+        'Project arc would close a cycle in a hierarchical relation',
+        409,
+      ],
     };
     const found = messages[error.message];
     if (found) return new DomainError(error.message, found[0], found[1]);
+    const prefix = error.message.split(':')[0];
+    if (prefix && messages[prefix]) {
+      const [msg, status] = messages[prefix];
+      return new DomainError(prefix, msg, status);
+    }
   }
   return new DomainError('internal_error', 'Unexpected internal error', 500);
 }

@@ -28,11 +28,23 @@ import {
 } from '@mnemosyne/contracts';
 import { z } from 'zod';
 
-const [command, ...args] = process.argv.slice(2);
-if (args.includes('--help') || args.includes('-h')) {
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
   printHelp();
   process.exit(0);
 }
+const hasYesFlag = rawArgv.includes('--yes');
+const positional: string[] = [];
+for (let index = 0; index < rawArgv.length; index++) {
+  const token = rawArgv[index];
+  if (token === '--api' || token === '--token') {
+    index += 1;
+    continue;
+  }
+  if (token === '--yes') continue;
+  positional.push(token);
+}
+const [command, ...args] = positional;
 if (command === undefined || command === 'help') {
   printHelp();
   process.exit(0);
@@ -65,7 +77,7 @@ async function run(name: string, args: string[]): Promise<void> {
     return;
   }
   if (name === 'embeddings-reindex') {
-    if (!args.includes('--yes')) await confirm('Ricostruire tutte le embedding?');
+    if (!hasYesFlag) await confirm('Ricostruire tutte le embedding?');
     printJson(
       await request('/v1/admin/embeddings/reindex', embeddingReindexOutputSchema, {
         method: 'POST',
@@ -80,7 +92,7 @@ async function run(name: string, args: string[]): Promise<void> {
     return;
   }
   if (name === 'retention-run') {
-    if (!args.includes('--yes')) await confirm('Eseguire la retention balanced?');
+    if (!hasYesFlag) await confirm('Eseguire la retention balanced?');
     printJson(
       await request('/v1/admin/retention/run', retentionRunOutputSchema, {
         method: 'POST',
@@ -161,7 +173,7 @@ async function run(name: string, args: string[]): Promise<void> {
   }
   if (name === 'resolve-conflict') {
     const id = required(args, 0, 'conflict ID');
-    if (!args.includes('--yes')) await confirm(`Risolvere il conflitto ${id}?`);
+    if (!hasYesFlag) await confirm(`Risolvere il conflitto ${id}?`);
     printJson(
       await request(`/v1/admin/conflicts/${encodeURIComponent(id)}/resolution`, z.unknown(), {
         method: 'POST',
@@ -174,7 +186,7 @@ async function run(name: string, args: string[]): Promise<void> {
   if (name === 'project-privacy') {
     const id = required(args, 0, 'project ID');
     const privacy = privacyFlagSchema.parse(required(args, 1, 'privacy flag'));
-    if (!args.includes('--yes'))
+    if (!hasYesFlag)
       await confirm(`Marcare il progetto ${id} come ${privacy}? (LOCAL_ONLY e il default sicuro)`);
     printJson(
       await request(`/v1/admin/projects/${encodeURIComponent(id)}/privacy`, projectViewSchema, {
@@ -205,7 +217,7 @@ async function run(name: string, args: string[]): Promise<void> {
     const sessionId = args[1];
     printJson(
       await request(
-        `/v1/projects/${encodeURIComponent(id)}/memories${query({
+        `/v1/projects/${encodeURIComponent(id)}/memories?${query({
           sessionId,
           limit: optionalNumber(args, 2, 50),
           offset: optionalNumber(args, 3, 0),
@@ -248,7 +260,7 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
       ...(init.body ? { 'content-type': 'application/json' } : {}),
       ...(init.headers ?? {}),
     },
-    body: init.body ? JSON.stringify(init.body) : undefined,
+    body: init.body,
   });
   const text = await response.text();
   let value: unknown;

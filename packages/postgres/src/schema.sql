@@ -1,3 +1,5 @@
+SELECT pg_advisory_xact_lock(782910451);
+
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS vector;
 

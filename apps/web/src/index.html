@@ -988,6 +988,7 @@
             <table>
               <thead>
                 <tr>
+                  <th></th>
                   <th>Contenuto</th>
                   <th>Scope</th>
                   <th>Stato</th>
@@ -1003,7 +1004,7 @@
         <div class="panel">
           <h2>Conflitti registrati</h2>
           <div id="conflict-list" class="stack"></div>
-          <div id="conflict-empty" class="empty hidden">Nessun conflitto registrato.</div>
+          <div id="conflict-view-empty" class="empty hidden">Nessun conflitto registrato.</div>
         </div>
       </section>
       <section id="jobs" class="view hidden">
@@ -1241,7 +1242,7 @@
         <div class="panel" style="margin-top: 14px">
           <h2>Export / Restore</h2>
           <div class="row-actions">
-            <button class="button" id="export-corpus">Esporta corpus (JSON)</button>
+            <button class="button" id="settings-export-corpus">Esporta corpus (JSON)</button>
           </div>
           <div class="form-grid" style="margin-top: 10px">
             <label
@@ -1524,15 +1525,33 @@
         try {
           const data = await request('/v1/admin/arcs');
           const filter = $('arc-filter').value;
-          const memoryArcs = (data.memoryArcs || []).filter(
-            (arc) => filter === 'all' || arc.lifecycle === filter,
-          );
+          const memoryArcs = (data.memoryArcs || [])
+            .filter((arc) => filter === 'all' || arc.lifecycle === filter)
+            .map((arc) => ({
+              arcId: arc.arcId,
+              from: arc.fromMemoryId,
+              to: arc.toMemoryId,
+              type: arc.type,
+              weight: arc.weight,
+              lifecycle: arc.lifecycle,
+            }));
+          const projectArcs = (data.projectArcs || [])
+            .filter((arc) => filter === 'all' || arc.lifecycle === filter)
+            .map((arc) => ({
+              arcId: arc.arcId,
+              from: `project:${arc.fromProjectId}`,
+              to: `project:${arc.toProjectId}`,
+              type: arc.type,
+              weight: arc.weight,
+              lifecycle: arc.lifecycle,
+            }));
+          const allArcs = [...memoryArcs, ...projectArcs];
           $('arc-rows').replaceChildren(
-            ...memoryArcs.map((arc) => {
+            ...allArcs.map((arc) => {
               const row = document.createElement('tr');
               row.append(
-                td(arc.fromMemoryId),
-                td(arc.toMemoryId),
+                td(arc.from),
+                td(arc.to),
                 td(arc.type),
                 td(arc.weight === null ? '—' : arc.weight),
                 td(arc.lifecycle, lifecycleClass(arc.lifecycle)),
@@ -1563,7 +1582,7 @@
               return row;
             }),
           );
-          $('arc-empty').classList.toggle('hidden', memoryArcs.length > 0);
+          $('arc-empty').classList.toggle('hidden', allArcs.length > 0);
           clearMessage();
         } catch (error) {
           showMessage(error.message, true);
@@ -1605,7 +1624,7 @@
           const capabilities = await request('/v1/admin/capabilities');
           $('capabilities-output').textContent = JSON.stringify(capabilities, null, 2);
           try {
-            const telemetry = await request('/v1/admin/retrieval/telemetry');
+            const telemetry = await request('/v1/admin/telemetry/retrieval');
             $('retrieval-telemetry').textContent = JSON.stringify(telemetry, null, 2);
             const searches = telemetry.searches || 0;
             const cacheHits = telemetry.cacheHits || 0;
@@ -1634,7 +1653,9 @@
           );
           const collected = [];
           for (let offset = 0; offset < 2000; offset += 100) {
-            const page = await request(`/v1/admin/memories?limit=100&offset=${offset}`);
+            const page = await request(
+              `/v1/admin/memories?lifecycle=accepted&limit=100&offset=${offset}`,
+            );
             collected.push(...(page.items || []));
             if ((page.items || []).length < 100) break;
           }
@@ -1824,11 +1845,11 @@
           '    }]',
           '  }',
           '}',
-        ].join('\\n');
+        ].join('\n');
         $('hook-snippet').textContent = snippet;
         showMessage('Snippet generato. Sostituisci <TOKEN> e il path.');
       };
-      $('export-corpus').onclick = async () => {
+      $('settings-export-corpus').onclick = async () => {
         try {
           const response = await fetch('/api/backend/v1/admin/exports/corpus', {
             headers: { authorization: `Bearer ${token()}` },
@@ -2151,9 +2172,9 @@
           if (clusterBy === 'project') {
             const id = memory.projectId || memory.scope.id;
             return {
-              id: `project:${id}`,
+              id: `cluster:project:${id}`,
               label: (state.graphProjectNames && state.graphProjectNames.get(id)) || id,
-              groupKey: `project:${id}`,
+              groupKey: `cluster:project:${id}`,
             };
           }
           if (clusterBy === 'kind') {
@@ -2367,7 +2388,7 @@
             const otherNode = (state.graphNodeIndex || new Map()).get(otherId);
             const otherLabel =
               otherNode && otherNode.label
-                ? graphTruncate(String(otherNode.label).replace(/^\\s+/, ''), 42)
+                ? graphTruncate(String(otherNode.label).replace(/^\s+/, ''), 42)
                 : otherId;
             if (edge.kind === 'arc') {
               const weight =
@@ -2479,7 +2500,7 @@
         let closestDistance = Infinity;
         for (const node of state.graph?.nodes ?? []) {
           if (!Number.isFinite(node.x)) continue;
-          const radius = (node.kind === 'scope' ? 22 : 10) / scale;
+          const radius = (node.kind === 'scope' || node.kind === 'project' ? 22 : 10) / scale;
           const distance = Math.hypot(node.x - point.x, node.y - point.y);
           if (distance <= radius && distance < closestDistance) {
             closest = node;
@@ -2826,7 +2847,7 @@
           panel.className = 'split';
           const main = document.createElement('div');
           main.className = 'panel stack';
-          main.innerHTML = `<h2>${memory.memoryId}</h2><div class="content">${escapeHtml(data.memory.content)}</div><div class="sub">${data.memory.kind} · ${data.memory.scope.type}:${data.memory.scope.id} · ${data.memory.lifecycle} · v${data.memory.currentVersion} · applicazioni: ${data.memory.appliedCount || 0}${data.memory.lastAppliedAt ? ' (ultima: ' + formatDate(data.memory.lastAppliedAt) + ')' : ''}</div><div class="row-actions"><button class="button" data-action="correct">Correggi</button><button class="button" data-action="retract">Revoca</button><button class="button danger" data-action="forget">Dimentica</button></div>`;
+          main.innerHTML = `<h2>${escapeHtml(memory.memoryId)}</h2><div class="content">${escapeHtml(data.memory.content)}</div><div class="sub">${escapeHtml(data.memory.kind)} · ${escapeHtml(data.memory.scope.type)}:${escapeHtml(data.memory.scope.id)} · ${escapeHtml(data.memory.lifecycle)} · v${data.memory.currentVersion} · applicazioni: ${data.memory.appliedCount || 0}${data.memory.lastAppliedAt ? ' (ultima: ' + formatDate(data.memory.lastAppliedAt) + ')' : ''}</div><div class="row-actions"><button class="button" data-action="correct">Correggi</button><button class="button" data-action="retract">Revoca</button><button class="button danger" data-action="forget">Dimentica</button></div>`;
           const history = document.createElement('div');
           history.className = 'panel stack';
           const conflicts = data.conflicts ?? [];
@@ -2844,7 +2865,7 @@
               : conflicts
                   .map(
                     (conflict) =>
-                      `<div class="revision"><strong>${conflict.status}</strong> <span class="tag">${conflict.type}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div></div>`,
+                      `<div class="revision"><strong>${escapeHtml(conflict.status)}</strong> <span class="tag">${escapeHtml(conflict.type)}</span><div class="sub">Memorie: ${escapeHtml(conflict.memoryIds.join(', '))}</div></div>`,
                   )
                   .join(''));
           main.querySelector('[data-action="correct"]').onclick = () =>
@@ -2931,7 +2952,7 @@
             ...data.items.map((conflict) => {
               const panel = document.createElement('div');
               panel.className = 'panel';
-              panel.innerHTML = `<strong>${conflict.id}</strong> <span class="tag">${conflict.status}</span> <span class="tag">${conflict.type}</span><div class="sub">Memorie: ${conflict.memoryIds.join(', ')}</div>`;
+              panel.innerHTML = `<strong>${escapeHtml(conflict.id)}</strong> <span class="tag">${escapeHtml(conflict.status)}</span> <span class="tag">${escapeHtml(conflict.type)}</span><div class="sub">Memorie: ${escapeHtml(conflict.memoryIds.join(', '))}</div>`;
               if (conflict.status === 'open') {
                 const button = document.createElement('button');
                 button.className = 'button';
@@ -2942,7 +2963,7 @@
               return panel;
             }),
           );
-          $('conflict-empty').classList.toggle('hidden', data.items.length > 0);
+          $('conflict-view-empty').classList.toggle('hidden', data.items.length > 0);
           clearMessage();
         } catch (error) {
           showMessage(error.message, true);

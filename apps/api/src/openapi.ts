@@ -50,6 +50,7 @@ import {
   memoryDetailSchema,
   pruningAnalysisOutputSchema,
   setProjectPrivacyInputSchema,
+  setProjectStatusInputSchema,
   listProjectArcsOutputSchema,
   reviewArcInputSchema,
   reviewArcOutputSchema,
@@ -356,6 +357,7 @@ export const openApiDocument: Oas3_1Definition = {
         summary: 'Accetta o respinge un arco pending',
         description: "L'accettazione e l'evento che porta l'arco nel grafo Neo4j.",
         requiredProfile: 'owner',
+        idempotent: true,
         requestBody: requestBody(schemaRef('ReviewArcRequest')),
         parameters: [pathIdParameter('arc_id')],
         responses: {
@@ -363,6 +365,7 @@ export const openApiDocument: Oas3_1Definition = {
           400: errorResponse(400),
           401: errorResponse(401),
           403: errorResponse(403),
+          404: errorResponse(404),
           409: errorResponse(409),
           500: errorResponse(500),
         },
@@ -955,7 +958,7 @@ export const openApiDocument: Oas3_1Definition = {
     '/v1/admin/projects': {
       get: operation({
         tags: ['Administration'],
-        operationId: 'listProjects',
+        operationId: 'listAdminProjects',
         summary: 'Elenca tutti i progetti con i loro nomi',
         requiredProfile: 'owner',
         responses: {
@@ -977,6 +980,25 @@ export const openApiDocument: Oas3_1Definition = {
         parameters: [pathIdParameter()],
         responses: {
           200: jsonResponse('Privacy aggiornata.', schemaRef('ProjectView')),
+          400: errorResponse(400),
+          401: errorResponse(401),
+          403: errorResponse(403),
+          404: errorResponse(404),
+          500: errorResponse(500),
+        },
+      }),
+    },
+    '/v1/admin/projects/{id}/status': {
+      post: operation({
+        tags: ['Administration'],
+        operationId: 'setProjectStatus',
+        summary: 'Imposta lo stato di un progetto (active, dormant, archived)',
+        requiredProfile: 'owner',
+        idempotent: true,
+        requestBody: requestBody(schemaRef('SetProjectStatusRequest')),
+        parameters: [pathIdParameter()],
+        responses: {
+          200: jsonResponse('Stato aggiornato.', schemaRef('ProjectView')),
           400: errorResponse(400),
           401: errorResponse(401),
           403: errorResponse(403),
@@ -1269,6 +1291,7 @@ export const openApiDocument: Oas3_1Definition = {
       MemoryDetail: schemaRefValue(memoryDetailSchema),
       PruningAnalysisOutput: schemaRefValue(pruningAnalysisOutputSchema),
       SetProjectPrivacyRequest: schemaRefValue(setProjectPrivacyInputSchema, 'input'),
+      SetProjectStatusRequest: schemaRefValue(setProjectStatusInputSchema, 'input'),
       ConflictListOutput: schemaRefValue(conflictListOutputSchema),
       CorrectMemoryRequest: schemaRefValue(inputSchemas.correction, 'input'),
       CorrectMemoryOutput: schemaRefValue(correctMemoryOutputSchema),

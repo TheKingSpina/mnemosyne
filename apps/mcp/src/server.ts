@@ -49,6 +49,18 @@ async function authorized<T>(
   return operation();
 }
 
+async function runTool<T>(
+  profile: 'harness' | 'owner',
+  permission: MemoryPermission,
+  operation: () => Promise<T>,
+) {
+  try {
+    return result(await authorized(profile, permission, operation));
+  } catch (error) {
+    return mcpError(error);
+  }
+}
+
 export function createMcpServer(service: MemoryService, profile: 'harness' | 'owner'): McpServer {
   const server = new McpServer(
     { name: 'mnemosyne', version: '0.1.0' },
@@ -72,8 +84,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: openSessionShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (input) =>
-      result(await authorized(profile, 'session.manage', () => service.openSession(input))),
+    async (input) => runTool(profile, 'session.manage', () => service.openSession(input)),
   );
 
   server.registerTool(
@@ -83,8 +94,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: recordEventsShape,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async (input) =>
-      result(await authorized(profile, 'events.write', () => service.recordEvents(input))),
+    async (input) => runTool(profile, 'events.write', () => service.recordEvents(input)),
   );
 
   server.registerTool(
@@ -94,8 +104,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       inputSchema: contextShape,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
-    async (input) =>
-      result(await authorized(profile, 'context.resolve', () => service.resolveContext(input))),
+    async (input) => runTool(profile, 'context.resolve', () => service.resolveContext(input)),
   );
 
   server.registerTool(
@@ -106,11 +115,9 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
-      result(
-        await authorized(profile, 'memory.read', async () => ({
-          items: await service.searchMemories(input),
-        })),
-      ),
+      runTool(profile, 'memory.read', async () => ({
+        items: await service.searchMemories(input),
+      })),
   );
 
   // Exploration. Search answers a question but does not show the shape of the
@@ -125,11 +132,9 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async () =>
-      result(
-        await authorized(profile, 'memory.read', async () => ({
-          projects: await service.listProjectSummaries(),
-        })),
-      ),
+      runTool(profile, 'memory.read', async () => ({
+        projects: await service.listProjectSummaries(),
+      })),
   );
 
   server.registerTool(
@@ -145,14 +150,12 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
-      result(
-        await authorized(profile, 'memory.read', () =>
-          service.getProjectOutline({
-            projectId: input.projectId,
-            context: { actor: profile, sessionId: input.sessionId },
-            limit: input.limit,
-          }),
-        ),
+      runTool(profile, 'memory.read', () =>
+        service.getProjectOutline({
+          projectId: input.projectId,
+          context: { actor: profile, sessionId: input.sessionId },
+          limit: input.limit,
+        }),
       ),
   );
 
@@ -168,20 +171,18 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
-      result(
-        await authorized(profile, 'memory.read', () =>
-          service.listProjectMemories({
-            projectId: input.projectId,
-            context: { actor: profile, sessionId: input.sessionId },
-            kind: input.kind,
-            lifecycle: input.lifecycle,
-            scopeType: input.scopeType,
-            scopeId: input.scopeId,
-            q: input.q,
-            limit: input.limit,
-            offset: input.offset,
-          }),
-        ),
+      runTool(profile, 'memory.read', () =>
+        service.listProjectMemories({
+          projectId: input.projectId,
+          context: { actor: profile, sessionId: input.sessionId },
+          kind: input.kind,
+          lifecycle: input.lifecycle,
+          scopeType: input.scopeType,
+          scopeId: input.scopeId,
+          q: input.q,
+          limit: input.limit,
+          offset: input.offset,
+        }),
       ),
   );
 
@@ -197,13 +198,11 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async (input) =>
-      result(
-        await authorized(profile, 'memory.read', () =>
-          service.getMemoryDetail({
-            memoryId: input.memoryId,
-            context: { actor: profile, sessionId: input.sessionId },
-          }),
-        ),
+      runTool(profile, 'memory.read', () =>
+        service.getMemoryDetail({
+          memoryId: input.memoryId,
+          context: { actor: profile, sessionId: input.sessionId },
+        }),
       ),
   );
 
@@ -221,10 +220,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (input) =>
-      result(
-        await authorized(profile, 'memory.propose', () =>
-          service.proposeMemory(input, { actor: 'harness', explicitDirective: false }),
-        ),
+      runTool(profile, 'memory.propose', () =>
+        service.proposeMemory(input, { actor: 'harness', explicitDirective: false }),
       ),
   );
 
@@ -245,20 +242,18 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (input) =>
-      result(
-        await authorized(profile, 'memory.propose', async () => {
-          await service.assertSessionAccessible(input.sessionId);
-          return service.proposeMemoryArc(
-            {
-              fromMemoryId: input.fromMemoryId,
-              toMemoryId: input.toMemoryId,
-              type: input.type,
-              weight: input.weight,
-            },
-            { actor: 'harness', explicitDirective: false },
-          );
-        }),
-      ),
+      runTool(profile, 'memory.propose', async () => {
+        await service.assertSessionAccessible(input.sessionId);
+        return service.proposeMemoryArc(
+          {
+            fromMemoryId: input.fromMemoryId,
+            toMemoryId: input.toMemoryId,
+            type: input.type,
+            weight: input.weight,
+          },
+          { actor: 'harness', explicitDirective: false },
+        );
+      }),
   );
 
   server.registerTool(
@@ -269,7 +264,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async ({ sessionId }) =>
-      result(await authorized(profile, 'session.manage', () => service.closeSession(sessionId))),
+      runTool(profile, 'session.manage', () => service.closeSession(sessionId)),
   );
 
   server.registerTool(
@@ -280,8 +275,12 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ jobId }) => {
-      const value = await authorized(profile, 'job.read', () => service.getJob(jobId));
-      return result(value ?? { error: 'job_not_found' });
+      try {
+        const value = await authorized(profile, 'job.read', () => service.getJob(jobId));
+        return result(value ?? { error: 'job_not_found' });
+      } catch (error) {
+        return mcpError(error);
+      }
     },
   );
 
@@ -293,10 +292,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
       async () =>
-        result(
-          await authorized(profile, 'proposal.review', async () =>
-            corpusExportSchema.parse(await service.listCorpusExport()),
-          ),
+        runTool(profile, 'proposal.review', async () =>
+          corpusExportSchema.parse(await service.listCorpusExport()),
         ),
     );
 
@@ -308,10 +305,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       },
       async (input) =>
-        result(
-          await authorized(profile, 'proposal.review', () =>
-            service.restoreCorpus(corpusExportSchema.parse(input)),
-          ),
+        runTool(profile, 'proposal.review', () =>
+          service.restoreCorpus(corpusExportSchema.parse(input)),
         ),
     );
 
@@ -321,8 +316,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         description: 'Read the configured retention profile and last owner run.',
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async () =>
-        result(await authorized(profile, 'proposal.review', () => service.getRetentionStatus())),
+      async () => runTool(profile, 'proposal.review', () => service.getRetentionStatus()),
     );
 
     server.registerTool(
@@ -331,8 +325,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         description: 'Run the governed balanced retention policy.',
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       },
-      async () =>
-        result(await authorized(profile, 'proposal.review', () => service.runRetention())),
+      async () => runTool(profile, 'proposal.review', () => service.runRetention()),
     );
 
     server.registerTool(
@@ -342,8 +335,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: shape(memoryFeedbackSchema),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
-      async (input) =>
-        result(await authorized(profile, 'proposal.review', () => service.submitFeedback(input))),
+      async (input) => runTool(profile, 'proposal.review', () => service.submitFeedback(input)),
     );
 
     server.registerTool(
@@ -352,8 +344,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         description: 'Read aggregate owner administration metrics.',
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async () =>
-        result(await authorized(profile, 'proposal.review', () => service.getAdminOverview())),
+      async () => runTool(profile, 'proposal.review', () => service.getAdminOverview()),
     );
 
     server.registerTool(
@@ -362,8 +353,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         description: 'Read implemented and missing service capabilities.',
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async () =>
-        result(await authorized(profile, 'proposal.review', () => service.getAdminCapabilities())),
+      async () => runTool(profile, 'proposal.review', () => service.getAdminCapabilities()),
     );
 
     server.registerTool(
@@ -383,10 +373,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
           'Compare the corpus against the semantic index. A corpus restore does not rebuild embeddings, so this is how a silent degradation to lexical-only search becomes visible.',
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async () =>
-        result(
-          await authorized(profile, 'proposal.review', () => service.getEmbeddingIndexHealth()),
-        ),
+      async () => runTool(profile, 'proposal.review', () => service.getEmbeddingIndexHealth()),
     );
 
     server.registerTool(
@@ -396,8 +383,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
           'Rebuild every embedding for the active profile. Idempotent, and the supported recovery step after a corpus restore.',
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       },
-      async () =>
-        result(await authorized(profile, 'proposal.review', () => service.reindexEmbeddings())),
+      async () => runTool(profile, 'proposal.review', () => service.reindexEmbeddings()),
     );
 
     server.registerTool(
@@ -407,10 +393,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: adminMemoriesShape,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async (input) =>
-        result(
-          await authorized(profile, 'proposal.review', () => service.listAdminMemories(input)),
-        ),
+      async (input) => runTool(profile, 'proposal.review', () => service.listAdminMemories(input)),
     );
 
     server.registerTool(
@@ -420,10 +403,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: adminSessionsShape,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async (input) =>
-        result(
-          await authorized(profile, 'proposal.review', () => service.listAdminSessions(input)),
-        ),
+      async (input) => runTool(profile, 'proposal.review', () => service.listAdminSessions(input)),
     );
 
     server.registerTool(
@@ -433,8 +413,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: adminJobsShape,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async (input) =>
-        result(await authorized(profile, 'proposal.review', () => service.listAdminJobs(input))),
+      async (input) => runTool(profile, 'proposal.review', () => service.listAdminJobs(input)),
     );
 
     server.registerTool(
@@ -443,8 +422,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         description: 'List owner conflict records.',
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
-      async () =>
-        result(await authorized(profile, 'proposal.review', () => service.listConflicts())),
+      async () => runTool(profile, 'proposal.review', () => service.listConflicts()),
     );
 
     server.registerTool(
@@ -455,9 +433,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       },
       async ({ conflictId }) =>
-        result(
-          await authorized(profile, 'proposal.review', () => service.resolveConflict(conflictId)),
-        ),
+        runTool(profile, 'proposal.review', () => service.resolveConflict(conflictId)),
     );
 
     server.registerTool(
@@ -485,17 +461,16 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
       async ({ arcId, decision }) =>
-        result(
-          await authorized(profile, 'proposal.review', async () => {
-            try {
-              return await service.reviewMemoryArc(arcId, decision);
-            } catch {
-              // The id belongs to exactly one arc table, so a miss here means it
-              // was a project arc.
-              return service.reviewProjectArc(arcId, decision);
-            }
-          }),
-        ),
+        runTool(profile, 'proposal.review', async () => {
+          try {
+            return await service.reviewMemoryArc(arcId, decision);
+          } catch (error) {
+            if (toDomainError(error).code !== 'arc_not_found') throw error;
+            // The id belongs to exactly one arc table, so a miss here means it
+            // was a project arc.
+            return service.reviewProjectArc(arcId, decision);
+          }
+        }),
     );
 
     server.registerTool(
@@ -553,8 +528,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         },
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       },
-      async (input) =>
-        result(await authorized(profile, 'memory.correct', () => service.correctMemory(input))),
+      async (input) => runTool(profile, 'memory.correct', () => service.correctMemory(input)),
     );
 
     server.registerTool(
@@ -565,10 +539,8 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       },
       async (input) =>
-        result(
-          await authorized(profile, 'memory.retract', () =>
-            service.retractMemory(input.memoryId, input.reason),
-          ),
+        runTool(profile, 'memory.retract', () =>
+          service.retractMemory(input.memoryId, input.reason),
         ),
     );
 
@@ -580,7 +552,7 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
       },
       async ({ memoryId }) =>
-        result(await authorized(profile, 'memory.forget', () => service.prepareForget(memoryId))),
+        runTool(profile, 'memory.forget', () => service.prepareForget(memoryId)),
     );
 
     server.registerTool(
@@ -590,12 +562,11 @@ export function createMcpServer(service: MemoryService, profile: 'harness' | 'ow
         inputSchema: { memoryId: z.string().min(1), confirmationToken: z.string().min(1) },
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       },
-      async ({ memoryId, confirmationToken }) => {
-        await authorized(profile, 'memory.forget', () =>
-          service.forgetMemory(memoryId, confirmationToken),
-        );
-        return result({ forgotten: true });
-      },
+      async ({ memoryId, confirmationToken }) =>
+        runTool(profile, 'memory.forget', async () => {
+          await service.forgetMemory(memoryId, confirmationToken);
+          return { forgotten: true };
+        }),
     );
   }
 

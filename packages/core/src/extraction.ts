@@ -215,7 +215,8 @@ export class ExtractionWorker {
       if (!candidate.eventIds.every((eventId) => eventIds.has(eventId))) return false;
       if (containsSecret(candidate.content) || candidate.sensitivity === 'secret') return false;
       return (
-        candidate.scope.type === 'session' || this.scopeMatchesSession(candidate.scope, session)
+        (candidate.scope.type === 'session' && candidate.scope.id === session.id) ||
+        this.scopeMatchesSession(candidate.scope, session)
       );
     });
   }

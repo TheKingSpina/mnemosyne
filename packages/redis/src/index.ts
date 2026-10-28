@@ -31,7 +31,7 @@ export class RedisCorpusCache implements CorpusCache {
       MATCH: `${corpusCacheKeyPrefix}*`,
       COUNT: 100,
     })) {
-      for (const key of keys) await this.client.del(key);
+      if (keys.length > 0) await this.client.del(keys);
     }
   }
 }

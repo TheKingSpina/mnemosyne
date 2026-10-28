@@ -136,6 +136,8 @@ export class Neo4jProjection {
             tx.run(
               `MERGE (a:Area {id: $id})
                SET a.name = $name, a.projectId = $projectId
+               MERGE (p:Project {id: $projectId})
+               MERGE (a)-[:PART_OF]->(p)
                WITH a
                MATCH (m:Memory {id: $memoryId})
                MERGE (m)-[:IN_AREA]->(a)`,
@@ -267,11 +269,7 @@ export class Neo4jProjection {
       }
       if (event.eventType === 'memory.conflict.resolved') {
         await session.executeWrite((tx) =>
-          tx.run(
-            `MATCH (a)-[r:CONFLICTS {id: $id}]->(b)
-             SET r.status = 'resolved'`,
-            { id: event.aggregateId },
-          ),
+          tx.run('MATCH ()-[r:CONFLICTS {id: $id}]->() DELETE r', { id: event.aggregateId }),
         );
         return;
       }

@@ -51,7 +51,7 @@ const extractor = createExtractor();
 const extractionProviderName = resolveExtractionProviderName();
 const retentionIntervalMs = integerOption(
   process.env.WORKER_RETENTION_INTERVAL_MS ?? '86400000',
-  60_000,
+  0,
 );
 // Analyzer schedule: weekly by default, 0 disables. Like retention it runs
 // inline on the worker loop, and like retention it is inert without data to
@@ -145,8 +145,10 @@ while (!stopping) {
     if (pruningAnalyzer && analyzerIntervalMs > 0 && Date.now() >= nextAnalyzerRun) {
       if (!analyzerWindow || isInAnalyzerWindow(new Date(), analyzerWindow)) {
         await service.runPruningAnalysis(pruningAnalyzer);
+        nextAnalyzerRun = Date.now() + analyzerIntervalMs;
+      } else {
+        nextAnalyzerRun = nextAnalyzerDueAt(new Date(), analyzerWindow, analyzerIntervalMs);
       }
-      nextAnalyzerRun = nextAnalyzerDueAt(new Date(), analyzerWindow, analyzerIntervalMs);
     }
     if (!result) await delay(pollIntervalMs);
   } catch (error) {

@@ -47,7 +47,7 @@ async function call(method, path, body) {
   const payload = text ? JSON.parse(text) : null;
   if (!response.ok) {
     const code = payload?.code ?? response.status;
-    throw new Error(`${code}: ${payload?.message ?? text.slice(0, 200)}`);
+    throw new Error(`${code}: ${payload?.title ?? payload?.message ?? text.slice(0, 200)}`);
   }
   return payload;
 }

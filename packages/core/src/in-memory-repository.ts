@@ -164,6 +164,16 @@ export class InMemoryRepository implements MemoryRepository {
     }
     for (const entry of input.forgetLedger)
       this.forgetLedger.set(entry.memoryId, entry.forgottenAt);
+    this.memoryArcs.clear();
+    for (const arc of input.memoryArcs) {
+      if (!restoredMemoryIds.has(arc.fromMemoryId)) continue;
+      if (!restoredMemoryIds.has(arc.toMemoryId)) continue;
+      this.memoryArcs.set(arc.id, arc);
+    }
+    this.projectArcs.clear();
+    for (const arc of input.projectArcs) {
+      this.projectArcs.set(arc.id, arc);
+    }
     this.outbox = [];
     this.outboxClaims.clear();
     this.nextOutboxId = 1;
@@ -214,6 +224,8 @@ export class InMemoryRepository implements MemoryRepository {
   async ensureProject(id: string): Promise<ProjectRecord> {
     const existing = this.projects.get(id);
     if (existing) return existing;
+    const byName = await this.findProjectByName(id);
+    if (byName) return byName;
     return this.createProject({ id, name: id });
   }
 
@@ -471,6 +483,13 @@ export class InMemoryRepository implements MemoryRepository {
       createdAt: this.now().toISOString(),
     };
     this.memoryArcs.set(arc.id, arc);
+    this.corpusRevision += 1n;
+    this.enqueueOutbox(
+      arc.lifecycle === 'accepted' ? 'arc.accepted' : 'arc.proposed',
+      arc.id,
+      undefined,
+      { ...arc },
+    );
     return arc;
   }
 
@@ -491,6 +510,10 @@ export class InMemoryRepository implements MemoryRepository {
       lifecycle: decision === 'accept' ? 'accepted' : 'rejected',
     };
     this.memoryArcs.set(id, reviewed);
+    if (reviewed.lifecycle === 'accepted') {
+      this.corpusRevision += 1n;
+      this.enqueueOutbox('arc.accepted', reviewed.id, undefined, { ...reviewed });
+    }
     return reviewed;
   }
 
@@ -516,6 +539,13 @@ export class InMemoryRepository implements MemoryRepository {
       createdAt: this.now().toISOString(),
     };
     this.projectArcs.set(arc.id, arc);
+    this.corpusRevision += 1n;
+    this.enqueueOutbox(
+      arc.lifecycle === 'accepted' ? 'project_arc.accepted' : 'project_arc.proposed',
+      arc.id,
+      undefined,
+      { ...arc },
+    );
     return arc;
   }
 
@@ -534,6 +564,10 @@ export class InMemoryRepository implements MemoryRepository {
       lifecycle: decision === 'accept' ? 'accepted' : 'rejected',
     };
     this.projectArcs.set(id, reviewed);
+    if (reviewed.lifecycle === 'accepted') {
+      this.corpusRevision += 1n;
+      this.enqueueOutbox('project_arc.accepted', reviewed.id, undefined, { ...reviewed });
+    }
     return reviewed;
   }
 
@@ -555,11 +589,13 @@ export class InMemoryRepository implements MemoryRepository {
   async deleteMemoryArc(id: string): Promise<void> {
     if (!this.memoryArcs.delete(id)) throw new Error('arc_not_found');
     this.corpusRevision += 1n;
+    this.enqueueOutbox('arc.deleted', id, undefined, { arcId: id, kind: 'memory' });
   }
 
   async deleteProjectArc(id: string): Promise<void> {
     if (!this.projectArcs.delete(id)) throw new Error('arc_not_found');
     this.corpusRevision += 1n;
+    this.enqueueOutbox('arc.deleted', id, undefined, { arcId: id, kind: 'project' });
   }
 
   async createPruningProposal(input: CreatePruningProposalInput): Promise<PruningProposal> {
@@ -706,6 +742,7 @@ export class InMemoryRepository implements MemoryRepository {
     this.memories.set(id, record);
     this.revisions.set(id, new Map([[1, this.revisionFromInput(id, input)]]));
     this.revisionTimestamps.set(id, new Map([[1, now]]));
+    this.corpusRevision += 1n;
     this.enqueueOutbox('memory.proposed', id);
     return record;
   }
@@ -1058,6 +1095,7 @@ export class InMemoryRepository implements MemoryRepository {
         uniqueMemoryIds.every((memoryId) => conflict.memoryIds.includes(memoryId)),
     );
     if (existing) {
+      this.corpusRevision += 1n;
       this.enqueueOutbox('memory.conflict.created', existing.id);
       return existing;
     }
@@ -1068,6 +1106,7 @@ export class InMemoryRepository implements MemoryRepository {
       status: 'open',
     };
     this.conflicts.set(conflict.id, conflict);
+    this.corpusRevision += 1n;
     this.enqueueOutbox('memory.conflict.created', conflict.id);
     return conflict;
   }
@@ -1077,6 +1116,7 @@ export class InMemoryRepository implements MemoryRepository {
     if (!conflict) throw new Error('conflict_not_found');
     const resolved = { ...conflict, status: 'resolved' as const };
     this.conflicts.set(id, resolved);
+    this.corpusRevision += 1n;
     this.enqueueOutbox('memory.conflict.resolved', id);
     return resolved;
   }
@@ -1368,14 +1408,20 @@ export class InMemoryRepository implements MemoryRepository {
       .map((memory) => memory.id);
   }
 
-  private enqueueOutbox(eventType: string, aggregateId: string, version?: number): void {
+  private enqueueOutbox(
+    eventType: string,
+    aggregateId: string,
+    version?: number,
+    payload?: Record<string, unknown>,
+  ): void {
     this.outbox.push({
       id: this.nextOutboxId++,
       eventType,
       aggregateId,
       storeRevision: this.corpusRevision,
       payload:
-        version === undefined ? { memoryId: aggregateId } : { memoryId: aggregateId, version },
+        payload ??
+        (version === undefined ? { memoryId: aggregateId } : { memoryId: aggregateId, version }),
     });
   }
 }

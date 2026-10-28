@@ -1045,7 +1045,7 @@ function compose(...args) {
 }
 
 function collectServiceLogs() {
-  return compose('logs', '--no-color', '--tail=100', 'api', 'worker', 'neo4j');
+  return compose('logs', '--no-color', '--tail=100', 'api', 'worker', 'memgraph');
 }
 
 function assert(condition, message = 'synthetic_assertion_failed') {

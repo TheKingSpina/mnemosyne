@@ -86,8 +86,13 @@ export class RetrievalTelemetryCollector {
     cached: boolean;
   }): void {
     this.state.searches += 1;
-    if (input.cached) this.state.cacheHits += 1;
-    else this.state.cacheMisses += 1;
+    if (input.cached) {
+      this.state.cacheHits += 1;
+      if (input.resultCount === 0) this.state.paths.empty += 1;
+      this.state.results[resultBucket(input.resultCount)] += 1;
+      return;
+    }
+    this.state.cacheMisses += 1;
     const path: RetrievalPath =
       input.resultCount === 0
         ? 'empty'

@@ -41,6 +41,7 @@ class ManagedModel {
     this.idleTimer = null;
     this.startingPromise = null;
     this.isReady = false;
+    this.activeRequests = 0;
   }
 
   touch() {
@@ -48,12 +49,27 @@ class ManagedModel {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
     }
-    if (IDLE_TIMEOUT_MS > 0) {
+    if (IDLE_TIMEOUT_MS > 0 && this.activeRequests === 0) {
       this.idleTimer = setTimeout(() => {
-        this.stop('idle_timeout');
+        if (this.activeRequests === 0) {
+          this.stop('idle_timeout');
+        }
       }, IDLE_TIMEOUT_MS);
       if (this.idleTimer.unref) this.idleTimer.unref();
     }
+  }
+
+  beginRequest() {
+    this.activeRequests += 1;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
+  endRequest() {
+    this.activeRequests = Math.max(0, this.activeRequests - 1);
+    this.touch();
   }
 
   async ensureRunning() {
@@ -226,7 +242,15 @@ function createProxy(name, managedModel, publicPort, internalPort) {
       return;
     }
 
-    managedModel.touch();
+    managedModel.beginRequest();
+    let ended = false;
+    const finishRequest = () => {
+      if (ended) return;
+      ended = true;
+      managedModel.endRequest();
+    };
+    res.on('close', finishRequest);
+    res.on('finish', finishRequest);
 
     const proxyReq = httpRequest(
       {
@@ -243,6 +267,7 @@ function createProxy(name, managedModel, publicPort, internalPort) {
     );
 
     proxyReq.on('error', (err) => {
+      finishRequest();
       console.error(`[${name}] Proxy error:`, err?.message ?? err);
       if (!res.headersSent) {
         res.writeHead(502, { 'content-type': 'application/json' });

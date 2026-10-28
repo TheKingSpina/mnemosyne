@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
 if [ -n "${MNEMOSYNE_BACKUP_ENV_FILE:-}" ]; then
   set -a
   . "${MNEMOSYNE_BACKUP_ENV_FILE}"

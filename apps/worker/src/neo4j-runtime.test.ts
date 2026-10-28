@@ -55,14 +55,14 @@ describeRuntime('Neo4jProjection runtime', () => {
     await projection.runOnce();
     const accepted = await graph.run(
       `MATCH (m:Memory {id: $id})
-       OPTIONAL MATCH (m)-[:IN_SCOPE]->(s:Scope)
-       RETURN m.version AS version, m.content AS content, count(s) AS scopes`,
+       OPTIONAL MATCH (m)-[:IN_PROJECT]->(p:Project)
+       RETURN m.version AS version, m.content AS content, count(p) AS projects`,
       { id: memory.memoryId },
     );
 
     expect(integerValue(accepted.records[0]?.get('version'))).toBe(1);
     expect(accepted.records[0]?.get('content')).toBe('Il progetto usa npm');
-    expect(integerValue(accepted.records[0]?.get('scopes'))).toBe(1);
+    expect(integerValue(accepted.records[0]?.get('projects'))).toBe(1);
 
     await service.correctMemory({
       memoryId: memory.memoryId!,
@@ -72,15 +72,15 @@ describeRuntime('Neo4jProjection runtime', () => {
     await projection.runOnce();
     const corrected = await graph.run(
       `MATCH (m:Memory {id: $id})
-       OPTIONAL MATCH (m)-[:IN_SCOPE]->(s:Scope)
+       OPTIONAL MATCH (m)-[:IN_PROJECT]->(p:Project)
        RETURN m.version AS version, m.content AS content,
-              collect(s.type + ':' + s.id) AS scopes`,
+              collect(p.id) AS projects`,
       { id: memory.memoryId },
     );
 
     expect(integerValue(corrected.records[0]?.get('version'))).toBe(2);
     expect(corrected.records[0]?.get('content')).toBe('Il progetto usa pnpm');
-    expect(corrected.records[0]?.get('scopes')).toEqual(['project:neo4j-runtime']);
+    expect(corrected.records[0]?.get('projects')).toEqual(['neo4j-runtime']);
 
     const contradiction = await service.proposeMemory({
       sessionId: session.sessionId,
@@ -107,10 +107,10 @@ describeRuntime('Neo4jProjection runtime', () => {
     await service.resolveConflict(contradiction.conflictId!);
     await projection.runOnce();
     const resolved = await graph.run(
-      `MATCH ()-[r:CONFLICTS {id: $id}]->() RETURN r.status AS status`,
+      `MATCH ()-[r:CONFLICTS {id: $id}]->() RETURN count(r) AS conflicts`,
       { id: contradiction.conflictId },
     );
-    expect(resolved.records[0]?.get('status')).toBe('resolved');
+    expect(integerValue(resolved.records[0]?.get('conflicts'))).toBe(0);
 
     await projection.rebuild();
     const rebuilt = await graph.run(`MATCH ()-[r:CONFLICTS]->() RETURN count(r) AS conflicts`);

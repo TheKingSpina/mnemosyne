@@ -97,6 +97,10 @@ async function proxyApiRequest(
     'content-type': upstream.headers.get('content-type') ?? 'application/json',
     ...securityHeaders,
   };
+  for (const name of ['content-disposition', 'cache-control']) {
+    const value = upstream.headers.get(name);
+    if (value) responseHeaders[name] = value;
+  }
   response.writeHead(upstream.status, responseHeaders);
   response.end(payload);
 }

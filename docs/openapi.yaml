@@ -670,6 +670,7 @@ paths:
       description: L'accettazione e l'evento che porta l'arco nel grafo Neo4j.
       x-required-profile: owner
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
         - name: arc_id
           in: path
           required: true
@@ -709,6 +710,14 @@ paths:
                   - $ref: '#/components/schemas/ApiError'
         '403':
           description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
           content:
             application/json:
               schema:
@@ -2580,7 +2589,7 @@ paths:
     get:
       tags:
         - Administration
-      operationId: listProjects
+      operationId: listAdminProjects
       summary: Elenca tutti i progetti con i loro nomi
       x-required-profile: owner
       responses:
@@ -2640,6 +2649,76 @@ paths:
       responses:
         '200':
           description: Privacy aggiornata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectView'
+        '400':
+          description: Richiesta non valida, JSON non valido o Idempotency-Key mancante.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Bearer token assente o non valido.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Il profilo autenticato non ha il permesso richiesto.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Risorsa o rotta non trovata.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Errore interno non esposto nei dettagli.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiProblem'
+                  - $ref: '#/components/schemas/ApiError'
+  /v1/admin/projects/{id}/status:
+    post:
+      tags:
+        - Administration
+      operationId: setProjectStatus
+      summary: Imposta lo stato di un progetto (active, dormant, archived)
+      x-required-profile: owner
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          description: Identificatore sintetico o opaco restituito dal servizio.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        description: 'Corpo JSON; limite massimo applicato: 1,048,576 byte.'
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetProjectStatusRequest'
+      responses:
+        '200':
+          description: Stato aggiornato.
           content:
             application/json:
               schema:
@@ -6376,6 +6455,17 @@ components:
             - public
       required:
         - privacy
+    SetProjectStatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - active
+            - dormant
+            - archived
+      required:
+        - status
     ConflictListOutput:
       type: object
       properties:
@@ -7826,6 +7916,10 @@ components:
               type: string
               format: date-time
               pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+            processedOutboxEvents:
+              type: string
+              format: date-time
+              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
             terminalJobs:
               type: string
               format: date-time
@@ -7840,6 +7934,7 @@ components:
             - rejectedCandidates
             - supersededRevisions
             - retractedMemories
+            - processedOutboxEvents
             - terminalJobs
             - expiredIdempotencyKeys
           additionalProperties: false
@@ -8005,6 +8100,12 @@ components:
                   - local_only
                   - anonymized
                   - public
+              status:
+                type: string
+                enum:
+                  - active
+                  - dormant
+                  - archived
               createdAt:
                 type: string
                 format: date-time
@@ -8133,6 +8234,16 @@ components:
                     type: string
                     format: date-time
                     pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+                  appliedCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  lastAppliedAt:
+                    anyOf:
+                      - type: string
+                        format: date-time
+                        pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+                      - type: 'null'
                 required:
                   - id
                   - projectId

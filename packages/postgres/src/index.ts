@@ -386,18 +386,20 @@ export class PostgresMemoryRepository implements MemoryRepository {
       // there on an otherwise empty corpus, and the export is its truth.
       for (const project of input.projects) {
         await client.query(
-          `INSERT INTO projects (id, name, description, privacy, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO projects (id, name, description, privacy, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (id) DO UPDATE
            SET name = EXCLUDED.name,
                description = EXCLUDED.description,
                privacy = EXCLUDED.privacy,
+               status = EXCLUDED.status,
                updated_at = EXCLUDED.updated_at`,
           [
             project.id,
             project.name,
             project.description ?? null,
             project.privacy,
+            project.status ?? 'active',
             project.createdAt,
             project.updatedAt,
           ],
@@ -445,8 +447,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
       }
       for (const memory of restoredMemories) {
         await client.query(
-          `INSERT INTO memories (id, current_version, lifecycle, created_at, updated_at, project_id)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO memories (id, current_version, lifecycle, created_at, updated_at, project_id, privacy, applied_count, last_applied_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             memory.record.id,
             memory.record.currentVersion,
@@ -454,6 +456,9 @@ export class PostgresMemoryRepository implements MemoryRepository {
             memory.record.createdAt,
             memory.record.updatedAt,
             memory.record.projectId,
+            memory.record.privacy ?? null,
+            memory.record.appliedCount ?? 0,
+            memory.record.lastAppliedAt ?? null,
           ],
         );
       }
@@ -598,12 +603,18 @@ export class PostgresMemoryRepository implements MemoryRepository {
   }
 
   async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
-    const result = await this.database.query<ProjectRow>(
-      `INSERT INTO projects (id, name, description, privacy)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [input.id, input.name, input.description ?? null, input.privacy ?? 'local_only'],
-    );
-    return projectFromRow(result.rows[0]);
+    try {
+      const result = await this.database.query<ProjectRow>(
+        `INSERT INTO projects (id, name, description, privacy)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [input.id, input.name, input.description ?? null, input.privacy ?? 'local_only'],
+      );
+      return projectFromRow(result.rows[0]);
+    } catch (error) {
+      const pgError = error as { code?: string; constraint?: string };
+      if (pgError?.code === '23505') throw new Error('project_name_taken', { cause: error });
+      throw error;
+    }
   }
 
   // `openSession` callers pass a free-form project id, so the project is created
@@ -612,14 +623,22 @@ export class PostgresMemoryRepository implements MemoryRepository {
   // fail on the unique name. The name defaults to the id, which keeps the
   // caller's identifier meaningful as a display name.
   async ensureProject(id: string): Promise<ProjectRecord> {
-    const result = await this.database.query<ProjectRow>(
-      `INSERT INTO projects (id, name)
-       VALUES ($1, $1)
-       ON CONFLICT (id) DO NOTHING
-       RETURNING *`,
-      [id],
-    );
-    if (result.rows.length > 0) return projectFromRow(result.rows[0]);
+    try {
+      const result = await this.database.query<ProjectRow>(
+        `INSERT INTO projects (id, name)
+         VALUES ($1, $1)
+         ON CONFLICT (id) DO NOTHING
+         RETURNING *`,
+        [id],
+      );
+      if (result.rows.length > 0) return projectFromRow(result.rows[0]);
+    } catch (error) {
+      if ((error as { code?: string })?.code === '23505') {
+        const byName = await this.findProjectByName(id);
+        if (byName) return byName;
+      }
+      throw error;
+    }
     const existing = await this.findProjectById(id);
     if (!existing) throw new Error(`project_not_found:${id}`);
     return existing;
@@ -669,12 +688,19 @@ export class PostgresMemoryRepository implements MemoryRepository {
   }
 
   async createArea(input: CreateAreaInput): Promise<AreaRecord> {
-    const result = await this.database.query<AreaRow>(
-      `INSERT INTO areas (id, project_id, name)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [input.id, input.projectId, input.name],
-    );
-    return areaFromRow(result.rows[0]);
+    try {
+      const result = await this.database.query<AreaRow>(
+        `INSERT INTO areas (id, project_id, name)
+         VALUES ($1, $2, $3) RETURNING *`,
+        [input.id, input.projectId, input.name],
+      );
+      return areaFromRow(result.rows[0]);
+    } catch (error) {
+      const pgError = error as { code?: string };
+      if (pgError?.code === '23505') throw new Error('area_name_taken', { cause: error });
+      if (pgError?.code === '23503') throw new Error('project_not_found', { cause: error });
+      throw error;
+    }
   }
 
   async findAreaById(id: string): Promise<AreaRecord | null> {
@@ -992,12 +1018,26 @@ export class PostgresMemoryRepository implements MemoryRepository {
         ],
       );
       const arc = memoryArcFromRow(result.rows[0]);
-      await this.bumpCorpus(client, 'arc.proposed', arc.id, undefined, { ...arc });
+      await this.bumpCorpus(
+        client,
+        arc.lifecycle === 'accepted' ? 'arc.accepted' : 'arc.proposed',
+        arc.id,
+        undefined,
+        { ...arc },
+      );
       await client.query('COMMIT');
       return arc;
     } catch (error) {
       await client.query('ROLLBACK');
+      const pgError = error as { code?: string; constraint?: string };
+      if (pgError?.code === '23505') throw new Error('arc_duplicate', { cause: error });
+      if (pgError?.code === '23514' && pgError.constraint === 'chk_memory_arcs_distinct') {
+        throw new Error('arc_self_reference', { cause: error });
+      }
+      if (pgError?.code === '23503') throw new Error('memory_not_found', { cause: error });
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -1026,7 +1066,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
          WHERE id = $1 AND lifecycle = 'pending_approval' RETURNING *`,
         [id, decision === 'accept' ? 'accepted' : 'rejected'],
       );
-      if (!result.rows[0]) throw new Error('arc_not_pending');
+      if (!result.rows[0]) {
+        const exists = await client.query<{ id: string }>(
+          'SELECT id FROM memory_arcs WHERE id = $1',
+          [id],
+        );
+        throw new Error(exists.rows[0] ? 'arc_not_pending' : 'arc_not_found');
+      }
       const arc = memoryArcFromRow(result.rows[0]);
       // Only acceptance changes the graph, so only acceptance is announced as a
       // lifecycle change the projection has to act on.
@@ -1038,6 +1084,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -1057,12 +1105,31 @@ export class PostgresMemoryRepository implements MemoryRepository {
         ],
       );
       const arc = projectArcFromRow(result.rows[0]);
-      await this.bumpCorpus(client, 'project_arc.proposed', arc.id, undefined, { ...arc });
+      await this.bumpCorpus(
+        client,
+        arc.lifecycle === 'accepted' ? 'project_arc.accepted' : 'project_arc.proposed',
+        arc.id,
+        undefined,
+        { ...arc },
+      );
       await client.query('COMMIT');
       return arc;
     } catch (error) {
       await client.query('ROLLBACK');
+      const pgError = error as { code?: string; constraint?: string; message?: string };
+      if (pgError?.code === '23505') throw new Error('arc_duplicate', { cause: error });
+      if (pgError?.code === '23514') {
+        if (pgError.constraint === 'chk_project_arcs_distinct') {
+          throw new Error('arc_self_reference', { cause: error });
+        }
+        if (pgError.message?.includes('project_arc_would_close_cycle')) {
+          throw new Error('project_arc_would_close_cycle', { cause: error });
+        }
+      }
+      if (pgError?.code === '23503') throw new Error('project_not_found', { cause: error });
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -1085,7 +1152,13 @@ export class PostgresMemoryRepository implements MemoryRepository {
          WHERE id = $1 AND lifecycle = 'pending_approval' RETURNING *`,
         [id, decision === 'accept' ? 'accepted' : 'rejected'],
       );
-      if (!result.rows[0]) throw new Error('arc_not_pending');
+      if (!result.rows[0]) {
+        const exists = await client.query<{ id: string }>(
+          'SELECT id FROM project_arcs WHERE id = $1',
+          [id],
+        );
+        throw new Error(exists.rows[0] ? 'arc_not_pending' : 'arc_not_found');
+      }
       const arc = projectArcFromRow(result.rows[0]);
       if (arc.lifecycle === 'accepted') {
         await this.bumpCorpus(client, 'project_arc.accepted', arc.id, undefined, { ...arc });
@@ -1094,7 +1167,15 @@ export class PostgresMemoryRepository implements MemoryRepository {
       return arc;
     } catch (error) {
       await client.query('ROLLBACK');
+      if (
+        (error as { code?: string; message?: string })?.code === '23514' &&
+        (error as { message?: string }).message?.includes('project_arc_would_close_cycle')
+      ) {
+        throw new Error('project_arc_would_close_cycle', { cause: error });
+      }
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -1126,6 +1207,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -1140,6 +1223,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
+    } finally {
+      client.release();
     }
   }
 

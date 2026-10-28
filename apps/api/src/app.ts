@@ -5,8 +5,10 @@ import {
   listAdminJobsInputSchema,
   listAdminMemoriesInputSchema,
   listAdminSessionsInputSchema,
+  listMemoryArcsInputSchema,
   listMemoryFeedbackOutputSchema,
   listPendingProposalsInputSchema,
+  listProjectArcsInputSchema,
   listProjectMemoriesInputSchema,
   memoryFeedbackSchema,
   openSessionInputSchema,
@@ -280,18 +282,25 @@ async function handleAuthorizedRequestUnchecked(
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/arcs') {
-    const memoryId = url.searchParams.get('memoryId') ?? '';
+    const { memoryId } = listMemoryArcsInputSchema.parse({
+      memoryId: url.searchParams.get('memoryId') ?? '',
+    });
     const listed = await service.listMemoryArcs(memoryId);
+    const filterArcs = (items: MemoryArc[]) =>
+      actor === 'owner' ? items : items.filter((arc) => arc.lifecycle === 'accepted');
     sendJson(response, 200, {
-      from: listed.from.map(toMemoryArcView),
-      to: listed.to.map(toMemoryArcView),
+      from: filterArcs(listed.from).map(toMemoryArcView),
+      to: filterArcs(listed.to).map(toMemoryArcView),
     });
     return;
   }
   if (request.method === 'GET' && url.pathname === '/v1/project-arcs') {
-    const projectId = url.searchParams.get('projectId') ?? '';
+    const { projectId } = listProjectArcsInputSchema.parse({
+      projectId: url.searchParams.get('projectId') ?? '',
+    });
     const items = await service.listProjectArcs(projectId);
-    sendJson(response, 200, { items: items.map(toProjectArcView) });
+    const visible = actor === 'owner' ? items : items.filter((arc) => arc.lifecycle === 'accepted');
+    sendJson(response, 200, { items: visible.map(toProjectArcView) });
     return;
   }
   if (request.method === 'POST' && url.pathname.startsWith('/v1/admin/arcs/')) {
@@ -301,23 +310,21 @@ async function handleAuthorizedRequestUnchecked(
     // The arc kind is not in the path, so both tables are tried: an id belongs
     // to exactly one of them, and the miss in the first is the signal for the
     // second.
-    const reviewed = await service
-      .reviewMemoryArc(arcId, decision)
-      .then(toMemoryArcView, () =>
-        service.reviewProjectArc(arcId, decision).then(toProjectArcView),
-      );
+    const reviewed = await service.reviewMemoryArc(arcId, decision).then(toMemoryArcView, (err) => {
+      if (toDomainError(err).code !== 'arc_not_found') throw err;
+      return service.reviewProjectArc(arcId, decision).then(toProjectArcView);
+    });
     sendJson(response, 200, reviewed);
     return;
   }
   if (request.method === 'POST' && url.pathname === '/v1/proposals') {
-    sendJson(
-      response,
-      201,
-      await service.proposeMemory(
-        proposeMemoryInputSchema.parse(await readJson(request, maxRequestBodyBytes)),
-        { actor, explicitDirective: false },
-      ),
-    );
+    const raw = await readJson(request, maxRequestBodyBytes);
+    const input = proposeMemoryInputSchema.parse(raw);
+    const explicitDirective =
+      typeof (raw as { explicitDirective?: unknown })?.explicitDirective === 'boolean'
+        ? (raw as { explicitDirective: boolean }).explicitDirective
+        : false;
+    sendJson(response, 201, await service.proposeMemory(input, { actor, explicitDirective }));
     return;
   }
   if (request.method === 'POST' && url.pathname === '/v1/context/resolve') {
@@ -438,7 +445,9 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, {
       id: project.id,
       name: project.name,
+      ...(project.description === undefined ? {} : { description: project.description }),
       privacy: project.privacy,
+      status: project.status,
     });
     return;
   }
@@ -450,6 +459,8 @@ async function handleAuthorizedRequestUnchecked(
     sendJson(response, 200, {
       id: project.id,
       name: project.name,
+      ...(project.description === undefined ? {} : { description: project.description }),
+      privacy: project.privacy,
       status: project.status,
     });
     return;

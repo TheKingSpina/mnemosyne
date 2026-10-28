@@ -122,15 +122,19 @@ export class LlamaCppPruningJudge implements PruningJudge {
     if (!parsed.success || parsed.data.results.length !== documents.length) {
       throw new Error('judge_provider_invalid_response');
     }
+    // Cross-encoder models (e.g. BGE reranker) output unbounded logits;
+    // normalize the whole batch with standard sigmoid when using a logit-based
+    // reranker or when any score in the batch is outside [0, 1].
+    const useSigmoid =
+      this.rerankModel.toLowerCase().includes('bge') ||
+      parsed.data.results.some((item) => item.relevance_score < 0 || item.relevance_score > 1);
     const ordered = new Array<number | undefined>(documents.length);
     for (const item of parsed.data.results) {
       if (item.index < 0 || item.index >= documents.length || ordered[item.index] !== undefined) {
         throw new Error('judge_provider_invalid_response');
       }
-      // Cross-encoder models (e.g. BGE reranker) output unbounded logits;
-      // normalize with standard sigmoid when raw score is outside [0, 1].
       const raw = item.relevance_score;
-      const normalized = raw >= 0 && raw <= 1 ? raw : 1 / (1 + Math.exp(-raw));
+      const normalized = useSigmoid ? 1 / (1 + Math.exp(-raw)) : raw;
       ordered[item.index] = normalized;
     }
     return ordered.map((score) => score ?? 0);

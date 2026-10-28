@@ -18,11 +18,11 @@ one place. Deeper treatments live in the documents listed at the end.
 CQRS / hexagonal core. PostgreSQL is the canonical source of truth; everything
 else is a cache or a derived projection and can be rebuilt.
 
-| Store | Role |
-| --- | --- |
-| **PostgreSQL 17** (+ pgvector) | **Authoritative.** Memories, revisions, projects, areas, arcs, sessions, events, conflicts, jobs, outbox, forget ledger, embeddings |
-| **Redis 7.4** | **Cache only** (API and MCP each own one). Validated against the corpus revision and revalidated row by row on read; losing it loses no data |
-| **Memgraph** | **Derived graph projection** of projects, areas, memories and arcs, fed by the outbox. Rebuildable from PostgreSQL at any time |
+| Store                          | Role                                                                                                                                         |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PostgreSQL 17** (+ pgvector) | **Authoritative.** Memories, revisions, projects, areas, arcs, sessions, events, conflicts, jobs, outbox, forget ledger, embeddings          |
+| **Redis 7.4**                  | **Cache only** (API and MCP each own one). Validated against the corpus revision and revalidated row by row on read; losing it loses no data |
+| **Memgraph**                   | **Derived graph projection** of projects, areas, memories and arcs, fed by the outbox. Rebuildable from PostgreSQL at any time               |
 
 The graph engine is Memgraph; the env names (`NEO4J_URI`), the driver
 (`neo4j-driver`) and the capability key (`projections.neo4j`) kept their
@@ -30,13 +30,13 @@ historical names because they are Bolt-protocol wire names, not the engine.
 
 ### 1.2 Processes
 
-| Service | Port | Role |
-| --- | --- | --- |
-| `api` | 3000 | REST. The single external entry point. Health at `/health/ready` |
-| `mcp` | 3333 | MCP server (stdio or Streamable HTTP), same policy as the API, own corpus cache |
-| `worker` | — | Extraction, consolidation, scheduled retention, capability heartbeat (60 s), graph projection via the outbox. The only process that writes the graph |
-| `web` | 18080 (mini) | Static dashboard with a proxy to the API. Never touches the database |
-| CLI | — | Host-side `mnemosyne` command over the same REST surface |
+| Service  | Port         | Role                                                                                                                                                 |
+| -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api`    | 3000         | REST. The single external entry point. Health at `/health/ready`                                                                                     |
+| `mcp`    | 3333         | MCP server (stdio or Streamable HTTP), same policy as the API, own corpus cache                                                                      |
+| `worker` | —            | Extraction, consolidation, scheduled retention, capability heartbeat (60 s), graph projection via the outbox. The only process that writes the graph |
+| `web`    | 18080 (mini) | Static dashboard with a proxy to the API. Never touches the database                                                                                 |
+| CLI      | —            | Host-side `mnemosyne` command over the same REST surface                                                                                             |
 
 Data flow, one direction only:
 
@@ -52,7 +52,7 @@ Nothing reads the graph as truth, and nothing but the worker writes it.
 
 - **Projects** are real roots with a case-insensitive unique name. A memory's
   project is **identity, not content**: immutable by trigger, `ON DELETE
-  RESTRICT` — a cascade would delete memories without a forget-ledger row.
+RESTRICT` — a cascade would delete memories without a forget-ledger row.
 - **Areas** group work inside a project; **sessions** declare the areas they
   may read, and session scoping is enforced in the service layer, not the
   adapter.
@@ -104,8 +104,7 @@ Nothing reads the graph as truth, and nothing but the worker writes it.
 - `apps/` — `api`, `mcp`, `worker`, `web`, `cli`.
 - `packages/` — `contracts` (Zod schemas shared by every surface), `core`
   (domain service, policy, access, conflicts, cache logic), `postgres` and
-  `redis` (adapters), `cozodb` (experimental embedded backend: repository,
-  token and idempotency stores).
+  `redis` (adapters).
 - `ops/` — host keep-alive, hooks, backup scripts. `scripts/` — load test,
   profiling, benchmarks, evals. `evals/` — governance and retrieval gates.
 
@@ -138,35 +137,35 @@ the API). Auth profiles:
 
 ### 2.2 REST endpoints
 
-| Group | Endpoints |
-| --- | --- |
-| Sessions | `POST /v1/sessions`, `POST /v1/sessions/{id}/events`, `POST /v1/sessions/{id}/close` |
-| Reading | `GET /v1/memories` (search), `GET /v1/memories/{id}`, `GET /v1/projects`, `GET /v1/projects/{id}`, `GET /v1/projects/{id}/memories`, `POST /v1/context/resolve` |
-| Writing | `POST /v1/proposals`, `POST /v1/proposals/{id}/decision`, `POST /v1/memories/{id}/corrections`, `POST /v1/memories/{id}/retractions`, `POST /v1/memories/feedback` |
-| Forget | `POST /v1/memories/{id}/forget/prepare`, `POST /v1/memories/{id}/forget` |
-| Arcs | `POST /v1/arcs` (memory↔memory), `POST /v1/project-arcs` |
-| Jobs | `GET /v1/jobs/{id}` |
-| Admin | `GET /v1/admin/overview`, `GET /v1/admin/capabilities`, `GET /v1/admin/telemetry/retrieval`, `GET /v1/admin/embeddings/health`, `POST /v1/admin/embeddings/reindex`, `GET /v1/admin/memories`, `GET /v1/admin/memories/{id}`, `GET /v1/admin/projects`, `PUT /v1/admin/projects/{id}/privacy`, `POST /v1/admin/pruning/analyze`, `GET /v1/admin/conflicts`, `POST /v1/admin/conflicts/{id}/resolution`, `GET /v1/admin/arcs`, `POST /v1/admin/arcs/{arc_id}/review`, `GET /v1/admin/sessions`, `GET /v1/admin/sessions/{id}`, `GET /v1/admin/jobs`, `GET /v1/admin/jobs/{id}/attempts`, `GET /v1/admin/retention`, `POST /v1/admin/retention/run`, `POST /v1/admin/exports/corpus`, `POST /v1/admin/restore/corpus`, `POST /v1/admin/client-tokens`, `POST /v1/admin/client-tokens/{name}/revoke` |
+| Group    | Endpoints                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sessions | `POST /v1/sessions`, `POST /v1/sessions/{id}/events`, `POST /v1/sessions/{id}/close`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Reading  | `GET /v1/memories` (search), `GET /v1/memories/{id}`, `GET /v1/projects`, `GET /v1/projects/{id}`, `GET /v1/projects/{id}/memories`, `POST /v1/context/resolve`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Writing  | `POST /v1/proposals`, `POST /v1/proposals/{id}/decision`, `POST /v1/memories/{id}/corrections`, `POST /v1/memories/{id}/retractions`, `POST /v1/memories/feedback`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Forget   | `POST /v1/memories/{id}/forget/prepare`, `POST /v1/memories/{id}/forget`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Arcs     | `POST /v1/arcs`, `GET /v1/arcs` (memory↔memory), `POST /v1/project-arcs`, `GET /v1/project-arcs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Jobs     | `GET /v1/jobs/{id}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Admin    | `GET /v1/admin/overview`, `GET /v1/admin/capabilities`, `GET /v1/admin/telemetry/retrieval`, `GET /v1/admin/embeddings/health`, `POST /v1/admin/embeddings/reindex`, `GET /v1/admin/memories`, `GET /v1/admin/memories/{id}`, `GET /v1/admin/projects`, `POST /v1/admin/projects/{id}/privacy`, `POST /v1/admin/projects/{id}/status`, `POST /v1/admin/pruning/analyze`, `GET /v1/admin/conflicts`, `POST /v1/admin/conflicts/{id}/resolution`, `GET /v1/admin/arcs`, `POST /v1/admin/arcs/{arc_id}/review`, `GET /v1/admin/sessions`, `GET /v1/admin/sessions/{id}`, `GET /v1/admin/jobs`, `GET /v1/admin/jobs/{id}/attempts`, `GET /v1/admin/retention`, `POST /v1/admin/retention/run`, `GET /v1/admin/exports/corpus`, `POST /v1/admin/restore/corpus`, `POST /v1/admin/client-tokens`, `POST /v1/admin/client-tokens/{name}/revoke` |
 
 ### 2.3 MCP tools
 
 Reading and session tools are registered for both profiles; governance and
 admin tools exist only for the owner profile.
 
-| Group | Tools |
-| --- | --- |
-| Reading | `memory_search`, `memory_context`, `memory_list_projects`, `memory_get_project`, `memory_list_project_memories`, `memory_get_memory` |
-| Sessions | `memory_open_session`, `memory_close_session`, `memory_record_events`, `memory_feedback` |
-| Writing | `memory_propose` (harness, pending), `memory_propose_owner`, `memory_propose_arc` |
+| Group      | Tools                                                                                                                                                                                                                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reading    | `memory_search`, `memory_context`, `memory_list_projects`, `memory_get_project`, `memory_list_project_memories`, `memory_get_memory`                                                                                                                                                           |
+| Sessions   | `memory_open_session`, `memory_close_session`, `memory_record_events`, `memory_feedback`                                                                                                                                                                                                       |
+| Writing    | `memory_propose` (harness, pending), `memory_propose_owner`, `memory_propose_arc`                                                                                                                                                                                                              |
 | Governance | `memory_pending_review`, `memory_review_decision`, `memory_review_arc`, `memory_list_conflicts`, `memory_resolve_conflict`, `memory_correct`, `memory_retract`, `memory_prepare_forget`, `memory_forget`, `memory_export`, `memory_restore`, `memory_retention_status`, `memory_run_retention` |
-| Admin | `memory_admin_capabilities`, `memory_admin_overview`, `memory_admin_memories`, `memory_admin_sessions`, `memory_admin_jobs`, `memory_get_job`, `memory_admin_retrieval_telemetry`, `memory_admin_embedding_health`, `memory_admin_reindex_embeddings` |
+| Admin      | `memory_admin_capabilities`, `memory_admin_overview`, `memory_admin_memories`, `memory_admin_sessions`, `memory_admin_jobs`, `memory_get_job`, `memory_admin_retrieval_telemetry`, `memory_admin_embedding_health`, `memory_admin_reindex_embeddings`                                          |
 
 ### 2.4 Conventions
 
 - Every write carries an `Idempotency-Key` header (alphanumerics and dashes);
   bodies are capped at 1 MB.
 - `POST /v1/proposals/{id}/decision` requires `{ "decision": "accept" |
-  "reject", "expectedVersion": n }`; omitting `expectedVersion` is a `400`.
+"reject", "expectedVersion": n }`; omitting `expectedVersion` is a `400`.
 - REST proposals are born `pending_approval` even for the owner; the decision
   call accepts them (version bumps to 2). MCP `memory_propose_owner` accepts
   directly.
@@ -176,14 +175,11 @@ admin tools exist only for the owner profile.
 
 ### 2.5 Known quirks
 
-- **`relatedMemoryIds` on `POST /v1/proposals` is a no-op** in the
-  pending→review path: the schema accepts it, no arc is created. Create arcs
-  explicitly with `POST /v1/arcs`.
-- **`POST /v1/arcs` returns `500 internal_error`** when `fromMemoryId` is a
-  freshly accepted memory and succeeds with the reversed direction. Suspected:
-  arc validation reads a corpus cache that does not yet contain the new
-  memory, turning a clean `404` into a `500`. Until fixed, propose the arc
-  in the reverse direction — for `relates_to` the arrow carries no meaning.
+- **`relatedMemoryIds` on `POST /v1/proposals` creates arcs automatically**:
+  passing `relatedMemoryIds` proposes an arc (`relates_to` by default) from the
+  new memory to each listed target and returns their IDs in `arcIds`. Calling
+  `POST /v1/arcs` again for the same `(fromMemoryId, toMemoryId, type)` triple
+  returns `409 arc_duplicate`.
 - **`ProposeMemoryArcInput` requires `sessionId`** alongside `fromMemoryId`,
   `toMemoryId` and `type`.
 - Close dangling sessions (`GET /v1/admin/sessions?status=open`) after any
@@ -257,7 +253,7 @@ server fine, the client bridge is the suspect) before restarting anything.
 ### 3.5 Privacy boundaries
 
 Sensitivity is per memory (`normal`, `private`, `sensitive`, `secret`) and per
-project (`PUT /v1/admin/projects/{id}/privacy`). Never print, commit, or
+project (`POST /v1/admin/projects/{id}/privacy`). Never print, commit, or
 upload `.env` values, tokens, passphrases or corpus content; shell tokens stay
 in variables. Services bind to loopback; remote access is private Tailscale
 Serve only, never Funnel, and PostgreSQL, Redis and the graph are never

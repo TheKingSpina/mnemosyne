@@ -405,7 +405,7 @@ export class CoreMemoryService implements MemoryService {
     // foreign key, so the project has to exist before the row is written.
     // Creating it here keeps that contract for existing clients: a first
     // session on an unknown id provisions the project rather than failing.
-    await this.repository.ensureProject(validated.projectId);
+    const project = await this.repository.ensureProject(validated.projectId);
     // Areas are declared entities, so a session may only scope to areas that
     // exist and belong to its own project. Validated here rather than in the
     // repository so both backends inherit the rule and the API can map it.
@@ -414,16 +414,17 @@ export class CoreMemoryService implements MemoryService {
       if (!area) {
         throw new DomainError('area_not_found', `Area ${areaId} not found`, 404);
       }
-      if (area.projectId !== validated.projectId) {
+      if (area.projectId !== project.id) {
         throw new DomainError(
           'area_not_in_project',
-          `Area ${areaId} does not belong to project ${validated.projectId}`,
+          `Area ${areaId} does not belong to project ${project.id}`,
           409,
         );
       }
     }
     const session = await this.repository.createSession({
       ...validated,
+      projectId: project.id,
       areaIds: validated.areaIds ?? [],
     });
     return this.revisionMetadata(
@@ -477,6 +478,9 @@ export class CoreMemoryService implements MemoryService {
     }
     if (input.weight !== undefined && (input.weight < 0 || input.weight > 1)) {
       throw new DomainError('arc_weight_out_of_range', 'Arc weight must be between 0 and 1', 400);
+    }
+    if (input.fromMemoryId === input.toMemoryId) {
+      throw new DomainError('arc_self_reference', 'An arc cannot link an element to itself', 400);
     }
     const from = await this.repository.getMemory(input.fromMemoryId);
     if (!from) throw new DomainError('memory_not_found', 'Memory not found', 404);
@@ -924,24 +928,20 @@ export class CoreMemoryService implements MemoryService {
       const newSourceEventIds = validated.sourceEventIds.filter(
         (eventId) => !duplicate.current.sourceEventIds.includes(eventId),
       );
-      if (newSourceEventIds.length === 0) {
-        return {
-          status: 'merged',
-          memoryId: duplicate.record.id,
-          proposalId: duplicate.record.id,
-          reason: 'duplicate',
-        };
+      if (newSourceEventIds.length > 0) {
+        await this.repository.mergeMemorySources(
+          duplicate.record.id,
+          duplicate.record.currentVersion,
+          newSourceEventIds,
+        );
       }
-      await this.repository.mergeMemorySources(
-        duplicate.record.id,
-        duplicate.record.currentVersion,
-        newSourceEventIds,
-      );
+      const arcIds = await this.proposeRelatedArcs(duplicate.record.id, validated, context);
       return {
         status: 'merged',
         memoryId: duplicate.record.id,
         proposalId: duplicate.record.id,
         reason: 'duplicate',
+        ...(arcIds.length ? { arcIds } : {}),
       };
     }
     const contradiction = (await this.repository.listMemoryViews()).find(
@@ -954,7 +954,10 @@ export class CoreMemoryService implements MemoryService {
       await this.indexMemory(record.id, record.currentVersion, validated.content);
       await this.repository.updateMemoryLifecycle(record.id, 'pending_approval');
       const conflict = await this.repository.createConflict([contradiction.record.id, record.id]);
-      const arcIds = await this.proposeRelatedArcs(record.id, validated, context);
+      const arcIds = await this.proposeRelatedArcs(record.id, validated, {
+        actor: 'harness',
+        explicitDirective: false,
+      });
       return {
         status: 'pending_approval',
         memoryId: record.id,
@@ -970,7 +973,11 @@ export class CoreMemoryService implements MemoryService {
       record.id,
       decision.status === 'accepted' ? 'accepted' : 'pending_approval',
     );
-    const arcIds = await this.proposeRelatedArcs(record.id, validated, context);
+    const arcIds = await this.proposeRelatedArcs(
+      record.id,
+      validated,
+      decision.status === 'accepted' ? context : { actor: 'harness', explicitDirective: false },
+    );
     return {
       ...decision,
       memoryId: record.id,
@@ -1159,6 +1166,8 @@ export class CoreMemoryService implements MemoryService {
     }
     if (validated.decision === 'reject') {
       await this.repository.updateMemoryLifecycle(validated.memoryId, 'rejected');
+      await this.options.semanticSearchIndex?.remove(validated.memoryId);
+      await this.resolveStaleConflictsForMemory(validated.memoryId);
       return { memory: await this.view(validated.memoryId) };
     }
     const patch: MemoryPatch = {
@@ -1215,7 +1224,28 @@ export class CoreMemoryService implements MemoryService {
     if (!result) throw new Error('memory_not_found');
     if (result.record.lifecycle !== 'accepted') throw new Error('memory_not_active');
     await this.repository.updateMemoryLifecycle(memoryId, 'retracted');
+    await this.options.semanticSearchIndex?.remove(memoryId);
+    await this.resolveStaleConflictsForMemory(memoryId);
     return this.view(memoryId);
+  }
+
+  private async resolveStaleConflictsForMemory(memoryId: string): Promise<void> {
+    const conflicts = await this.repository.findConflicts(memoryId);
+    for (const conflict of conflicts) {
+      if (conflict.status !== 'open') continue;
+      const members = await Promise.all(
+        conflict.memoryIds.map((id) => this.repository.getMemory(id)),
+      );
+      const activeOrPending = members.filter(
+        (member) =>
+          member !== null &&
+          (member.record.lifecycle === 'accepted' ||
+            member.record.lifecycle === 'pending_approval'),
+      );
+      if (activeOrPending.length < 2) {
+        await this.repository.resolveConflict(conflict.id);
+      }
+    }
   }
 
   async prepareForget(memoryId: string): Promise<PrepareForgetOutput> {
@@ -1519,6 +1549,7 @@ export class CoreMemoryService implements MemoryService {
       }
       await this.repository.updatePruningProposalStatus(proposal.id, 'accepted', rationale);
       await this.repository.updateMemoryLifecycle(memory.record.id, 'expired');
+      await this.options.semanticSearchIndex?.remove(memory.record.id);
       await this.repository.recordPruningLedgerEntry({
         subjectType: 'memory',
         subjectId: memory.record.id,
@@ -1850,15 +1881,47 @@ export class CoreMemoryService implements MemoryService {
       }
       await this.repository.updatePruningProposalStatus(proposal.id, 'accepted', verdict.reason);
       await verdict.execute();
-      await this.repository.recordPruningLedgerEntry({
-        subjectType: verdict.subjectType,
-        subjectId: verdict.subjectId,
-        reason: 'llm_proposal',
-        proposalId: proposal.id,
-        ...(verdict.score === undefined ? {} : { score: verdict.score }),
-      });
-      if (verdict.subjectType === 'memory') counts.memoriesExpired += 1;
-      else counts.arcsPruned += 1;
+      if (proposal.proposalType !== 'contradiction') {
+        await this.repository.recordPruningLedgerEntry({
+          subjectType: verdict.subjectType,
+          subjectId: verdict.subjectId,
+          reason: 'llm_proposal',
+          proposalId: proposal.id,
+          ...(verdict.score === undefined ? {} : { score: verdict.score }),
+        });
+        if (verdict.subjectType === 'memory') {
+          counts.memoriesExpired += 1;
+          await this.options.semanticSearchIndex?.remove(verdict.subjectId);
+          const existingView = views.get(verdict.subjectId);
+          if (existingView) {
+            views.set(verdict.subjectId, {
+              ...existingView,
+              record: { ...existingView.record, lifecycle: 'expired' },
+            });
+          }
+          for (const arc of memoryArcs) {
+            if (arc.fromMemoryId !== verdict.subjectId && arc.toMemoryId !== verdict.subjectId) {
+              continue;
+            }
+            const tracked = arcsById.get(arc.id);
+            if (!tracked || !tracked.usable) continue;
+            tracked.usable = false;
+            await this.repository.deleteMemoryArc(arc.id);
+            counts.arcsPruned += 1;
+            await this.repository.recordPruningLedgerEntry({
+              subjectType: 'arc',
+              subjectId: arc.id,
+              reason: 'llm_proposal',
+              proposalId: proposal.id,
+              ...(arc.weight === null ? {} : { score: arc.weight }),
+            });
+          }
+        } else {
+          counts.arcsPruned += 1;
+          const tracked = arcsById.get(verdict.subjectId);
+          if (tracked) tracked.usable = false;
+        }
+      }
     }
   }
 
@@ -2249,9 +2312,15 @@ export class CoreMemoryService implements MemoryService {
       cached.map((memory) => this.repository.getMemory(memory.memoryId)),
     );
     const revisions: MemoryRevision[] = [];
-    for (const value of current) {
+    for (let index = 0; index < current.length; index++) {
+      const value = current[index];
       if (!value || value.record.lifecycle !== 'accepted') return null;
-      revisions.push(value.current);
+      const cachedItem = cached[index];
+      revisions.push(
+        cachedItem?.assessment === 'disputed' && value.current.assessment !== 'disputed'
+          ? { ...value.current, assessment: 'disputed' }
+          : value.current,
+      );
     }
     return revisions;
   }
