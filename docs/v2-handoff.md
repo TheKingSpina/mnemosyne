@@ -1,6 +1,8 @@
 # Handoff — Mnemosyne v2 (graph model)
 
-- **Branch:** `feat/v2-graph-model`, local only, never pushed
+> **Status note (2026-10-28):** The v2 graph model described below landed on `main` and `origin/main` on 2026-10-16 and is deployed in production. For the current operational handoff and complete API/architecture reference, see [`AGENTS.md`](../AGENTS.md) and [`docs/architecture-api-policy.md`](./architecture-api-policy.md).
+
+- **Branch:** `feat/v2-graph-model` (merged into `main` on 2026-10-16)
 - **`main`:** `a5d357c`, untouched, identical to `origin/main`
 - **Working tree:** clean
 - **Last updated:** 2026-10-16 (gaps closed)
